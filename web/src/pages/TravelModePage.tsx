@@ -10,6 +10,7 @@ import {
   ChevronUp,
   CircleStop,
   CloudUpload,
+  EyeOff,
   Flag,
   ListChecks,
   MapPinPlus,
@@ -35,12 +36,12 @@ import { CheckinPicker, type PickedPlace } from '@/components/trip/CheckinPicker
 import { NavigateMenu } from '@/components/trip/NavigateMenu'
 import { WaypointNumber } from '@/components/trip/WaypointItem'
 import { Button, CategoryChip, Empty, LoadError, Modal, PageLoader, Spinner, buttonClass, confirmDialog } from '@/components/ui'
-import { useGeoTracker } from '@/hooks/useGeoTracker'
+import { useGeoTracker, type GeoFix } from '@/hooks/useGeoTracker'
 import { useSite } from '@/hooks/useSite'
 import { invalidateTripLists } from '@/lib/cache'
 import { cn } from '@/lib/cn'
 import { fmtDuration } from '@/lib/format'
-import { INSECURE_GEO_MSG, formatDistance, formatKm, haversine } from '@/lib/geo'
+import { INSECURE_GEO_MSG, formatDistance, formatKm, getCurrentPosition, haversine } from '@/lib/geo'
 import { waypointStatus } from '@/lib/meta'
 import { isWeChat } from '@/lib/nav'
 import {
@@ -57,7 +58,7 @@ import {
   type SkipItem,
 } from '@/lib/outbox'
 import { compressImage } from '@/lib/image'
-import { actualPath, bySeq, plannedPath, trackSegments } from '@/lib/trip'
+import { actualPath, bySeq, nextPlanned, plannedPath, trackSegments } from '@/lib/trip'
 import { useAuth } from '@/stores/auth'
 
 function Follow({ pos, enabled }: { pos: [number, number] | null; enabled: boolean }) {
@@ -84,6 +85,11 @@ function useTicker(active: boolean) {
     return () => clearInterval(t)
   }, [active])
 }
+
+// 「我到了」只用新鲜、足够准的定位：持续定位可能还停在之前的位置（进出隧道、锁屏后），误差太大会匹配到别的地点
+const FIX_MAX_AGE = 30_000 // 毫秒
+const FIX_MAX_ACC = 100 // 米
+const isFresh = (f: GeoFix) => Date.now() - f.t <= FIX_MAX_AGE && f.accuracy <= FIX_MAX_ACC
 
 const sourceLabel: Record<Suggestion['source'], { label: string; cls: string }> = {
   plan: { label: '计划中', cls: 'bg-sky-50 text-sky-700' },
@@ -236,7 +242,8 @@ export default function TravelModePage() {
   const [rec, setRec] = useState<Recommendation | null>(null)
   const [recLoading, setRecLoading] = useState(false)
   const [showList, setShowList] = useState(false)
-  const [picker, setPicker] = useState<{ here: [number, number]; far: { name: string; distance: number } | null } | null>(null)
+  // fix：打开选点时用的定位，「就用当前位置」也按它打卡
+  const [picker, setPicker] = useState<{ here: [number, number]; far: { name: string; distance: number } | null; fix: GeoFix } | null>(null)
   const [stopId, setStopId] = useState<number | null>(null)
   const [wxTip, setWxTip] = useState(isWeChat)
   const photoInput = useRef<HTMLInputElement>(null)
@@ -251,7 +258,8 @@ export default function TravelModePage() {
     () => [...trackSegments(track), ...geo.livePaths.filter((s) => s.length > 1)],
     [track, geo.livePaths],
   )
-  const next = sorted.find((w) => w.planned && w.status === 'todo') ?? null
+  // 与服务端推荐的 next_planned 一致：从最后打卡的计划点往后找，路过没打卡的点不会一直挡在前面
+  const next = nextPlanned(sorted)
   // 地点面板里显示的点：从最新的 sorted 里取，打卡 / 跳过后状态随之更新
   const stop = sorted.find((w) => w.id === stopId) ?? null
   const nextDist = next && geo.fix ? haversine(geo.fix.gcj, [next.lng, next.lat]) : null
@@ -352,9 +360,10 @@ export default function TravelModePage() {
   }
 
   // 先存本机再发送：网络不好时保留，联网后自动补发（服务端按 client_id 去重）
-  const checkin = async (waypointId?: number, place?: PickedPlace) => {
+  // fix：「我到了」重新定位得到的位置，代替持续定位的 geo.fix
+  const checkin = async (waypointId?: number, place?: PickedPlace, fix: GeoFix | null = geo.fix) => {
     if (!me) return
-    if (!waypointId && !place && !geo.fix) return toast.error(geo.error ?? '正在定位，请稍候…')
+    if (!waypointId && !place && !fix) return toast.error(geo.error ?? '正在定位，请稍候…')
     const arrivedAt = new Date().toISOString() // 以点击的时刻为准，补发时也不变
     const body: CheckinBody = place
       ? {
@@ -369,7 +378,7 @@ export default function TravelModePage() {
         }
       : {
           waypoint_id: waypointId ?? null,
-          ...(geo.fix ? { lng: geo.fix.wgs[0], lat: geo.fix.wgs[1], coord_type: 'wgs84' as const } : {}),
+          ...(fix ? { lng: fix.wgs[0], lat: fix.wgs[1], coord_type: 'wgs84' as const } : {}),
           arrived_at: arrivedAt,
         }
     const item: CheckinItem = { ...itemBase(me.id), kind: 'checkin', body }
@@ -380,6 +389,11 @@ export default function TravelModePage() {
       await refresh()
       // 规划中的旅程第一次打卡时服务端会自动开始旅行
       if (trip.phase === 'planning') tripListsChanged()
+      // 重复打卡（连点两次、同行的人刚打过卡）：服务端原样返回之前的打卡点，不再弹点评、刷新推荐
+      if (r.duplicate) {
+        toast(`刚才已经打过卡了：${r.waypoint.name}`)
+        return
+      }
       toast.success(r.matched_plan ? `已打卡：${r.waypoint.name} ✅` : `新的打卡点：${r.waypoint.name}（计划外）`)
       setReview(r.waypoint)
       // 到了一个地方就推荐下一站：在填写点评时后台加载，关掉点评就能看到；旧的推荐作废
@@ -395,18 +409,62 @@ export default function TravelModePage() {
     }
   }
 
-  // 「我到了」：200 米内有计划地点就直接打卡（与服务端匹配半径一致），否则先选所在的店铺 / 景点
-  const startCheckin = () => {
-    if (!geo.fix) return toast.error(geo.error ?? '正在定位，请稍候…')
-    const here = geo.fix.gcj
+  // 「我到了」：200 米内有计划地点就直接打卡（与服务端匹配半径一致），否则先选所在的店铺 / 景点。
+  // 持续定位不够新或误差太大时先重新定位一次；仍不准就不按位置打卡，打开行程清单让用户自己选到达的地点
+  const startCheckin = async () => {
+    let fix = geo.fix
+    if (!fix || !isFresh(fix)) {
+      const tId = toast.loading('正在重新定位…')
+      setChecking(true)
+      try {
+        const p = await getCurrentPosition(10_000)
+        fix = { wgs: p.wgs, gcj: p.gcj, accuracy: p.accuracy, t: Date.now() }
+      } catch (e) {
+        // 定位失败（超时、权限被拒绝等）没有精度可说，直接给出原因
+        toast.error(`${errorMessage(e)}，也可以在行程清单里选择到达的地点`, { id: tId })
+        setShowList(true)
+        return
+      } finally {
+        setChecking(false)
+      }
+      if (fix.accuracy > FIX_MAX_ACC) {
+        toast.error(`定位不够准确（约 ${Math.round(fix.accuracy)} 米），请到开阔处再试，或在行程清单里选择到达的地点`, { id: tId })
+        setShowList(true)
+        return
+      }
+      toast.dismiss(tId)
+    }
+    const here = fix.gcj
     let nearest: { w: Waypoint; d: number } | null = null
     for (const w of sorted) {
       if (!w.planned || w.status !== 'todo') continue
       const d = haversine(here, [w.lng, w.lat])
       if (!nearest || d < nearest.d) nearest = { w, d }
     }
-    if (nearest && nearest.d <= 200) return checkin()
-    setPicker({ here, far: nearest && nearest.d > 2000 ? { name: nearest.w.name, distance: nearest.d } : null })
+    if (nearest && nearest.d <= 200) return checkin(undefined, undefined, fix)
+    setPicker({ here, far: nearest && nearest.d > 2000 ? { name: nearest.w.name, distance: nearest.d } : null, fix })
+  }
+
+  // 旅行中其他人能否实时看到打卡、照片和轨迹（live_share，只有作者能改）
+  const toggleLiveShare = async () => {
+    const on = !trip.live_share
+    const ok = await confirmDialog(
+      on
+        ? {
+            title: '实时公开你的位置？',
+            desc: '开启后，能看到这段旅程的人（公开旅程为所有人）可以实时看到你们的打卡、照片和 GPS 轨迹。',
+            okText: '开启',
+          }
+        : { title: '停止实时公开？', desc: '其他人将只能看到计划路线，打卡、照片和轨迹在旅程结束后才公开。', okText: '停止公开' },
+    )
+    if (!ok) return
+    try {
+      const t = await api.trips.update(trip.id, { live_share: on })
+      qc.setQueryData(key, t)
+      toast.success(on ? '已开启实时公开' : '已停止实时公开')
+    } catch (e) {
+      toast.error(errorMessage(e))
+    }
   }
 
   const unskip = async (w: Waypoint) => {
@@ -555,12 +613,27 @@ export default function TravelModePage() {
         </Link>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-bold">{trip.title}</div>
-          <div className="text-xs text-ink-500">
-            {plannedTotal > 0 ? `计划 ${plannedDone}/${plannedTotal}` : `已打卡 ${visited}`}
+          {/* 窄屏放不下时换行：标题截断，位置公开状态不截断 */}
+          <div className="flex flex-wrap items-center gap-x-2 text-xs text-ink-500">
+            <span>{plannedTotal > 0 ? `计划 ${plannedDone}/${plannedTotal}` : `已打卡 ${visited}`}</span>
             {geo.recording && (
-              <span className="ml-2 text-red-600">
+              <span className="text-red-600">
                 ● {fmtDuration(elapsed)} · {formatKm(geo.recordedKm)}
               </span>
+            )}
+            {trip.is_owner && trip.visibility !== 'private' && trip.phase !== 'finished' && (
+              <button
+                type="button"
+                onClick={toggleLiveShare}
+                className={cn(
+                  'inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap hover:underline',
+                  trip.live_share ? 'text-emerald-600' : 'text-ink-500',
+                )}
+                title={trip.live_share ? '其他人可以实时看到你们的打卡、照片和轨迹，点击修改' : '其他人只能看到计划路线，点击修改'}
+              >
+                {trip.live_share ? <Radio className="size-3 shrink-0" /> : <EyeOff className="size-3 shrink-0" />}
+                {trip.live_share ? '实时公开位置中' : '位置仅同行可见'}
+              </button>
             )}
           </div>
         </div>
@@ -881,7 +954,8 @@ export default function TravelModePage() {
           onClose={() => setPicker(null)}
           onPick={(p) => {
             setPicker(null)
-            void checkin(undefined, p ?? undefined)
+            // 「就用当前位置」按打开选点时的定位打卡（选了地点时用地点的坐标）
+            void checkin(undefined, p ?? undefined, picker.fix)
           }}
         />
       )}

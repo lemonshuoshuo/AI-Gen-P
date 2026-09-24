@@ -35,13 +35,20 @@ function CountBadge({ n, className }: { n: number; className?: string }) {
 }
 
 export default function AdminPage() {
-  const { data: pending = 0 } = useQuery({
+  const { data: pendingReports = 0 } = useQuery({
     queryKey: ['admin', 'reports', 'pending-count'],
     queryFn: () => api.admin.reports({ status: 'pending', page_size: 1 }),
     select: (d) => d.total,
     refetchInterval: 120_000,
   })
-  const badgeOf = (path: string) => (path === 'reports' && pending > 0 ? pending : 0)
+  // 待审核的公开旅程；内容管理里通过 / 驳回后会让 ['admin', 'trips'] 失效，角标随之刷新
+  const { data: pendingTrips = 0 } = useQuery({
+    queryKey: ['admin', 'trips', 'pending-count'],
+    queryFn: () => api.admin.trips({ status: 'pending', page_size: 1 }),
+    select: (d) => d.total,
+    refetchInterval: 120_000,
+  })
+  const badgeOf = (path: string) => (path === 'reports' ? pendingReports : path === 'trips' ? pendingTrips : 0)
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">

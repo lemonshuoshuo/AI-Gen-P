@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Loader2, MapPin, Search, X } from 'lucide-react'
-import { api, errorMessage, type GeoSearchItem, type Place } from '@/api'
+import { api, errorMessage, isAvoided, type GeoSearchItem, type Place, type PlaceStats } from '@/api'
 import { recommendRate } from '@/components/place/PlaceCard'
-import { CategoryChip } from '@/components/ui'
+import { PlaceStatsBadge } from '@/components/trip/WaypointItem'
+import { CategoryChip, confirmDialog } from '@/components/ui'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { useSite } from '@/hooks/useSite'
 import { cn } from '@/lib/cn'
@@ -97,7 +98,19 @@ export function PlaceSearch({
     setOpen(false)
     inputRef.current?.blur()
   }
-  const pick = (it: GeoSearchItem, from: PickSource) => {
+  // stats：该地点的社区统计（高德结果的 place / 社区地点本身）；多人踩雷时先确认，取消则保留结果列表
+  const pick = async (it: GeoSearchItem, from: PickSource, stats?: Pick<PlaceStats, 'avoid_count' | 'recommend_count'> | null) => {
+    if (
+      stats &&
+      isAvoided(stats) &&
+      !(await confirmDialog({
+        title: '这里有多人踩雷',
+        desc: `「${it.name}」在社区中有 ${stats.avoid_count} 人标记踩雷（${stats.recommend_count} 人推荐）。仍要加入路线吗？`,
+        okText: '仍要加入',
+        danger: true,
+      }))
+    )
+      return
     onPick(it, from)
     setKw('')
     if (sheet) closeSheet()
@@ -180,7 +193,7 @@ export function PlaceSearch({
                 <p className="px-4 pt-1.5 pb-1 text-xs font-medium text-ink-400">社区打卡地</p>
                 {community.map((p) => {
                   const rate = recommendRate(p)
-                  const avoid = p.avoid_count > p.recommend_count && p.avoid_count > 0
+                  const avoid = isAvoided(p)
                   return (
                     <button
                       key={`p-${p.id}`}
@@ -199,6 +212,7 @@ export function PlaceSearch({
                             lat: p.lat,
                           },
                           'community',
+                          p,
                         )
                       }
                       className="flex w-full items-start gap-2.5 px-4 py-2.5 text-left hover:bg-ink-50"
@@ -209,7 +223,9 @@ export function PlaceSearch({
                           <span className="truncate text-sm font-medium">{p.name}</span>
                           <CategoryChip category={p.category} className="shrink-0 whitespace-nowrap" />
                           {avoid && (
-                            <span className="shrink-0 rounded bg-red-50 px-1 text-[11px] font-medium text-red-600">⚠️ 慎去</span>
+                            <span className="shrink-0 rounded bg-red-50 px-1 text-[11px] font-medium whitespace-nowrap text-red-600">
+                              ⚠️ {p.avoid_count} 人踩雷
+                            </span>
                           )}
                         </div>
                         <div className={cn('text-xs', avoid ? 'text-red-600' : 'text-ink-500')}>
@@ -247,25 +263,32 @@ export function PlaceSearch({
             {!failed && !loading && items.length === 0 && community.length === 0 && (
               <p className="px-4 py-3 text-sm text-ink-400">没有找到相关地点</p>
             )}
-            {geoItems.map((it, i) => (
-              <button
-                key={`${it.amap_id}-${i}`}
-                type="button"
-                onClick={() => pick(it, source ?? 'amap')}
-                className="flex w-full items-start gap-2.5 px-4 py-2.5 text-left hover:bg-ink-50"
-              >
-                <MapPin className="mt-0.5 size-4 shrink-0 text-brand-500" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="truncate text-sm font-medium">{it.name}</span>
-                    {it.category && <CategoryChip category={it.category} />}
+            {geoItems.map((it, i) => {
+              const avoid = isAvoided(it.place)
+              return (
+                <button
+                  key={`${it.amap_id}-${i}`}
+                  type="button"
+                  onClick={() => pick(it, source ?? 'amap', it.place)}
+                  className="flex w-full items-start gap-2.5 px-4 py-2.5 text-left hover:bg-ink-50"
+                >
+                  <MapPin className="mt-0.5 size-4 shrink-0 text-brand-500" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate text-sm font-medium">{it.name}</span>
+                      {it.category && <CategoryChip category={it.category} className="shrink-0 whitespace-nowrap" />}
+                    </div>
+                    {/* 社区统计放在第二行：手机上名称不会被挤得太短 */}
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      {it.place && <PlaceStatsBadge stats={it.place} className="!py-0 shrink-0 text-[11px]" />}
+                      <span className={cn('truncate text-xs', avoid ? 'text-red-600' : 'text-ink-400')}>
+                        {[it.city, it.district, it.address].filter(Boolean).join(' · ')}
+                      </span>
+                    </div>
                   </div>
-                  <div className="truncate text-xs text-ink-400">
-                    {[it.city, it.district, it.address].filter(Boolean).join(' · ')}
-                  </div>
-                </div>
-              </button>
-            ))}
+                </button>
+              )
+            })}
           </div>
         </>
       )}

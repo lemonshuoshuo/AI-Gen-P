@@ -4,6 +4,20 @@ type LngLat = [number, number]
 
 export const bySeq = (a: Waypoint, b: Waypoint) => a.seq - b.seq || a.id - b.id
 
+/**
+ * 下一站（与服务端 PendingPlan、推荐接口的 next_planned 一致）：按 seq 排序，最后一个已到达的计划点之后的第一个待前往计划点；
+ * 后面没有时取前面路过没打卡的最早一个；计划外和跳过的点不影响进度。没有待前往的计划点时为 null
+ */
+export function nextPlanned(wps: Waypoint[]): Waypoint | null {
+  const sorted = [...wps].sort(bySeq)
+  let last = -1
+  sorted.forEach((w, i) => {
+    if (w.planned && w.status === 'visited') last = i
+  })
+  const todo = (w: Waypoint) => w.planned && w.status === 'todo'
+  return sorted.find((w, i) => i > last && todo(w)) ?? sorted.find(todo) ?? null
+}
+
 export function plannedPath(wps: Waypoint[]): LngLat[] {
   return wps.filter((w) => w.planned).sort(bySeq).map((w) => [w.lng, w.lat])
 }

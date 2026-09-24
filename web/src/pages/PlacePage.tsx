@@ -62,6 +62,10 @@ function AddToTripModal({ place, open, onClose }: { place: Place; open: boolean;
         lat: place.lat,
         category: place.category,
         amap_id: place.amap_id || undefined,
+        // 带上地点已知的行政区：服务端直接采用区县，省得再调一次高德逆地理
+        province: place.province || undefined,
+        city: place.city || undefined,
+        district: place.district || undefined,
         planned: true,
         status: 'todo',
       })

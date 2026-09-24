@@ -3,7 +3,8 @@
 export type Role = 'user' | 'admin'
 export type Phase = 'planning' | 'ongoing' | 'finished'
 export type Visibility = 'private' | 'unlisted' | 'public'
-export type TripStatus = 'normal' | 'hidden'
+/** pending：开启「公开旅程需审核」后等待管理员审核，通过前仅成员和管理员可见 */
+export type TripStatus = 'normal' | 'hidden' | 'pending'
 export type Category = 'scenic' | 'food' | 'hotel' | 'shopping' | 'transport' | 'entertainment' | 'other'
 export type Verdict = 'recommend' | 'neutral' | 'avoid' | ''
 export type WaypointStatus = 'todo' | 'visited' | 'skipped'
@@ -119,6 +120,18 @@ export interface Waypoint {
   place_id: number | null
   created_at: string
   updated_at: string
+  /** 仅 TripDetail：关联地点有公开打卡时的社区统计（没有时不返回） */
+  place_stats?: PlaceStats
+}
+
+/** 地点的社区统计：TripDetail 中打卡点的 place_stats、/geo/search 与 /geo/around 结果的 place（含义同 Place） */
+export interface PlaceStats {
+  id: number
+  checkin_count: number
+  recommend_count: number
+  neutral_count: number
+  avoid_count: number
+  rating_avg: number
 }
 
 export interface Photo {
@@ -149,6 +162,8 @@ export interface TripDetail extends TripCard {
   waypoints: Waypoint[]
   photos: Photo[]
   has_track: boolean
+  /** 旅行中（phase=ongoing）是否向非成员实时公开打卡、照片和 GPS 轨迹；只有作者能修改 */
+  live_share: boolean
 }
 
 export interface Place {
@@ -282,6 +297,8 @@ export interface PartnerInfo {
   since: string | null
   title: string
   bound_at: string | null
+  /** 是否在双方个人主页公开显示情侣关系（双方共享，缺省 false） */
+  public: boolean
   invites: { incoming: PartnerInvite[]; outgoing: PartnerInvite[] }
 }
 
@@ -295,6 +312,9 @@ export interface SiteConfig {
   name: string
   announcement: string
   registration_open: boolean
+  /** ICP 备案号 / 公安联网备案号，未填为空字符串；页脚分别链接到 https://beian.miit.gov.cn/ 与 https://beian.mps.gov.cn/ */
+  icp_beian: string
+  police_beian: string
   amap_search: boolean
   ai_enabled: boolean
   map: {
@@ -303,6 +323,8 @@ export interface SiteConfig {
     tiles: { normal: string[]; satellite: string[]; satellite_label: string[] }
   }
   levels: { level: number; name: string; min_exp: number; quota_mb: number }[]
+  /** 每人每天最多可获得的经验值 */
+  exp_daily_cap: number
   upload: { max_photo_mb: number }
 }
 
@@ -316,6 +338,8 @@ export interface GeoSearchItem {
   category: Category | ''
   lng: number
   lat: number
+  /** 该高德 POI 对应地点的社区统计；还没有公开打卡或 source=local 时为 null */
+  place?: PlaceStats | null
 }
 
 export interface Regeo {
@@ -405,6 +429,8 @@ export interface AdminStats {
   users: number
   trips: number
   public_trips: number
+  /** 待审核的公开旅程数 */
+  pending_trips: number
   places: number
   photos: number
   comments: number
@@ -466,4 +492,62 @@ export interface TripInput {
   end_date?: string | null
   tags?: string[]
   with_partner?: boolean
+  /** 仅作者可改（否则 403） */
+  live_share?: boolean
+}
+
+/** 管理后台站点设置（GET / PUT /admin/settings，PUT 字段均可选，返回保存后的全部设置） */
+export interface AdminSettings {
+  site_name: string // ≤30
+  announcement: string // ≤500
+  registration_open: boolean
+  icp_beian: string // ≤50
+  police_beian: string // ≤60
+  /** Markdown ≤20000 字；空字符串表示使用内置模板；可用 {{site}} 表示站点名称 */
+  terms_md: string
+  privacy_md: string
+  /** 屏蔽词：每行一个，也可用逗号分隔（≤100000 字） */
+  sensitive_words: string
+  review_public_trips: boolean
+}
+
+export type LegMode = 'walking' | 'transit' | 'driving'
+
+/** 计划路线中同一天相邻两个计划点之间的一段（GET /trips/:id/legs） */
+export interface TripLeg {
+  from_id: number
+  to_id: number
+  day: number
+  /** 实际采用的方式：transit 模式下直线 1 公里内或查不到公交地铁的路段为 walking */
+  mode: LegMode
+  distance_m: number
+  duration_s: number
+  straight_m: number
+  /** 按直线距离估算（未配置高德 Key、调用失败或超时） */
+  estimated: boolean
+}
+
+export interface DayLegs {
+  day: number
+  /** 当天的计划点数 */
+  stops: number
+  distance_m: number
+  /** 路上用时，不含停留游玩 */
+  duration_s: number
+  estimated: boolean
+}
+
+export interface TripLegs {
+  mode: LegMode
+  legs: TripLeg[]
+  /** 按天排序，day=0（未分天）排在最后 */
+  days: DayLegs[]
+}
+
+/** POST /trips/:id/track/import 的结果 */
+export interface TrackImportResult {
+  accepted: number
+  total_points: number
+  distance_km: number
+  segments: number
 }

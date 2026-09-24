@@ -1,9 +1,10 @@
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Eye, EyeOff, Heart, MessageCircle, Route, Star, Trash2 } from 'lucide-react'
+import { Check, Eye, EyeOff, Heart, MessageCircle, Route, Star, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type TripCard } from '@/api'
 import { Select, UserName, confirmDialog } from '@/components/ui'
+import { invalidateTripLists } from '@/lib/cache'
 import { cn } from '@/lib/cn'
 import { fmtCount, fromNow } from '@/lib/format'
 import { phases, visibilities } from '@/lib/meta'
@@ -24,7 +25,9 @@ function Thumb({ trip }: { trip: TripCard }) {
 
 export function TripsPanel() {
   const qc = useQueryClient()
-  const { f, set, setPage } = useFilters({ q: '', status: '', visibility: '' })
+  // 概览的「去审核」链接到 ?status=pending，直接打开审核队列
+  const [params] = useSearchParams()
+  const { f, set, setPage } = useFilters({ q: '', status: params.get('status') ?? '', visibility: '' })
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['admin', 'trips', f],
     queryFn: () => api.admin.trips({ ...f, page_size: ADMIN_PAGE_SIZE }),
@@ -32,11 +35,13 @@ export function TripsPanel() {
   })
   usePageGuard(data, setPage)
 
-  const refresh = () => {
+  const refresh = (id: number) => {
+    // 含侧边导航的待审核角标 ['admin', 'trips', 'pending-count']
     qc.invalidateQueries({ queryKey: ['admin', 'trips'] })
     qc.invalidateQueries({ queryKey: ['admin', 'stats'] })
-    // 精选 / 隐藏会影响前台列表
-    qc.invalidateQueries({ queryKey: ['trips'] })
+    // 精选 / 隐藏 / 审核通过会影响广场、搜索、个人主页等前台列表，以及旅程详情
+    invalidateTripLists(qc)
+    qc.invalidateQueries({ queryKey: ['trip', String(id)] })
   }
 
   const update = useMutation({
@@ -44,15 +49,15 @@ export function TripsPanel() {
       api.admin.updateTrip(id, body),
     onSuccess: (_, v) => {
       toast.success(v.ok)
-      refresh()
+      refresh(v.id)
     },
     onError: (e) => toast.error(errorMessage(e)),
   })
   const remove = useMutation({
     mutationFn: (id: number) => api.admin.deleteTrip(id),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
       toast.success('旅程已删除')
-      refresh()
+      refresh(id)
     },
     onError: (e) => toast.error(errorMessage(e)),
   })
@@ -70,6 +75,19 @@ export function TripsPanel() {
     )
       return
     update.mutate({ id: t.id, body: { status: hide ? 'hidden' : 'normal' }, ok: hide ? '已隐藏' : '已恢复' })
+  }
+
+  // 驳回待审核的旅程：状态改为 hidden，作者会收到通知
+  const reject = async (t: TripCard) => {
+    if (
+      await confirmDialog({
+        title: `驳回《${t.title}》？`,
+        desc: '驳回后旅程会被隐藏，作者会收到通知；之后可以在这里恢复显示。',
+        danger: true,
+        okText: '驳回',
+      })
+    )
+      update.mutate({ id: t.id, body: { status: 'hidden' }, ok: '已驳回' })
   }
 
   const del = async (t: TripCard) => {
@@ -118,7 +136,13 @@ export function TripsPanel() {
       header: '状态',
       cell: (t) => (
         <div className="flex flex-wrap gap-1">
-          {t.status === 'hidden' ? <Pill tone="red">已隐藏</Pill> : <Pill tone="green">正常</Pill>}
+          {t.status === 'pending' ? (
+            <Pill tone="amber">待审核</Pill>
+          ) : t.status === 'hidden' ? (
+            <Pill tone="red">已隐藏</Pill>
+          ) : (
+            <Pill tone="green">正常</Pill>
+          )}
           {t.featured && (
             <Pill tone="amber" icon={<Star className="size-3 fill-current" />}>
               精选
@@ -153,31 +177,51 @@ export function TripsPanel() {
 
   const actions = (t: TripCard) => (
     <>
-      <ActionButton
-        label={t.featured ? '取消精选' : '设为精选'}
-        className={cn(t.featured && 'text-amber-600')}
-        icon={<Star className={cn('size-3.5', t.featured && 'fill-amber-400 text-amber-400')} />}
-        onClick={() =>
-          update.mutate({ id: t.id, body: { featured: !t.featured }, ok: t.featured ? '已取消精选' : '已设为精选' })
-        }
-      />
-      <ActionButton
-        label={t.status === 'hidden' ? '恢复显示' : '隐藏'}
-        icon={t.status === 'hidden' ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-        onClick={() => toggleHidden(t)}
-      />
+      {t.status === 'pending' ? (
+        <>
+          <ActionButton
+            label="通过"
+            className="text-emerald-700 hover:bg-emerald-50"
+            icon={<Check className="size-3.5" />}
+            onClick={() => update.mutate({ id: t.id, body: { status: 'normal' }, ok: '已通过，旅程已公开' })}
+          />
+          <ActionButton label="驳回" danger icon={<X className="size-3.5" />} onClick={() => reject(t)} />
+        </>
+      ) : (
+        <>
+          <ActionButton
+            label={t.featured ? '取消精选' : '设为精选'}
+            className={cn(t.featured && 'text-amber-600')}
+            icon={<Star className={cn('size-3.5', t.featured && 'fill-amber-400 text-amber-400')} />}
+            onClick={() =>
+              update.mutate({ id: t.id, body: { featured: !t.featured }, ok: t.featured ? '已取消精选' : '已设为精选' })
+            }
+          />
+          <ActionButton
+            label={t.status === 'hidden' ? '恢复显示' : '隐藏'}
+            icon={t.status === 'hidden' ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+            onClick={() => toggleHidden(t)}
+          />
+        </>
+      )}
       <ActionButton label="删除" danger icon={<Trash2 className="size-3.5" />} onClick={() => del(t)} />
     </>
   )
 
   return (
     <div>
-      <PanelHeader title="内容管理" desc={data ? `共 ${data.total} 段旅程` : undefined} />
+      <PanelHeader
+        title="内容管理"
+        desc={
+          data ? (f.status === 'pending' ? `${data.total} 段公开旅程等待审核` : `共 ${data.total} 段旅程`) : undefined
+        }
+      />
       <FilterBar>
         <SearchInput value={f.q} onChange={(q) => set({ q })} placeholder="搜索标题、城市或作者" className="w-full sm:w-64" />
         <FilterSlot>
           <Select value={f.status} onChange={(e) => set({ status: e.target.value })} aria-label="状态">
             <option value="">全部状态</option>
+            <option value="pending">待审核</option>
             <option value="normal">正常</option>
             <option value="hidden">已隐藏</option>
           </Select>

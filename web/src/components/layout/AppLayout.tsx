@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '@/api'
+import { SiteFooter } from '@/components/layout/SiteFooter'
 import { Avatar, Button, Menu, MenuItem } from '@/components/ui'
 import { useSite } from '@/hooks/useSite'
 import { cn } from '@/lib/cn'
@@ -318,7 +319,7 @@ function Announcement() {
 
 export function AppLayout({ children }: { children?: ReactNode }) {
   const loc = useLocation()
-  // 路线编辑页在手机上需要尽量多的空间（吸顶地图 + 列表 + 键盘）：不显示底部导航
+  // 路线编辑页在手机上需要尽量多的空间（吸顶地图 + 列表 + 键盘）：不显示页脚和底部导航
   const immersive = /^\/trips\/[^/]+\/edit\/?$/.test(loc.pathname)
   useEffect(() => {
     window.scrollTo(0, 0)
@@ -326,11 +327,13 @@ export function AppLayout({ children }: { children?: ReactNode }) {
     useAuth.getState().refreshMeIfStale()
   }, [loc.pathname])
   return (
-    <div className={cn('min-h-dvh', !immersive && 'pb-20 md:pb-0')}>
+    // 纵向 flex：内容不满一屏时页脚仍在底部；手机上 pb-20 给底部导航留位置，页脚在它上方
+    <div className={cn('flex min-h-dvh flex-col', !immersive && 'pb-20 md:pb-0')}>
       <Header />
       <Announcement />
       <OngoingTripBar />
-      <main>{children ?? <Outlet />}</main>
+      <main className="flex-1">{children ?? <Outlet />}</main>
+      {!immersive && <SiteFooter />}
       {!immersive && <MobileTabBar />}
     </div>
   )

@@ -28,7 +28,8 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
   const step = niceStep(Math.max(0, ...values))
   const top = Math.max(step, Math.ceil(Math.max(0, ...values) / step) * step)
   const ticks = Array.from({ length: Math.round(top / step) + 1 }, (_, i) => i * step)
-  const today = dayjs().format('YYYY-MM-DD')
+  // 服务端按北京时间分桶，最后一天就是今天；浏览器时区不同时不能用本地日期
+  const today = trend[trend.length - 1]?.date
 
   return (
     <div>

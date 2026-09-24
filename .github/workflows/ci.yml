@@ -1,7 +1,9 @@
 name: CI
 
 on:
+  # 只在分支推送时运行：推送 v* 标签时由发布流程（release.yml）调用，不必再单独跑一遍
   push:
+    branches: ['**']
   pull_request:
   # 发布流程（release.yml）先调用本工作流跑测试，通过后才构建发布包
   workflow_call:
@@ -39,8 +41,6 @@ jobs:
           TRIPHUB_TEST_DSN: postgres://triphub:triphub@localhost:5432/triphub_test?sslmode=disable
       # 用 go run 让当前工具链编译 govulncheck（预编译的旧版本读不了新版标准库）
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
-        # 暂不阻塞：x/image、x/text、pgx 还有已知漏洞，server/go.mod 升级依赖后删掉这一行
-        continue-on-error: true
 
   web:
     runs-on: ubuntu-latest

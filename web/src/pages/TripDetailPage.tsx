@@ -5,10 +5,12 @@ import {
   Bookmark,
   Box,
   CalendarDays,
+  EyeOff,
   Flag,
   GitCompareArrows,
   GitFork,
   Heart,
+  Hourglass,
   Link2,
   Lock,
   Map as MapIcon,
@@ -16,6 +18,7 @@ import {
   Navigation,
   PenLine,
   Play,
+  Radio,
   Route,
   Share2,
   Trash2,
@@ -33,14 +36,29 @@ import { PhotoViewer } from '@/components/trip/PhotoViewer'
 import { ShareDialog, ShareSheet } from '@/components/trip/ShareDialog'
 import { TripCover } from '@/components/trip/TripCard'
 import { WaypointItem } from '@/components/trip/WaypointItem'
-import { Avatar, Button, Empty, LoadError, Menu, MenuItem, PageLoader, Stat, Tag, UserName, buttonClass, confirmDialog } from '@/components/ui'
+import {
+  Avatar,
+  Button,
+  Empty,
+  LoadError,
+  Menu,
+  MenuItem,
+  Modal,
+  PageLoader,
+  Stat,
+  Switch,
+  Tag,
+  UserName,
+  buttonClass,
+  confirmDialog,
+} from '@/components/ui'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useRequireAuth } from '@/hooks/useRequireAuth'
 import { invalidateTripLists } from '@/lib/cache'
 import { cn } from '@/lib/cn'
 import { dateRange, fmtCount, fromNow } from '@/lib/format'
 import { formatKm } from '@/lib/geo'
-import { phases, verdicts } from '@/lib/meta'
+import { phases, tripStatuses, verdicts } from '@/lib/meta'
 import { AMAP_MAX_STOPS, amapMultiRoute } from '@/lib/nav'
 import { actualPath, allPoints, bySeq, groupByDay, photosByWaypoint, plannedPath, trackSegments } from '@/lib/trip'
 
@@ -92,6 +110,63 @@ function InviteBanner({ trip, queryKey }: { trip: TripDetail; queryKey: string[]
         接受
       </Button>
     </div>
+  )
+}
+
+/** 引用路线：原作者标记为「踩雷」的地点默认不复制（与服务端 include_avoid 缺省一致），可以选择一并复制 */
+function ForkDialog({ trip, onClose }: { trip: TripDetail; onClose: () => void }) {
+  const qc = useQueryClient()
+  const nav = useNavigate()
+  const [includeAvoid, setIncludeAvoid] = useState(false)
+  const [forking, setForking] = useState(false)
+  // 服务端不复制跳过的点；旅行中未开启实时公开的旅程对非成员只返回计划（没有评价），这里为 0
+  const avoidCount = trip.waypoints.filter((w) => w.verdict === 'avoid' && w.status !== 'skipped').length
+  const close = () => {
+    if (!forking) onClose()
+  }
+  const fork = async () => {
+    setForking(true)
+    try {
+      const t = await api.trips.fork(trip.id, { include_avoid: includeAvoid })
+      invalidateTripLists(qc)
+      toast.success(avoidCount > 0 && !includeAvoid ? `已引用到你的旅程，已跳过 ${avoidCount} 个踩雷地点` : '已引用到你的旅程')
+      nav(`/trips/${t.id}/edit`)
+    } catch (e) {
+      toast.error(errorMessage(e))
+    } finally {
+      setForking(false)
+    }
+  }
+  return (
+    <Modal
+      open
+      onClose={close}
+      title="引用这条路线？"
+      footer={
+        <>
+          <Button variant="ghost" disabled={forking} onClick={close}>
+            取消
+          </Button>
+          <Button loading={forking} onClick={fork}>
+            一键引用
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm leading-relaxed text-ink-500">
+        会把这段旅程的打卡点复制成你自己的「计划路线」（私密），可以自由修改，出发时按图打卡。
+      </p>
+      {avoidCount > 0 && (
+        <div className="mt-4 space-y-1 rounded-xl bg-ink-50 p-3">
+          <Switch
+            checked={includeAvoid}
+            onChange={setIncludeAvoid}
+            label={<span className="text-left">{`同时复制 ${avoidCount} 个原作者标记为「踩雷」的地点`}</span>}
+          />
+          <p className="pl-12 text-xs leading-relaxed text-ink-400">默认不复制；复制时会在备注里注明「⚠️ 原作者踩雷」</p>
+        </div>
+      )}
+    </Modal>
   )
 }
 
@@ -183,7 +258,7 @@ function TripDetailView() {
   const [report, setReport] = useState(false)
   const [commentWp, setCommentWp] = useState<number | null>(null)
   const [shareWp, setShareWp] = useState<Waypoint | null>(null)
-  const [forking, setForking] = useState(false)
+  const [forkOpen, setForkOpen] = useState(false)
   const mapBoxRef = useRef<HTMLDivElement>(null)
 
   // 打卡点分享链接（?wp=打卡点ID）：打开时选中该地点并滚动到行程里的位置（每个链接只处理一次，后台刷新不再跳）
@@ -238,28 +313,6 @@ function TripDetailView() {
         }
       />
     )
-
-  const fork = async () => {
-    if (
-      !(await confirmDialog({
-        title: '引用这条路线？',
-        desc: '会把这段旅程的打卡点复制成你自己的「计划路线」（私密），可以自由修改，出发时按图打卡。',
-        okText: '一键引用',
-      }))
-    )
-      return
-    setForking(true)
-    try {
-      const t = await api.trips.fork(trip.id)
-      invalidateTripLists(qc)
-      toast.success('已引用到你的旅程')
-      nav(`/trips/${t.id}/edit`)
-    } catch (e) {
-      toast.error(errorMessage(e))
-    } finally {
-      setForking(false)
-    }
-  }
 
   const remove = async () => {
     if (!(await confirmDialog({ title: '删除这段旅程？', desc: '打卡点、照片、轨迹和评论都会被删除，无法恢复。', danger: true, okText: '删除' })))
@@ -384,6 +437,9 @@ function TripDetailView() {
           {trip.featured && <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700">⭐ 精选</span>}
           {trip.together && <span className="bg-love-gradient rounded-full px-2.5 py-0.5 text-xs font-semibold text-white">💕 我们一起</span>}
           {trip.status === 'hidden' && <span className="rounded-full bg-red-50 px-2.5 py-0.5 text-xs text-red-600">已被管理员隐藏</span>}
+          {trip.status === 'pending' && (
+            <span className={cn('rounded-full px-2.5 py-0.5 text-xs', tripStatuses.pending.cls)}>{tripStatuses.pending.label}</span>
+          )}
           {trip.can_edit && trip.visibility !== 'public' && (
             <button
               type="button"
@@ -454,6 +510,12 @@ function TripDetailView() {
         )}
 
         {trip.invite_pending && <InviteBanner trip={trip} queryKey={key} />}
+        {trip.can_edit && trip.status === 'pending' && (
+          <div className="mt-4 flex items-start gap-2 rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">
+            <Hourglass className="mt-0.5 size-4 shrink-0" />
+            <span>公开申请审核中：管理员通过后才会出现在发现广场，在此之前只有你和共同作者能看到。</span>
+          </div>
+        )}
 
         {/* 操作栏 */}
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -476,7 +538,7 @@ function TripDetailView() {
             </Button>
           )}
           {!trip.is_owner && trip.waypoints.length > 0 && (
-            <Button variant="outline" size="sm" icon={<GitFork className="size-4" />} loading={forking} onClick={() => requireAuth(fork)}>
+            <Button variant="outline" size="sm" icon={<GitFork className="size-4" />} onClick={() => requireAuth(() => setForkOpen(true))}>
               引用路线
             </Button>
           )}
@@ -529,6 +591,24 @@ function TripDetailView() {
               {trip.phase === 'planning' && '规划好路线后就可以出发，路上一键打卡、实时记录轨迹'}
               {trip.phase === 'ongoing' && '旅行进行中：到了就打卡，还能推荐下一站'}
             </span>
+            {/* 旅行中其他人能看到什么（live_share 只有作者能改，在编辑页「信息」里） */}
+            {trip.is_owner && trip.phase === 'ongoing' && trip.visibility !== 'private' && (
+              <p className="flex w-full items-start gap-1.5 text-xs text-ink-500">
+                {trip.live_share ? (
+                  <Radio className="mt-px size-3.5 shrink-0 text-emerald-600" />
+                ) : (
+                  <EyeOff className="mt-px size-3.5 shrink-0" />
+                )}
+                <span>
+                  {trip.live_share
+                    ? '旅行中：已开启实时公开位置，能看到这段旅程的人可以实时看到你们的打卡、照片和轨迹'
+                    : '旅行中：其他人只能看到计划路线，打卡、照片和轨迹在旅程结束后才公开'}
+                  <Link to={`/trips/${trip.id}/edit?panel=info`} className="ml-1.5 font-medium text-brand-600 hover:underline">
+                    修改
+                  </Link>
+                </span>
+              </p>
+            )}
           </div>
         )}
 
@@ -621,6 +701,7 @@ function TripDetailView() {
         }}
       />
       <ReportDialog target={report ? { type: 'trip', id: trip.id } : null} onClose={() => setReport(false)} />
+      {forkOpen && <ForkDialog trip={trip} onClose={() => setForkOpen(false)} />}
       {shareWp && shareBase && (
         <ShareSheet
           open

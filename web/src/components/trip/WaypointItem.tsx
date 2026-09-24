@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { Clock, MapPin, MessageCircle, Wallet } from 'lucide-react'
-import type { Photo, Waypoint } from '@/api/types'
+import { isAvoided } from '@/api'
+import type { Photo, PlaceStats, Waypoint } from '@/api/types'
+import { recommendRate } from '@/components/place/PlaceCard'
 import { CategoryChip, Stars, VerdictBadge } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { fmtTime } from '@/lib/format'
@@ -21,6 +23,34 @@ export function WaypointNumber({ w, label, className }: { w: Waypoint; label: st
       }
     >
       {label}
+    </span>
+  )
+}
+
+/** 关联地点的社区统计：多人踩雷时红色提示，否则 2 人以上打卡时显示打卡人数和推荐率 */
+export function PlaceStatsBadge({ stats, className }: { stats?: PlaceStats | null; className?: string }) {
+  if (!stats) return null
+  if (isAvoided(stats))
+    return (
+      <span
+        title={`社区 ${stats.checkin_count} 人打卡，${stats.avoid_count} 人踩雷`}
+        className={cn('inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-red-600', className)}
+      >
+        ⚠️ {stats.avoid_count} 人踩雷
+      </span>
+    )
+  if (stats.checkin_count < 2) return null
+  const rate = recommendRate(stats)
+  return (
+    <span
+      title="社区公开打卡统计"
+      className={cn(
+        'inline-flex items-center rounded-full bg-ink-50 px-2 py-0.5 text-xs whitespace-nowrap',
+        rate != null && rate >= 60 ? 'text-emerald-600' : 'text-ink-500',
+        className,
+      )}
+    >
+      {stats.checkin_count} 人打卡{rate != null && ` · 推荐率 ${rate}%`}
     </span>
   )
 }
@@ -74,6 +104,7 @@ export function WaypointItem({
           </h4>
           <CategoryChip category={w.category} />
           <VerdictBadge verdict={w.verdict} />
+          <PlaceStatsBadge stats={w.place_stats} />
           {showStatus && w.planned && (
             <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', st.cls)}>{st.label}</span>
           )}

@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Footprints, Heart, Route, Sparkles } from 'lucide-react'
 import { api, errorMessage } from '@/api'
 import { Logo } from '@/components/layout/AppLayout'
+import { SiteFooter } from '@/components/layout/SiteFooter'
 import { Markdown } from '@/components/Markdown'
 import { Button, Field, Input, LoadError, Modal, Spinner } from '@/components/ui'
 import { useSite } from '@/hooks/useSite'
@@ -116,7 +117,7 @@ export default function LoginPage() {
             ))}
           </div>
         </div>
-        <p className="text-xs text-white/30">© TripHub</p>
+        <p className="text-xs text-white/30">© {site?.name || 'TripHub'}</p>
       </aside>
 
       <main className="flex flex-1 flex-col items-center justify-center px-6 py-10">
@@ -198,6 +199,8 @@ export default function LoginPage() {
               先随便逛逛 →
             </Link>
           </p>
+          {/* 登录 / 注册页没有站点布局：在这里显示备案号和用户协议、隐私政策 */}
+          <SiteFooter compact className="mt-10" />
         </div>
       </main>
       <LegalModal doc={legal} onClose={() => setLegal(null)} />

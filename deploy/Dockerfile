@@ -8,4 +8,6 @@ WORKDIR /
 ENV TRIPHUB_ADDR=:8080 TRIPHUB_DATA_DIR=/data
 VOLUME /data
 EXPOSE 8080
+# 镜像基于 scratch（没有 shell / curl），由程序自己检查 /api/v1/health
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 CMD ["/triphub", "-healthcheck"]
 ENTRYPOINT ["/triphub"]

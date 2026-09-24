@@ -5,7 +5,7 @@ import { Avatar } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { dateRange, fmtCount } from '@/lib/format'
 import { formatKm } from '@/lib/geo'
-import { phases } from '@/lib/meta'
+import { phases, tripStatuses } from '@/lib/meta'
 
 const gradients = [
   'linear-gradient(135deg,#ff9a9e 0%,#fad0c4 100%)',
@@ -57,6 +57,13 @@ export function TripCard({ trip, showAuthor = true }: { trip: Trip; showAuthor?:
       <div className="relative aspect-[4/3] overflow-hidden bg-ink-100">
         <TripCover trip={trip} className="transition duration-500 group-hover:scale-105" />
         <div className="absolute inset-x-0 top-0 flex flex-wrap gap-1.5 p-2.5">
+          {/* 审核中 / 已隐藏的旅程只有成员和管理员能看到（如「我的旅程」） */}
+          {trip.status === 'pending' && (
+            <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-semibold text-white shadow-sm">{tripStatuses.pending.label}</span>
+          )}
+          {trip.status === 'hidden' && (
+            <span className="rounded-full bg-red-500 px-2 py-0.5 text-[11px] font-semibold text-white shadow-sm">{tripStatuses.hidden.label}</span>
+          )}
           {trip.featured && (
             <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold text-white shadow">
               <Star className="size-3 fill-white" />

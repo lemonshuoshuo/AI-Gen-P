@@ -97,9 +97,11 @@ export default function ComparePage() {
   const pct = Math.round(cmp.completion_rate * 100)
   const maxDay = Math.max(1, ...cmp.days.map((d) => Math.max(d.planned, d.visited + d.extra)))
   const allPts = sorted.map((w) => [w.lng, w.lat] as [number, number])
-  // 有 GPS 轨迹时实际里程按轨迹算，差值也用显示出来的这个数；计划里程始终是打卡点之间的直线距离
+  // 实际里程与服务端 distance_km 规则一致：轨迹常只覆盖部分行程，取两者较大者（GPS 轨迹 / 打卡点连线）；
+  // 差值也用显示出来的这个数，计划里程始终是打卡点之间的直线距离
   const hasTrack = cmp.actual.track_distance_km > 0
-  const actualKm = hasTrack ? cmp.actual.track_distance_km : cmp.actual.distance_km
+  const actualKm = Math.max(cmp.actual.track_distance_km, cmp.actual.distance_km)
+  const byTrack = hasTrack && cmp.actual.track_distance_km >= cmp.actual.distance_km
   const distDiff = actualKm - cmp.planned.distance_km
   // 旅程结束后给作者的下一步：写游记、补评价、分享；其他情况在顶栏放一个分享按钮
   const nextSteps = trip.can_edit && trip.phase === 'finished'
@@ -185,7 +187,7 @@ export default function ComparePage() {
                   </span>
                 )}
               </div>
-              {hasTrack && <div className="text-[11px] text-ink-400">按 GPS 轨迹</div>}
+              {byTrack && <div className="text-[11px] text-ink-400">按 GPS 轨迹</div>}
             </div>
           </Card>
 

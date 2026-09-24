@@ -1,7 +1,19 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Camera, Flag, HardDrive, MapPin, MessageSquare, Route, TrendingUp, TriangleAlert, Users, type LucideIcon } from 'lucide-react'
+import {
+  Camera,
+  Flag,
+  HardDrive,
+  MapPin,
+  MessageSquare,
+  Route,
+  ShieldCheck,
+  TrendingUp,
+  TriangleAlert,
+  Users,
+  type LucideIcon,
+} from 'lucide-react'
 import { api, errorMessage } from '@/api'
 import { Button, Card, Empty, PageLoader } from '@/components/ui'
 import { fmtBytes, fmtCount } from '@/lib/format'
@@ -71,6 +83,16 @@ export function Overview() {
           <span className="ml-auto text-xs text-amber-700">去处理 →</span>
         </Link>
       )}
+      {data.pending_trips > 0 && (
+        <Link
+          to="/admin/trips?status=pending"
+          className="mb-4 flex items-center gap-2 rounded-2xl bg-sky-50 px-4 py-3 text-sm text-sky-800 ring-1 ring-sky-200 transition hover:bg-sky-100"
+        >
+          <ShieldCheck className="size-4" />
+          有 <b>{data.pending_trips}</b> 段公开旅程等待审核
+          <span className="ml-auto text-xs text-sky-700">去审核 →</span>
+        </Link>
+      )}
       {insecureContext && (
         <div className="mb-4 flex items-start gap-2 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
@@ -85,7 +107,7 @@ export function Overview() {
           icon={Route}
           label="旅程"
           value={fmtCount(data.trips)}
-          sub={`公开 ${fmtCount(data.public_trips)}`}
+          sub={`公开 ${fmtCount(data.public_trips)}${data.pending_trips > 0 ? ` · 待审 ${fmtCount(data.pending_trips)}` : ''}`}
           today={data.today.trips}
         />
         <StatCard icon={MessageSquare} label="评论" value={fmtCount(data.comments)} today={data.today.comments} />

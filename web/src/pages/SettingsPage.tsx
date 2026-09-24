@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { Link, useNavigate } from 'react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Camera, HardDrive, KeyRound, Sparkles, UserRound } from 'lucide-react'
+import { Camera, HardDrive, KeyRound, Sparkles, UserRound, UserX } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type Me } from '@/api'
-import { Avatar, Button, Card, Field, Input, LevelBadge, Textarea } from '@/components/ui'
+import { Avatar, Button, Card, Field, Input, LevelBadge, Modal, Textarea } from '@/components/ui'
 import { useSite } from '@/hooks/useSite'
 import { cn } from '@/lib/cn'
 import { fmtBytes } from '@/lib/format'
 import { compressImage } from '@/lib/image'
-import { useAuth } from '@/stores/auth'
+import { isAdmin, useAuth } from '@/stores/auth'
 
 const expRules = [
   ['创建旅程', 5],
@@ -222,6 +223,7 @@ function LevelSection({ user }: { user: Me }) {
             </span>
           ))}
         </div>
+        {site && <p className="mt-2 text-xs text-ink-400">每天最多获得 {site.exp_daily_cap} 经验（被设为精选不受此限制）</p>}
       </div>
     </Section>
   )
@@ -306,6 +308,92 @@ function PasswordSection() {
   )
 }
 
+function DeleteAccountSection({ user }: { user: Me }) {
+  const nav = useNavigate()
+  const [open, setOpen] = useState(false)
+  const [password, setPassword] = useState('')
+  const [ack, setAck] = useState(false)
+  const m = useMutation({
+    mutationFn: () => api.me.remove(password),
+    onSuccess: async () => {
+      toast.success('账号已注销，感谢使用')
+      // 服务端已作废全部登录：清除本地 token 和缓存的数据（其中 /auth/logout 请求会静默失败）
+      await useAuth.getState().logout()
+      nav('/', { replace: true })
+    },
+    // 密码不正确、尝试次数过多（429）等：显示服务端的提示
+    onError: (e) => toast.error(errorMessage(e)),
+  })
+  const close = () => {
+    if (m.isPending) return
+    setOpen(false)
+    setPassword('')
+    setAck(false)
+  }
+  return (
+    <Card className="p-4 sm:p-5">
+      <h2 className="mb-3 flex items-center gap-2 font-bold text-red-600">
+        <UserX className="size-4.5" />
+        注销账号
+      </h2>
+      <p className="text-sm leading-relaxed text-ink-500">
+        注销后账号无法恢复：只有你能编辑的旅程会被删除（含照片、轨迹和评论）；有其他共同作者的旅程会转交给最早加入的共同作者；你上传的照片和
+        GPS 轨迹全部删除，你的评论显示为「已删除」；点赞、收藏、关注、情侣绑定和所有设备上的登录都会解除。
+        <Link to="/legal/privacy" className="text-brand-600 hover:underline">
+          详见《隐私政策》
+        </Link>
+      </p>
+      {isAdmin(user) ? (
+        <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          管理员账号不能注销；如需注销，请先让其他管理员取消你的管理员权限。
+        </p>
+      ) : (
+        <div className="mt-4 flex justify-end">
+          <Button variant="danger" onClick={() => setOpen(true)}>
+            注销账号
+          </Button>
+        </div>
+      )}
+      <Modal
+        open={open}
+        onClose={close}
+        title="确认注销账号"
+        footer={
+          <>
+            <Button variant="ghost" disabled={m.isPending} onClick={close}>
+              取消
+            </Button>
+            <Button variant="danger" disabled={!password || !ack} loading={m.isPending} onClick={() => m.mutate()}>
+              确认注销
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Field label="登录密码">
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              autoFocus
+            />
+          </Field>
+          <label className="flex items-start gap-2 text-sm text-ink-700">
+            <input
+              type="checkbox"
+              checked={ack}
+              onChange={(e) => setAck(e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 accent-red-500"
+            />
+            我已了解注销后数据无法恢复
+          </label>
+        </div>
+      </Modal>
+    </Card>
+  )
+}
+
 export default function SettingsPage() {
   const user = useAuth((s) => s.user)!
   // 等级、经验和存储空间以服务端为准：每次打开都刷新
@@ -319,6 +407,7 @@ export default function SettingsPage() {
       <LevelSection user={user} />
       <StorageSection user={user} />
       <PasswordSection />
+      <DeleteAccountSection user={user} />
     </div>
   )
 }

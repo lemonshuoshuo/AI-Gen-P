@@ -62,6 +62,8 @@ export const router = createBrowserRouter([
           { path: 'notifications', element: auth(page(() => import('@/pages/NotificationsPage'))) },
           { path: 'settings', element: auth(page(() => import('@/pages/SettingsPage'))) },
           { path: 'admin/*', element: auth(page(() => import('@/pages/admin/AdminPage')), true) },
+          // 用户协议 / 隐私政策：游客也能看（注册前、页脚链接）
+          { path: 'legal/:doc', element: page(() => import('@/pages/LegalPage')) },
           { path: '*', element: <Empty className="min-h-[60vh]" title="页面不存在" desc="你要找的页面可能已被删除或移动" /> },
         ],
       },

@@ -1,0 +1,14 @@
+User-agent: *
+Disallow: /api/
+Disallow: /admin
+Disallow: /s/
+Disallow: /settings
+Disallow: /notifications
+Disallow: /me
+Disallow: /together
+Disallow: /login
+Disallow: /register
+Disallow: /trips/new
+Disallow: /trips/*/edit
+Disallow: /trips/*/go
+Allow: /

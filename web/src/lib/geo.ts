@@ -7,8 +7,36 @@ export const INSECURE_GEO_MSG = '本站未启用 HTTPS，浏览器禁止网页�
 const A = 6378245.0
 const EE = 0.006693421622965943
 
+/** 粗略的中国外接矩形之外（与服务端 geo.OutOfChina 一致）；矩形内的周边国家由 GCJ_EXCLUDE 排除 */
 function outOfChina(lng: number, lat: number) {
-  return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271
+  return !(lng > 72.004 && lng < 137.8347 && lat > 0.8293 && lat < 55.8271)
+}
+
+/**
+ * 与 server/internal/geo/transform.go 的 gcjExclude 保持一致（日韩、东南亚、南亚、蒙俄、中亚等境外区域不做偏移）：
+ * 外接矩形内不使用 GCJ-02 的区域，每行为 [minLng, minLat, maxLng, maxLat]（含边界），高德在境外使用 WGS-84
+ */
+const GCJ_EXCLUDE: readonly (readonly [number, number, number, number])[] = [
+  [124.0, 30.0, 137.8347, 38.3], [124.0, 24.0, 137.8347, 25.4], [125.0, 25.4, 137.8347, 30.0],
+  [119.3, 0.8293, 137.8347, 20.8], [123.0, 20.8, 137.8347, 24.0], [124.8, 38.3, 130.0, 40.0],
+  [131.6, 42.3, 137.8347, 44.3], [135.5, 44.3, 137.8347, 55.8271], [88.0, 49.5, 115.0, 55.8271],
+  [92.0, 46.0, 115.0, 49.5], [91.0, 47.5, 92.0, 49.5], [97.0, 43.5, 110.5, 46.0],
+  [72.004, 42.0, 79.0, 55.8271], [79.0, 49.8, 86.5, 55.8271], [72.004, 40.2, 73.6, 42.0],
+  [72.004, 0.8293, 88.0, 26.0], [72.004, 26.0, 78.0, 31.3], [72.004, 31.3, 75.8, 34.5],
+  [78.0, 26.0, 80.0, 29.5], [80.0, 26.0, 86.5, 27.75], [82.0, 27.75, 84.3, 28.5],
+  [86.5, 26.0, 88.0, 27.3], [89.45, 26.3, 91.3, 27.6], [88.0, 20.5, 92.3, 26.3],
+  [92.3, 10.0, 97.0, 26.0], [92.3, 0.8293, 105.5, 20.0], [105.5, 0.8293, 109.0, 12.0],
+  [105.5, 12.0, 109.6, 16.3], [102.2, 16.0, 107.8, 21.2], [109.5, 0.8293, 119.3, 3.3],
+  [113.6, 3.3, 119.3, 6.5], [115.5, 6.5, 119.3, 7.5], [118.2, 7.5, 119.3, 12.5],
+]
+
+/** 该坐标是否使用 GCJ-02 偏移（国内）：在外接矩形内且不在 GCJ_EXCLUDE 的境外区域（与服务端 geo.InGCJArea 一致） */
+export function inGcjArea(lng: number, lat: number) {
+  if (outOfChina(lng, lat)) return false
+  for (const [minLng, minLat, maxLng, maxLat] of GCJ_EXCLUDE) {
+    if (lng >= minLng && lng <= maxLng && lat >= minLat && lat <= maxLat) return false
+  }
+  return true
 }
 
 function transformLat(x: number, y: number) {
@@ -27,8 +55,8 @@ function transformLng(x: number, y: number) {
   return r
 }
 
-export function wgs84ToGcj02(lng: number, lat: number): [number, number] {
-  if (outOfChina(lng, lat)) return [lng, lat]
+/** WGS-84 坐标处的 GCJ-02 偏移量 [dLng, dLat]（不判断区域） */
+function gcjDelta(lng: number, lat: number): [number, number] {
   let dLat = transformLat(lng - 105, lat - 35)
   let dLng = transformLng(lng - 105, lat - 35)
   const radLat = (lat / 180) * Math.PI
@@ -37,16 +65,31 @@ export function wgs84ToGcj02(lng: number, lat: number): [number, number] {
   const sqrtMagic = Math.sqrt(magic)
   dLat = (dLat * 180) / (((A * (1 - EE)) / (magic * sqrtMagic)) * Math.PI)
   dLng = (dLng * 180) / ((A / sqrtMagic) * Math.cos(radLat) * Math.PI)
+  return [dLng, dLat]
+}
+
+/** 境外（见 inGcjArea）原样返回 */
+export function wgs84ToGcj02(lng: number, lat: number): [number, number] {
+  if (!inGcjArea(lng, lat)) return [lng, lat]
+  const [dLng, dLat] = gcjDelta(lng, lat)
   return [lng + dLng, lat + dLat]
 }
 
+/**
+ * 不动点迭代反算（亚厘米级），境外原样返回。与服务端一致：只按输入点判断一次是否在偏移区域内，
+ * 迭代过程中不会在区域边界上来回切换「偏移 / 不偏移」
+ */
 export function gcj02ToWgs84(lng: number, lat: number): [number, number] {
-  if (outOfChina(lng, lat)) return [lng, lat]
-  let [wLng, wLat] = [lng, lat]
-  for (let i = 0; i < 5; i++) {
-    const [gLng, gLat] = wgs84ToGcj02(wLng, wLat)
-    wLng += lng - gLng
-    wLat += lat - gLat
+  if (!inGcjArea(lng, lat)) return [lng, lat]
+  let wLng = lng
+  let wLat = lat
+  for (let i = 0; i < 30; i++) {
+    const [dl, dt] = gcjDelta(wLng, wLat)
+    const dLng = wLng + dl - lng
+    const dLat = wLat + dt - lat
+    wLng -= dLng
+    wLat -= dLat
+    if (Math.abs(dLng) < 1e-10 && Math.abs(dLat) < 1e-10) break
   }
   return [wLng, wLat]
 }

@@ -42,11 +42,15 @@ export type OutboxItem = CheckinItem | SkipItem | PhotoItem
 export interface CheckinResult {
   waypoint: Waypoint
   matched_plan: boolean
+  /** 重复打卡（连点、同行的人刚打过、按 client_id 重发）：服务端原样返回之前的打卡点 */
+  duplicate?: boolean
 }
 export interface PhotoResult {
   photo: Photo
   waypoint: Waypoint | null
   waypoint_created: boolean
+  /** 按 client_id 重发的照片：服务端不再保存，返回之前那张 */
+  duplicate?: boolean
 }
 
 /** 客户端幂等键（非 HTTPS 页面没有 crypto.randomUUID） */

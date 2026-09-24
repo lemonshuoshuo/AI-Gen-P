@@ -19,7 +19,8 @@ server {
     # 需大于 .env 中的 MAX_UPLOAD_MB（再多留 1MB 表单开销），否则超出的上传会被 Nginx 直接拒绝
     client_max_body_size 60m;
     gzip on;
-    gzip_types text/css application/javascript application/json image/svg+xml;
+    gzip_vary on;
+    gzip_types text/plain text/css application/javascript application/json application/manifest+json image/svg+xml;
 
     location / {
         # 需在 .env 中设置 HTTP_PORT=127.0.0.1:8080，使应用端口只监听本机

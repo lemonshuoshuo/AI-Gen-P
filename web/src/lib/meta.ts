@@ -9,7 +9,7 @@ import {
   UtensilsCrossed,
   type LucideIcon,
 } from 'lucide-react'
-import type { Category, Phase, Verdict, Visibility, WaypointStatus } from '@/api/types'
+import type { Category, Phase, TripStatus, Verdict, Visibility, WaypointStatus } from '@/api/types'
 
 export const categories: Record<Category, { label: string; color: string; icon: LucideIcon }> = {
   scenic: { label: '景点', color: '#10b981', icon: Landmark },
@@ -39,6 +39,13 @@ export const visibilities: Record<Visibility, { label: string; desc: string }> =
   private: { label: '私密', desc: '仅自己和共同作者可见' },
   unlisted: { label: '链接可见', desc: '拿到分享链接的人可以看，不出现在广场' },
   public: { label: '公开', desc: '所有人可见，会出现在发现广场' },
+}
+
+/** 旅程审核状态：pending（公开待审核）和 hidden（被管理员隐藏）只有成员和管理员能看到 */
+export const tripStatuses: Record<TripStatus, { label: string; cls: string }> = {
+  normal: { label: '正常', cls: 'bg-emerald-50 text-emerald-700' },
+  pending: { label: '审核中', cls: 'bg-amber-50 text-amber-700' },
+  hidden: { label: '已隐藏', cls: 'bg-red-50 text-red-600' },
 }
 
 export const waypointStatus: Record<WaypointStatus, { label: string; cls: string }> = {

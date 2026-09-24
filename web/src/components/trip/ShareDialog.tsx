@@ -138,7 +138,10 @@ export function ShareDialog({
     try {
       const t = await api.trips.update(trip.id, { visibility: v })
       onUpdated?.(t)
-      toast.success(v === 'public' ? '已公开到发现广场' : '已开启链接分享')
+      // 站点开启了「公开旅程需审核」：公开后先进入审核队列
+      if (t.status === 'pending')
+        toast.success('已提交审核', { description: '管理员审核通过后才会出现在发现广场，在此之前只有你和共同作者能看到' })
+      else toast.success(v === 'public' ? '已公开到发现广场' : '已开启链接分享')
     } catch (e) {
       toast.error(errorMessage(e))
     } finally {
@@ -221,6 +224,9 @@ export function ShareDialog({
             <p className="text-sm text-ink-500">
               当前可见范围：<b>{visibilities[trip.visibility].label}</b> · {visibilities[trip.visibility].desc}
             </p>
+            {trip.visibility === 'public' && trip.status === 'pending' && (
+              <div className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-800">审核中：通过前其他人打不开这个链接，也不会在发现广场看到</div>
+            )}
             <ShareBody url={url} title={trip.title} text={trip.summary || '来看看这段旅程'}>
               <Button variant="outline" size="sm" onClick={openPoster} icon={<ImageIcon className="size-4" />}>
                 生成分享海报

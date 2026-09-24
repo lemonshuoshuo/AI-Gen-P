@@ -94,7 +94,7 @@ export async function preparePhoto(f: File): Promise<PreparedPhoto> {
 
 /** 并发处理，限制同时解码的数量避免手机内存吃紧 */
 export async function preparePhotos(files: File[], onEach?: (done: number) => void, concurrency = 3) {
-  const results: (PreparedPhoto | null)[] = new Array(files.length).fill(null)
+  const results: (PreparedPhoto | null)[] = Array.from({ length: files.length }, () => null)
   let next = 0
   let done = 0
   async function worker() {

@@ -7,6 +7,11 @@ dayjs.locale('zh-cn')
 
 export { dayjs }
 
+/** 北京时间的今天（YYYY-MM-DD），与服务端的日期判断保持一致 */
+export function beijingToday() {
+  return new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10)
+}
+
 export function fromNow(t: string | null | undefined) {
   if (!t) return ''
   const d = dayjs(t)
@@ -50,4 +55,14 @@ export function fmtDuration(ms: number) {
   const sec = s % 60
   const pad = (x: number) => String(x).padStart(2, '0')
   return h ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`
+}
+
+/** 路上用时（秒），按分钟四舍五入：「25 分钟」「1 小时 5 分钟」 */
+export function fmtMinutes(seconds: number) {
+  const m = Math.round(seconds / 60)
+  if (m < 1) return '不到 1 分钟'
+  if (m < 60) return `${m} 分钟`
+  const h = Math.floor(m / 60)
+  const r = m % 60
+  return `${h} 小时${r > 0 ? ` ${r} 分钟` : ''}`
 }

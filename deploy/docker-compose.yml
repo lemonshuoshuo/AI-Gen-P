@@ -37,17 +37,27 @@ services:
       context: .
     image: triphub:${TRIPHUB_VERSION:-latest}
     restart: unless-stopped
-    # 停止/升级时等待进行中的请求（如 AI 规划，默认最长 30 秒）完成后再退出；须大于服务端的优雅退出等待时间
+    # 停止/升级时等待进行中的请求（如 AI 规划，默认最长 30 秒）完成后再退出；须大于服务端的优雅退出等待时间（40 秒）
     stop_grace_period: 45s
     logging: *default-logging
     depends_on:
       db:
         condition: service_healthy
+    # 程序自带健康检查（镜像里没有 curl）：docker compose ps 中显示 (healthy) 即启动完成；
+    # 首次启动或升级后迁移数据库可能要几十秒，start_period 内的失败不计入
+    healthcheck:
+      test: ["CMD", "/triphub", "-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
     # 使用 Caddy/Nginx 反向代理时设 HTTP_PORT=127.0.0.1:8080（Caddy 走容器内网 app:8080，不需要此端口对公网开放）
     ports:
       - "${HTTP_PORT:-8080}:8080"
     environment:
       TZ: Asia/Shanghai
+      # Go 内存软上限，避免 1C2G 小服务器与 PostgreSQL 抢内存；处理大照片时仍可临时超过
+      GOMEMLIMIT: ${GOMEMLIMIT:-800MiB}
       # 密码通过 PGPASSWORD 单独传入（pgx 支持的标准 libpq 变量），避免 / # ? % 空格 等字符破坏连接串
       TRIPHUB_DB_DSN: postgres://triphub@db:5432/triphub?sslmode=disable
       PGPASSWORD: ${DB_PASSWORD}
@@ -63,6 +73,8 @@ services:
       TRIPHUB_AI_TIMEOUT: ${AI_TIMEOUT:-}
       TRIPHUB_MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
       TRIPHUB_CORS_ORIGINS: ${CORS_ORIGINS:-}
+      # 留空＝信任本机和内网地址的代理（内置 Caddy / 本机 Nginx）；不用反向代理、直接开放端口时在 .env 设 TRUSTED_PROXIES=none
+      TRIPHUB_TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       TRIPHUB_TILES_NORMAL: ${TILES_NORMAL:-}
       TRIPHUB_TILES_SATELLITE: ${TILES_SATELLITE:-}
       TRIPHUB_TILES_SATELLITE_LABEL: ${TILES_SATELLITE_LABEL:-}
@@ -91,7 +103,8 @@ services:
     restart: unless-stopped
     logging: *default-logging
     depends_on:
-      - app
+      app:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"

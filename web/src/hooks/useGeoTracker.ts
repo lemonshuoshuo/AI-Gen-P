@@ -15,6 +15,15 @@ export interface GeoFix {
 }
 
 const BUFFER_KEY = (tripId: number) => `triphub.track-buffer.${tripId}`
+
+/** 丢弃本机尚未上传的轨迹点（清空轨迹时调用，避免下次打开旅行模式又传上去） */
+export function dropTrackBuffer(tripId: number) {
+  try {
+    localStorage.removeItem(BUFFER_KEY(tripId))
+  } catch {
+    /* 隐私模式下可能不可用 */
+  }
+}
 // 正在记录的会话：刷新页面、浏览器回收标签页后回到旅行模式时自动接着记录
 const SESSION_KEY = (tripId: number) => `triphub.recording.${tripId}`
 const SESSION_MAX_AGE = 12 * 3600_000

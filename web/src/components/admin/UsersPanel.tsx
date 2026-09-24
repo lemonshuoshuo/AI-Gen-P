@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Ban, Ellipsis, ShieldCheck, ShieldOff, Sparkles, UserCheck } from 'lucide-react'
+import { Ban, CircleCheck, Copy, Ellipsis, KeyRound, ShieldCheck, ShieldOff, Sparkles, UserCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type AdminUser } from '@/api'
 import {
@@ -18,6 +18,7 @@ import {
   confirmDialog,
 } from '@/components/ui'
 import { useSite } from '@/hooks/useSite'
+import { copyText } from '@/lib/clipboard'
 import { fmtBytes, fromNow } from '@/lib/format'
 import { useAuth } from '@/stores/auth'
 import { ADMIN_PAGE_SIZE, FilterBar, FilterSlot, PanelHeader, Pill, SearchInput, useFilters, usePageGuard } from './common'
@@ -78,6 +79,104 @@ function ExpDialog({ user, onClose, onSave, saving }: { user: AdminUser; onClose
   )
 }
 
+/** 重置密码：留空由服务端生成 12 位随机密码；成功后显示新密码（只显示这一次） */
+function ResetPasswordDialog({ user, onClose }: { user: AdminUser; onClose: () => void }) {
+  const formId = useId()
+  const [pw, setPw] = useState('')
+  const [result, setResult] = useState<string | null>(null)
+  // 与服务端一致按字符数计（不是 UTF-16 长度）
+  const len = [...pw].length
+  const valid = !pw || (len >= 8 && len <= 64)
+  // 请求进行中不能关闭，也不能重复提交：密码已在服务端修改，关掉就看不到新密码了。
+  // 用 ref 而不是 isPending：isPending 要到下一次渲染才变，提交后立刻按 Esc / 回车仍会漏过去
+  const busy = useRef(false)
+  const m = useMutation({
+    mutationFn: (password: string) => api.admin.resetPassword(user.id, password || undefined),
+    onSuccess: (r) => setResult(r.password),
+    onError: (e) => toast.error(errorMessage(e)),
+    onSettled: () => {
+      busy.current = false
+    },
+  })
+  const close = () => {
+    if (!busy.current) onClose()
+  }
+  const copy = async (text: string) => {
+    if (await copyText(text)) toast.success('已复制')
+    else toast.error('复制失败，请手动选中密码复制')
+  }
+  return (
+    <Modal
+      open
+      onClose={close}
+      title={`重置密码 · ${displayName(user)}`}
+      footer={
+        result ? (
+          <Button onClick={onClose}>完成</Button>
+        ) : (
+          <>
+            <Button variant="ghost" disabled={m.isPending} onClick={close}>
+              取消
+            </Button>
+            <Button type="submit" form={formId} variant="danger" disabled={!valid} loading={m.isPending}>
+              重置密码
+            </Button>
+          </>
+        )
+      }
+    >
+      {result ? (
+        <div className="space-y-4">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-700">
+            <CircleCheck className="size-4 shrink-0" />
+            密码已重置，该用户所有设备上的登录已失效
+          </p>
+          <div>
+            <div className="mb-1.5 text-sm font-medium text-ink-700">新密码</div>
+            <div className="flex items-center gap-2 rounded-xl bg-ink-50 py-2 pr-2 pl-3.5 ring-1 ring-ink-100">
+              <code className="min-w-0 flex-1 font-mono text-base break-all text-ink-900 select-all">{result}</code>
+              <Button size="sm" variant="outline" icon={<Copy className="size-4" />} onClick={() => copy(result)}>
+                复制
+              </Button>
+            </div>
+          </div>
+          <p className="text-sm leading-relaxed text-ink-500">
+            请通过可靠渠道告诉该用户，并提醒其登录后在「账号设置」中修改密码。
+          </p>
+        </div>
+      ) : (
+        <form
+          id={formId}
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!valid || busy.current) return
+            busy.current = true
+            m.mutate(pw)
+          }}
+        >
+          <p className="text-sm leading-relaxed text-ink-500">
+            重置后该用户所有设备上的登录会立即失效。新密码可以留空自动生成（12 位随机密码），也可以自己设置（8–64 位）。
+          </p>
+          <Field label="新密码（可选）" hint={!valid && <span className="text-red-600">密码长度需为 8–64 位</span>}>
+            <Input
+              type="text"
+              autoComplete="off"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+              placeholder="留空则自动生成"
+              className="font-mono"
+            />
+          </Field>
+        </form>
+      )}
+    </Modal>
+  )
+}
+
 export function UsersPanel() {
   const me = useAuth((s) => s.user)
   const qc = useQueryClient()
@@ -89,6 +188,7 @@ export function UsersPanel() {
   })
   usePageGuard(data, setPage)
   const [expUser, setExpUser] = useState<AdminUser | null>(null)
+  const [pwUser, setPwUser] = useState<AdminUser | null>(null)
 
   const update = useMutation({
     mutationFn: ({ id, body }: { id: number; body: UserPatch; ok: string }) => api.admin.updateUser(id, body),
@@ -192,6 +292,8 @@ export function UsersPanel() {
   ]
 
   const actions = (u: AdminUser) => {
+    // 已注销的账号服务端拒绝任何修改（「该账号已注销」）：不显示操作
+    if (u.status === 'deleted') return null
     const self = u.id === me?.id
     return (
       <Menu
@@ -218,6 +320,11 @@ export function UsersPanel() {
                 onClick={() => (close(), toggleAdmin(u))}
               >
                 {u.role === 'admin' ? '取消管理员' : '设为管理员'}
+              </MenuItem>
+            )}
+            {!self && (
+              <MenuItem icon={<KeyRound className="size-4" />} onClick={() => (close(), setPwUser(u))}>
+                重置密码
               </MenuItem>
             )}
             <MenuItem icon={<Sparkles className="size-4" />} onClick={() => (close(), setExpUser(u))}>
@@ -251,6 +358,7 @@ export function UsersPanel() {
             <option value="">全部状态</option>
             <option value="active">正常</option>
             <option value="banned">已封禁</option>
+            <option value="deleted">已注销</option>
           </Select>
         </FilterSlot>
       </FilterBar>
@@ -276,6 +384,7 @@ export function UsersPanel() {
           onSave={(exp) => update.mutate({ id: expUser.id, body: { exp }, ok: '经验值已更新' })}
         />
       )}
+      {pwUser && <ResetPasswordDialog user={pwUser} onClose={() => setPwUser(null)} />}
     </div>
   )
 }

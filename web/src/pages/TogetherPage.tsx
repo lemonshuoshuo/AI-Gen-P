@@ -18,14 +18,15 @@ import {
   MenuItem,
   Modal,
   PageLoader,
+  Switch,
   UserName,
   buttonClass,
-  confirmDialog,
 } from '@/components/ui'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useSite } from '@/hooks/useSite'
+import { invalidateTripLists } from '@/lib/cache'
 import { copyText } from '@/lib/clipboard'
-import { dayjs, fromNow } from '@/lib/format'
+import { dayjs, fromNow, beijingToday } from '@/lib/format'
 import { flattenPages } from '@/lib/pages'
 import { useAuth } from '@/stores/auth'
 
@@ -187,13 +188,17 @@ function Invites({ info, refresh }: { info: PartnerInfo; refresh: () => void }) 
   )
 }
 
-function EditSpace({ info, open, onClose, onSaved }: { info: PartnerInfo; open: boolean; onClose: () => void; onSaved: () => void }) {
+// 打开时才挂载：每次都从最新的空间信息开始编辑（公开设置双方共享，对方可能刚改过）
+function EditSpace({ info, onClose, onSaved }: { info: PartnerInfo; onClose: () => void; onSaved: () => void }) {
+  const qc = useQueryClient()
   const [title, setTitle] = useState(info.title)
   const [since, setSince] = useState(info.since ?? '')
+  const [pub, setPub] = useState(info.public)
   const [saving, setSaving] = useState(false)
+  const today = beijingToday()
   return (
     <Modal
-      open={open}
+      open
       onClose={onClose}
       title="编辑我们的空间"
       footer={
@@ -201,9 +206,13 @@ function EditSpace({ info, open, onClose, onSaved }: { info: PartnerInfo; open: 
           variant="love"
           loading={saving}
           onClick={async () => {
+            // 日期是 YYYY-MM-DD，可以直接按字符串比较
+            if (since && since > today) return toast.error('纪念日不能晚于今天')
             setSaving(true)
             try {
-              await api.partner.update({ title: title.trim(), since: since || null })
+              qc.setQueryData(['partner'], await api.partner.update({ title: title.trim(), since: since || null, public: pub }))
+              // 个人主页上显示的情侣（公开设置）随之变化
+              qc.invalidateQueries({ queryKey: ['user'] })
               onSaved()
               onClose()
             } catch (e) {
@@ -222,8 +231,58 @@ function EditSpace({ info, open, onClose, onSaved }: { info: PartnerInfo; open: 
           <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="我们一起走过的地方" maxLength={30} />
         </Field>
         <Field label="在一起的日子" hint="用来计算「在一起 N 天」">
-          <Input type="date" value={since} onChange={(e) => setSince(e.target.value)} />
+          <Input type="date" value={since} max={today} onChange={(e) => setSince(e.target.value)} />
         </Field>
+        <div className="space-y-1 rounded-xl bg-ink-50 p-3">
+          <Switch checked={pub} onChange={setPub} label="在个人主页公开情侣关系" />
+          <p className="pl-12 text-xs leading-relaxed text-ink-400">
+            开启后，你们的个人主页会显示对方；关闭时只有你们自己能看到（双方共享此设置）
+          </p>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function UnbindDialog({ onClose, onUnbind }: { onClose: () => void; onUnbind: (removeShared: boolean) => Promise<void> }) {
+  const [removeShared, setRemoveShared] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const close = () => {
+    if (!busy) onClose()
+  }
+  return (
+    <Modal
+      open
+      onClose={close}
+      title="解除情侣空间？"
+      footer={
+        <>
+          <Button variant="ghost" disabled={busy} onClick={close}>
+            取消
+          </Button>
+          <Button
+            variant="danger"
+            loading={busy}
+            onClick={async () => {
+              setBusy(true)
+              try {
+                await onUnbind(removeShared)
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            解除绑定
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm leading-relaxed text-ink-500">解除后共同足迹页面将不再显示，一起的旅程不会被删除。</p>
+      <div className="mt-4 space-y-1 rounded-xl bg-ink-50 p-3">
+        <Switch checked={removeShared} onChange={setRemoveShared} label="同时结束共同作者关系" />
+        <p className="pl-12 text-xs leading-relaxed text-ink-400">
+          开启后，你们将不再是对方所创建旅程的共同作者（包括待接受的邀请）；不开启时仍可以一起编辑这些旅程，之后也可以在旅程「成员」中移除。
+        </p>
       </div>
     </Modal>
   )
@@ -245,6 +304,7 @@ export default function TogetherPage() {
     enabled: !!partner,
   })
   const [editing, setEditing] = useState(false)
+  const [unbinding, setUnbinding] = useState(false)
   useDocumentTitle(infoQ.data?.title || '我们一起走过的地方')
   // 已绑定：地图代码与足迹数据同时下载
   useEffect(() => {
@@ -280,13 +340,19 @@ export default function TogetherPage() {
 
   const days = info.since ? dayjs().startOf('day').diff(dayjs(info.since), 'day') + 1 : null
   const sharedTrips = flattenPages(tripsQ.data?.pages)
-  const unbind = async () => {
-    if (!(await confirmDialog({ title: '解除情侣空间？', desc: '一起的旅程不会被删除，但共同足迹页面将不再显示。', danger: true, okText: '解除' })))
-      return
+  const unbind = async (removeShared: boolean) => {
     try {
-      await api.partner.unbind()
+      await api.partner.unbind(removeShared)
+      toast.success('已解除绑定')
+      setUnbinding(false)
       refreshMe()
       refresh()
+      // 共同作者关系可能已结束：旅程列表、个人主页、足迹里的旅程随之变化
+      invalidateTripLists(qc)
+      if (removeShared) {
+        qc.invalidateQueries({ queryKey: ['trip'] })
+        qc.invalidateQueries({ queryKey: ['members'] })
+      }
     } catch (e) {
       toast.error(errorMessage(e))
     }
@@ -333,9 +399,9 @@ export default function TogetherPage() {
               {(close) => (
                 <>
                   <MenuItem icon={<PenLine className="size-4" />} onClick={() => (close(), setEditing(true))}>
-                    编辑名称和纪念日
+                    编辑名称、纪念日和公开设置
                   </MenuItem>
-                  <MenuItem icon={<HeartCrack className="size-4" />} danger onClick={() => (close(), unbind())}>
+                  <MenuItem icon={<HeartCrack className="size-4" />} danger onClick={() => (close(), setUnbinding(true))}>
                     解除绑定
                   </MenuItem>
                 </>
@@ -405,7 +471,8 @@ export default function TogetherPage() {
         <p className="text-sm text-ink-400">还没有一起的旅程</p>
       )}
 
-      <EditSpace info={info} open={editing} onClose={() => setEditing(false)} onSaved={refresh} />
+      {editing && <EditSpace info={info} onClose={() => setEditing(false)} onSaved={refresh} />}
+      {unbinding && <UnbindDialog onClose={() => setUnbinding(false)} onUnbind={unbind} />}
     </div>
   )
 }

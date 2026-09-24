@@ -1,5 +1,6 @@
 import { http } from './client'
 import type {
+  AdminSettings,
   AdminStats,
   AdminUser,
   AIPlanResult,
@@ -9,6 +10,7 @@ import type {
   CoordType,
   Footprints,
   GeoSearchItem,
+  LegMode,
   Me,
   Notification,
   Paged,
@@ -18,15 +20,18 @@ import type {
   Photo,
   Place,
   PlaceReview,
+  PlaceStats,
   Recommendation,
   Regeo,
   Report,
   SiteConfig,
   TrackData,
+  TrackImportResult,
   TrackPointIn,
   TripCard,
   TripDetail,
   TripInput,
+  TripLegs,
   TripMember,
   UserBrief,
   UserProfile,
@@ -36,6 +41,12 @@ import type {
 
 export * from './types'
 export { ApiError, errorMessage, isNotFound } from './client'
+
+/** 与服务端 MinAvoidWarn 一致：至少 2 人标记踩雷且踩雷多于推荐才算「多人踩雷」（一个人的评价不算） */
+export const MIN_AVOID_WARN = 2
+export function isAvoided(s: Pick<PlaceStats, 'avoid_count' | 'recommend_count'> | null | undefined): boolean {
+  return !!s && s.avoid_count >= MIN_AVOID_WARN && s.avoid_count > s.recommend_count
+}
 
 type PageQuery = { page?: number; page_size?: number }
 
@@ -56,6 +67,8 @@ export const api = {
     get: () => http.get<Me>('/me'),
     update: (b: Partial<Pick<Me, 'nickname' | 'bio' | 'avatar_url' | 'email'>>) => http.patch<Me>('/me', b),
     password: (b: { old_password: string; new_password: string }) => http.post<unknown>('/me/password', b),
+    /** 注销账号（不可恢复）：密码错误 400「密码不正确」，管理员账号 400；密码多次错误 429 */
+    remove: (password: string) => http.del<unknown>('/me', { password }),
     avatar: (file: Blob) => {
       const f = new FormData()
       f.append('file', file, 'avatar.jpg')
@@ -102,7 +115,8 @@ export const api = {
     byShare: (code: string) => http.get<TripDetail>(`/share/${encodeURIComponent(code)}`),
     update: (id: number, b: TripInput) => http.patch<TripDetail>(`/trips/${id}`, b),
     remove: (id: number) => http.del<unknown>(`/trips/${id}`),
-    fork: (id: number, title?: string) => http.post<TripDetail>(`/trips/${id}/fork`, { title }),
+    fork: (id: number, opts: { title?: string; include_avoid?: boolean } = {}) =>
+      http.post<TripDetail>(`/trips/${id}/fork`, opts),
     like: (id: number, on: boolean) =>
       on
         ? http.post<{ liked: boolean; like_count: number }>(`/trips/${id}/like`)
@@ -125,6 +139,13 @@ export const api = {
         points,
       }),
     clearTrack: (id: number) => http.del<unknown>(`/trips/${id}/track`),
+    /** 导入 GPX 轨迹（WGS-84）到当前用户的轨迹；重复导入同一文件不会产生重复的点 */
+    importTrack: (id: number, file: File, onProgress?: (r: number) => void) => {
+      const f = new FormData()
+      f.append('file', file, file.name || 'track.gpx')
+      f.append('coord_type', 'wgs84')
+      return http.upload<TrackImportResult>(`/trips/${id}/track/import`, f, onProgress)
+    },
     checkin: (
       id: number,
       b: {
@@ -141,10 +162,13 @@ export const api = {
         /** 客户端生成的幂等键：离线补发时服务端按它去重 */
         client_id?: string
       },
-    ) => http.post<{ waypoint: Waypoint; matched_plan: boolean }>(`/trips/${id}/checkin`, b),
+    ) => http.post<{ waypoint: Waypoint; matched_plan: boolean; duplicate?: boolean }>(`/trips/${id}/checkin`, b),
     recommend: (id: number, q: { lng?: number; lat?: number; coord_type?: CoordType; ai?: boolean }) =>
       http.get<Recommendation>(`/trips/${id}/recommend`, q),
     compare: (id: number) => http.get<CompareResult>(`/trips/${id}/compare`),
+    /** 计划路线路段用时（需登录，消耗站点高德额度，服务端缓存 7 天） */
+    legs: (id: number, mode: LegMode = 'transit', signal?: AbortSignal) =>
+      http.get<TripLegs>(`/trips/${id}/legs`, { mode }, signal),
     comments: (id: number, q: PageQuery & { waypoint_id?: number }) =>
       http.get<Paged<Comment>>(`/trips/${id}/comments`, q),
     addComment: (id: number, b: { content: string; parent_id?: number | null; waypoint_id?: number | null }) =>
@@ -193,7 +217,7 @@ export const api = {
       if (meta.waypoint_id) f.append('waypoint_id', String(meta.waypoint_id))
       if (meta.auto_waypoint) f.append('auto_waypoint', 'true')
       if (meta.client_id) f.append('client_id', meta.client_id)
-      return http.upload<{ photo: Photo; waypoint: Waypoint | null; waypoint_created: boolean }>(
+      return http.upload<{ photo: Photo; waypoint: Waypoint | null; waypoint_created: boolean; duplicate?: boolean }>(
         `/trips/${tripId}/photos`,
         f,
         onProgress,
@@ -236,8 +260,10 @@ export const api = {
 
   partner: {
     get: () => http.get<PartnerInfo>('/partner'),
-    update: (b: { since?: string | null; title?: string }) => http.patch<PartnerInfo>('/partner', b),
-    unbind: () => http.del<unknown>('/partner'),
+    update: (b: { since?: string | null; title?: string; public?: boolean }) => http.patch<PartnerInfo>('/partner', b),
+    /** removeSharedAccess：同时结束双方在对方旅程中的共同作者关系（含待接受的邀请） */
+    unbind: (removeSharedAccess = false) =>
+      http.del<unknown>(removeSharedAccess ? '/partner?remove_shared_access=true' : '/partner'),
     invite: (username: string, message?: string) => http.post<PartnerInvite>('/partner/invites', { username, message }),
     accept: (id: number) => http.post<unknown>(`/partner/invites/${id}/accept`),
     decline: (id: number) => http.post<unknown>(`/partner/invites/${id}/decline`),
@@ -267,17 +293,20 @@ export const api = {
       http.get<Paged<AdminUser>>('/admin/users', q),
     updateUser: (id: number, b: { role?: string; status?: string; exp?: number }) =>
       http.patch<AdminUser>(`/admin/users/${id}`, b),
+    /** 重置用户密码：不传 password 时服务端生成 12 位随机密码；该用户全部会话立即失效；不能对自己或已注销账号操作 */
+    resetPassword: (id: number, password?: string) =>
+      http.post<{ password: string }>(`/admin/users/${id}/reset-password`, password ? { password } : {}),
     trips: (q: PageQuery & { q?: string; status?: string; visibility?: string }) =>
       http.get<Paged<TripCard>>('/admin/trips', q),
-    updateTrip: (id: number, b: { featured?: boolean; status?: string }) =>
+    /** 对 pending 旅程：normal＝审核通过，hidden＝驳回 */
+    updateTrip: (id: number, b: { featured?: boolean; status?: 'normal' | 'hidden' }) =>
       http.patch<TripCard>(`/admin/trips/${id}`, b),
     deleteTrip: (id: number) => http.del<unknown>(`/admin/trips/${id}`),
     comments: (q: PageQuery & { q?: string }) => http.get<Paged<Comment>>('/admin/comments', q),
     deleteComment: (id: number) => http.del<unknown>(`/admin/comments/${id}`),
     reports: (q: PageQuery & { status?: string }) => http.get<Paged<Report>>('/admin/reports', q),
     updateReport: (id: number, b: { status: string; note?: string }) => http.patch<Report>(`/admin/reports/${id}`, b),
-    settings: () => http.get<{ site_name: string; announcement: string; registration_open: boolean }>('/admin/settings'),
-    saveSettings: (b: { site_name: string; announcement: string; registration_open: boolean }) =>
-      http.put<unknown>('/admin/settings', b),
+    settings: () => http.get<AdminSettings>('/admin/settings'),
+    saveSettings: (b: Partial<AdminSettings>) => http.put<AdminSettings>('/admin/settings', b),
   },
 }

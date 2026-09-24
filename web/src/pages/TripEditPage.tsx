@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   Crosshair,
   Eye,
+  Footprints,
   GripVertical,
   ImageIcon,
   Info,
@@ -26,9 +27,11 @@ import {
   errorMessage,
   isNotFound,
   type GeoSearchItem,
+  type LegMode,
   type Phase,
   type TripDetail,
   type TripInput,
+  type TripLeg,
   type TripMember,
   type Visibility,
   type Waypoint,
@@ -38,8 +41,10 @@ import { BaseMap, useMap } from '@/components/map/BaseMap'
 import { FitOnce, RouteLines } from '@/components/map/layers'
 import { PhotoImporter } from '@/components/editor/PhotoImporter'
 import { PlaceSearch, type PickSource } from '@/components/editor/PlaceSearch'
+import { LegLine, LegsSummary, useTripLegs } from '@/components/editor/RouteLegs'
+import { TrackPanel } from '@/components/editor/TrackPanel'
 import { WaypointForm } from '@/components/editor/WaypointForm'
-import { WaypointNumber } from '@/components/trip/WaypointItem'
+import { PlaceStatsBadge, WaypointNumber } from '@/components/trip/WaypointItem'
 import {
   Avatar,
   Button,
@@ -51,6 +56,7 @@ import {
   PageLoader,
   Segmented,
   Select,
+  Switch,
   Tag,
   Textarea,
   UserName,
@@ -65,7 +71,7 @@ import { categoryOf, phases, visibilities, waypointStatus } from '@/lib/meta'
 import { actualPath, bySeq, plannedPath } from '@/lib/trip'
 import { useAuth } from '@/stores/auth'
 
-type Panel = 'route' | 'info' | 'photos' | 'members'
+type Panel = 'route' | 'info' | 'photos' | 'track' | 'members'
 
 /* ---------------- 地图上可拖动的打卡点 ---------------- */
 function editableMarkerHtml(w: Waypoint, index: number, sel: boolean) {
@@ -168,6 +174,7 @@ function SortableRow({
   onSave,
   onDelete,
   saving,
+  leg,
 }: {
   w: Waypoint
   index: number
@@ -180,6 +187,8 @@ function SortableRow({
   onSave: (p: WaypointInput) => void
   onDelete: () => void
   saving: boolean
+  /** 从上一个计划点到这里的路段（放在卡片里，拖动时跟着这一行走） */
+  leg?: TripLeg
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: w.id })
   const st = waypointStatus[w.status]
@@ -189,6 +198,12 @@ function SortableRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn('rounded-2xl bg-white shadow-card', isDragging && 'relative z-10 shadow-float', selected && 'ring-2 ring-brand-200')}
     >
+      {leg && (
+        <div className="flex items-center gap-1 border-b border-dashed border-ink-100 px-3 py-1 text-[11px] text-ink-400">
+          <span className="shrink-0">距上一站 ·</span>
+          <LegLine leg={leg} />
+        </div>
+      )}
       <div className="flex items-center gap-2 p-2.5" onClick={onSelect}>
         <button
           type="button"
@@ -212,6 +227,7 @@ function SortableRow({
             {phase !== 'planning' && w.planned && <span className={cn('rounded-full px-1.5 text-[11px]', st.cls)}>{st.label}</span>}
             {!w.planned && <span className="rounded-full bg-violet-50 px-1.5 text-[11px] text-violet-700">计划外</span>}
             <VerdictBadge verdict={w.verdict} className="!py-0 text-[11px]" />
+            <PlaceStatsBadge stats={w.place_stats} className="!py-0 text-[11px]" />
           </div>
         </div>
         <Button size="xs" variant={editing ? 'secondary' : 'ghost'} onClick={(e) => (e.stopPropagation(), onEdit(!editing))}>
@@ -248,6 +264,7 @@ function InfoPanel({ trip, onSaved }: { trip: TripDetail; onSaved: (t: TripDetai
     end_date: trip.end_date ?? '',
     phase: trip.phase,
     visibility: trip.visibility,
+    live_share: trip.live_share,
     tags: trip.tags.join(' '),
   })
   const [saving, setSaving] = useState(false)
@@ -269,10 +286,17 @@ function InfoPanel({ trip, onSaved }: { trip: TripDetail; onSaved: (t: TripDetai
           .filter(Boolean)
           .slice(0, 10),
       }
-      if (trip.is_owner) body.visibility = f.visibility
+      // 可见性和实时公开只有作者能改（共同作者提交会 403）
+      if (trip.is_owner) {
+        body.visibility = f.visibility
+        body.live_share = f.live_share
+      }
       const t = await api.trips.update(trip.id, body)
       onSaved(t)
-      toast.success('已保存')
+      // 站点开启了「公开旅程需审核」：改为公开后进入审核
+      if (t.status === 'pending' && trip.status !== 'pending')
+        toast.success('已保存，公开需要审核', { description: '管理员审核通过后才会出现在发现广场，在此之前只有你和共同作者能看到' })
+      else toast.success('已保存')
     } catch (e) {
       toast.error(errorMessage(e))
     } finally {
@@ -282,7 +306,7 @@ function InfoPanel({ trip, onSaved }: { trip: TripDetail; onSaved: (t: TripDetai
   return (
     <div className="space-y-4">
       <Field label="标题">
-        <Input value={f.title} onChange={(e) => set('title', e.target.value)} maxLength={80} />
+        <Input value={f.title} onChange={(e) => set('title', e.target.value)} maxLength={100} />
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="开始日期">
@@ -300,16 +324,43 @@ function InfoPanel({ trip, onSaved }: { trip: TripDetail; onSaved: (t: TripDetai
         />
       </Field>
       {trip.is_owner && (
-        <Field label="谁可以看" hint={visibilities[f.visibility].desc}>
-          <Segmented<Visibility>
-            value={f.visibility}
-            onChange={(v) => set('visibility', v)}
-            options={(['private', 'unlisted', 'public'] as Visibility[]).map((v) => ({ value: v, label: visibilities[v].label }))}
-          />
-        </Field>
+        <>
+          <Field
+            label="谁可以看"
+            hint={
+              <>
+                {visibilities[f.visibility].desc}
+                {trip.status === 'pending' && (
+                  <span className="mt-0.5 block text-amber-700">公开申请审核中，通过后才会出现在发现广场</span>
+                )}
+                {trip.status === 'hidden' && <span className="mt-0.5 block text-red-600">已被管理员隐藏，改为公开也不会显示</span>}
+              </>
+            }
+          >
+            <Segmented<Visibility>
+              value={f.visibility}
+              onChange={(v) => set('visibility', v)}
+              options={(['private', 'unlisted', 'public'] as Visibility[]).map((v) => ({ value: v, label: visibilities[v].label }))}
+            />
+          </Field>
+          <Field
+            label="旅行中实时公开位置"
+            hint={
+              f.live_share ? (
+                <span className="text-amber-700">
+                  已开启：能看到这段旅程的人可以实时看到你们的打卡、照片和 GPS 轨迹；私密旅程仍只有成员可见
+                </span>
+              ) : (
+                '关闭时（默认），旅行中其他人只能看到计划路线；你们的打卡、照片和 GPS 轨迹在旅程结束后才公开'
+              )
+            }
+          >
+            <Switch checked={f.live_share} onChange={(v) => set('live_share', v)} />
+          </Field>
+        </>
       )}
       <Field label="一句话简介">
-        <Textarea value={f.summary} onChange={(e) => set('summary', e.target.value)} maxLength={300} className="min-h-16" />
+        <Textarea value={f.summary} onChange={(e) => set('summary', e.target.value)} maxLength={500} className="min-h-16" />
       </Field>
       <Field label="游记正文" hint="支持 Markdown：## 标题、**加粗**、- 列表">
         <Textarea
@@ -516,6 +567,7 @@ export default function TripEditPage() {
   const [addAs, setAddAs] = useState<'plan' | 'visited' | null>(null)
   const [flyTarget, setFlyTarget] = useState<[number, number] | null>(null)
   const [order, setOrder] = useState<Waypoint[]>([])
+  const [legMode, setLegMode] = useState<LegMode>('transit')
   // 待滚动到的地点：新加的点要等刷新后列表渲染出这一行才能滚过去
   const scrollTo = useRef<number | null>(null)
 
@@ -544,6 +596,8 @@ export default function TripEditPage() {
   }, [trip])
   const planned = useMemo(() => plannedPath(order), [order])
   const actual = useMemo(() => actualPath(order), [order])
+  // 路段用时只在出发前 / 旅行中有用；已完成的旅程不计算（也不消耗站点的高德额度）
+  const legs = useTripLegs(trip?.can_edit && trip.phase !== 'finished' ? trip.id : undefined, order, legMode)
 
   if (isLoading) return <PageLoader />
   // 保存后的刷新失败（网络不好）时保留编辑中的内容；404 说明旅程已删除或不再可见
@@ -557,6 +611,18 @@ export default function TripEditPage() {
     return qc.invalidateQueries({ queryKey: key })
   }
   const near = order.length ? ([order[order.length - 1].lng, order[order.length - 1].lat] as [number, number]) : null
+  // 每个计划点「距上一站」的路段。只用和当前列表相邻关系一致的：排序、删除、改天数后，
+  // 新结果算出来之前还显示着旧结果，其中有的路段已经不再连着相邻的两站
+  const legByTo = new Map<number, TripLeg>()
+  for (const l of legs.data?.legs ?? []) legByTo.set(l.to_id, l)
+  const legOf = new Map<number, TripLeg>()
+  let prevPlanned: Waypoint | null = null
+  for (const w of order) {
+    if (!w.planned) continue
+    const l = legByTo.get(w.id)
+    if (l && prevPlanned && l.from_id === prevPlanned.id && prevPlanned.day === w.day) legOf.set(w.id, l)
+    prevPlanned = w
+  }
   // 规划中只能加入计划；出发后默认也是加入计划（比如明天要去的地方），需要时可切换为补记打卡
   const addMode = trip.phase === 'planning' ? 'plan' : (addAs ?? (trip.phase === 'finished' ? 'visited' : 'plan'))
 
@@ -652,6 +718,7 @@ export default function TripEditPage() {
     { value: 'route', label: '路线', icon: Route },
     { value: 'info', label: '信息', icon: Info },
     { value: 'photos', label: `照片${trip.photos.length ? ` ${trip.photos.length}` : ''}`, icon: ImageIcon },
+    { value: 'track', label: '轨迹', icon: Footprints },
     { value: 'members', label: '成员', icon: Users },
   ]
 
@@ -761,6 +828,15 @@ export default function TripEditPage() {
                   />
                 )}
               </div>
+              {trip.phase !== 'finished' && planned.length >= 2 && (
+                <LegsSummary
+                  data={legs.data}
+                  mode={legMode}
+                  onMode={setLegMode}
+                  loading={legs.isFetching}
+                  error={legs.isError}
+                />
+              )}
               {order.length === 0 ? (
                 <Empty
                   icon={<Route className="size-10" />}
@@ -798,6 +874,7 @@ export default function TripEditPage() {
                             }}
                             onSave={(p) => saveWaypoint(w, p)}
                             onDelete={() => deleteWaypoint(w)}
+                            leg={legOf.get(w.id)}
                           />
                         </div>
                       ))}
@@ -826,6 +903,7 @@ export default function TripEditPage() {
               }}
             />
           )}
+          {panel === 'track' && <TrackPanel trip={trip} />}
           {panel === 'members' && <MembersPanel trip={trip} />}
         </div>
       </div>

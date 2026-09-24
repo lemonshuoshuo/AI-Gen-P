@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { MapPin, Search, TriangleAlert } from 'lucide-react'
-import { api, ApiError, type Category } from '@/api'
+import { api, ApiError, isAvoided, type Category } from '@/api'
 import { Button, CategoryChip, Input, Modal, Spinner } from '@/components/ui'
 import { formatDistance, haversine } from '@/lib/geo'
 
@@ -77,7 +77,7 @@ export function CheckinPicker({
       lng: p.lng,
       lat: p.lat,
       distance: p.distance_m ?? haversine([lng, lat], [p.lng, p.lat]),
-      community: { avoid: p.avoid_count > p.recommend_count },
+      community: { avoid: isAvoided(p) },
     }))
     // 高德周边里已经在「大家打卡过」中的地点不重复列出
     for (const [i, it] of (around.data?.items ?? []).entries()) {
@@ -91,6 +91,8 @@ export function CheckinPicker({
         lng: it.lng,
         lat: it.lat,
         distance: it.distance_m ?? haversine([lng, lat], [it.lng, it.lat]),
+        // 有公开打卡的高德 POI 同样标出「大家打卡过」，多人踩雷时提示慎去（与服务端判断一致）
+        community: it.place ? { avoid: isAvoided(it.place) } : undefined,
       })
     }
     return list.sort((a, b) => a.distance - b.distance)

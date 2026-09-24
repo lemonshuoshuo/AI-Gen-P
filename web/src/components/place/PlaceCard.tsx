@@ -1,5 +1,6 @@
 import { Link } from 'react-router'
 import { MapPin } from 'lucide-react'
+import { isAvoided } from '@/api'
 import type { Place } from '@/api/types'
 import { CategoryChip, Stars } from '@/components/ui'
 import { cn } from '@/lib/cn'
@@ -27,7 +28,8 @@ export function VerdictBar({ place, className }: { place: Place; className?: str
 export function PlaceRow({ place, rank }: { place: Place; rank?: number }) {
   const rate = recommendRate(place)
   const Icon = categoryOf(place.category).icon
-  const avoid = place.avoid_count > place.recommend_count && place.avoid_count > 0
+  // 与服务端 MinAvoidWarn 一致：至少 2 人踩雷且踩雷多于推荐才提示慎去（一个人的评价不算）
+  const avoid = isAvoided(place)
   return (
     <Link
       to={`/places/${place.id}`}

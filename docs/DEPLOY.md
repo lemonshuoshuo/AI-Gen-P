@@ -28,6 +28,8 @@ docker compose ps
 docker compose logs -f app
 ```
 
+`docker compose ps` 中 app 显示 `(healthy)` 即启动完成（首次启动或升级后可能需要几十秒）；显示 `(unhealthy)` 或反复重启时执行 `docker compose logs app` 查看原因。也可以用 `docker compose up -d --wait` 等待启动完成。
+
 容器日志会自动轮转（每个服务最多保留约 50MB），只看最近的日志：`docker compose logs --tail 200 app`。
 
 浏览器访问 `http://服务器IP:8080`，用 `.env` 里配置的管理员账号登录，右上角头像菜单里有「管理后台」。
@@ -45,27 +47,35 @@ docker compose logs -f app
 
 1. 域名解析到服务器 IP（国内服务器的域名需要先完成 ICP 备案）
 2. `.env` 中设置 `DOMAIN=你的域名`
-3. `.env` 中设置 `HTTP_PORT=127.0.0.1:8080`（Caddy 通过容器内部网络访问应用，8080 无需对公网开放）
+3. `.env` 中设置 `HTTP_PORT=127.0.0.1:8080`（Caddy 通过容器内部网络访问应用，8080 无需对公网开放）；之前设置过 `TRUSTED_PROXIES=none` 的改回留空
 4. `docker compose --profile https up -d --build`
 
 建议同时取消 `.env` 中 `COMPOSE_PROFILES=https` 这一行的注释：之后执行 `docker compose up -d`、`docker compose down`（包括升级时）都会自动带上 Caddy，不用每次加 `--profile https`。
 
-**方式 B：已有 Nginx**：在 `.env` 中设置 `HTTP_PORT=127.0.0.1:8080` 并执行 `docker compose up -d`，然后参考 `nginx.conf.example` 反向代理到 `127.0.0.1:8080`。
+**方式 B：已有 Nginx**：在 `.env` 中设置 `HTTP_PORT=127.0.0.1:8080`（设置过 `TRUSTED_PROXIES=none` 的改回留空）并执行 `docker compose up -d`，然后参考 `nginx.conf.example` 反向代理到 `127.0.0.1:8080`。
 
 > **启用 HTTPS 后务必关闭 8080 的公网访问**：否则网站仍能通过 `http://服务器IP:8080` 明文访问，登录密码和令牌可能被窃听。设置后执行 `docker compose ps`，应显示 `127.0.0.1:8080->8080/tcp`；并在云服务器安全组中删除 8080 的放行规则。注意：Docker 发布的端口会绕过 ufw / firewalld，仅在 ufw 中关闭 8080 无效。之后请使用 `https://你的域名` 访问（旧的 `http://IP:8080` 书签和分享链接会失效）。
 >
 > 内置 Caddy 和 `nginx.conf.example` 都开启了 HSTS：浏览器通过 HTTPS 访问过一次后，一年内都只会用 HTTPS 打开这个域名，所以启用后不要再改回 HTTP。
 
-## 四、高德 Key（强烈建议配置）
+## 四、备案与合规（在中国大陆公开运营必读）
+
+- **ICP 备案**：域名解析到中国大陆的服务器并对外提供访问之前，必须先通过云服务商完成 ICP 备案。拿到备案号后填到「管理后台 → 站点设置 → 备案信息」，网站页脚会显示备案号，并链接到 [beian.miit.gov.cn](https://beian.miit.gov.cn/)。
+- **公安联网备案**：网站开通后 30 日内到 [全国互联网安全管理服务平台](https://beian.mps.gov.cn/) 办理，拿到的公安备案号同样填在「站点设置 → 备案信息」中。
+- **用户协议 / 隐私政策**：在「站点设置」中编辑；留空时使用内置模板，但至少要把模板里的【运营者名称】【联系邮箱】换成你自己的信息。用户注册时必须勾选同意。
+- **内容安全**：开放注册的公开网站负有实名与内容审核义务。建议在「站点设置」中配置屏蔽词、开启「公开旅程需审核」（在「内容管理 → 待审核」中通过），或关闭开放注册；用户的举报在「举报处理」中处理。
+
+## 五、高德 Key（强烈建议配置）
 
 不配置也能用：底图正常显示，可以在地图上点选地点，省/市会自动识别。
 配置后可以 **搜索具体店铺/景点、识别街道级地址、推荐附近地点、校正 AI 规划的地点坐标**。
+还会用于 **路径规划**：路线编辑中显示相邻两站之间步行 / 公交地铁 / 驾车的用时。结果缓存 7 天，与搜索等功能消耗同一份高德调用额度；未配置 Key 时按直线距离估算用时。
 
 1. 注册 [高德开放平台](https://lbs.amap.com/)，完成开发者认证
 2. 控制台 → 应用管理 → 创建应用 → 添加 Key，**服务平台选择「Web服务」**
 3. 把 Key 填到 `.env` 的 `AMAP_KEY=`，然后 `docker compose up -d`
 
-## 五、AI 推荐与 AI 规划（可选）
+## 六、AI 推荐与 AI 规划（可选）
 
 支持任意 **OpenAI 兼容接口**，云端 API 或本地模型都可以。在 `.env` 中配置：
 
@@ -95,7 +105,7 @@ docker compose logs -f app
 - 只有 CPU 时，7B 模型生成多日行程通常需要几分钟：在 `.env` 设置 `AI_TIMEOUT=300s` 后执行 `docker compose up -d`；使用 Nginx 时 `proxy_read_timeout` 要大于该值。有显卡或使用云端 API 会快很多。7B 模型约需 6GB 以上内存。
 - 模型在另一台机器上时，`AI_BASE_URL` 填 `http://该机器IP:11434/v1`。
 
-## 六、数据与备份
+## 七、数据与备份
 
 所有数据都在部署目录的 `data/` 下：
 
@@ -135,7 +145,7 @@ docker compose up -d --build
 - 数据库密码只在第一次启动时按 `.env` 的 `DB_PASSWORD` 设置。如果 `data/postgres` 是用另一个 `.env` 初始化的（例如在新服务器上先部署、后还原了旧的 `.env`），app 会报 `password authentication failed`，按「常见问题」中的「修改数据库密码」处理。
 - 恢复后管理员密码是备份里的密码，`.env` 里的 `ADMIN_PASSWORD` 不会覆盖已有账号。
 
-## 七、升级
+## 八、升级
 
 > **不要在网站运行时复制 `data/` 目录**：复制正在运行的数据库目录可能得到损坏的数据库，而且复制之后新产生的游记、打卡和照片会丢失。务必先备份、再停止旧版本。
 
@@ -157,6 +167,9 @@ mv triphub-旧版本/.env triphub-旧版本/data triphub-新版本/
 cd triphub-新版本 && docker compose up -d --build && docker compose logs -f app
 ```
 
+- 第 1 步的备份命令要等它执行完（回到命令提示符）再进行第 2 步；备份过程中不要停止或重启服务，否则备份不完整。
+- 从较早的版本升级时，第一次启动会一次性转换部分数值列（日志出现 `converting numeric columns to double precision`，约每 6 万段旅程 1–2 秒），并重新统计一次地点数据；等 `docker compose ps` 中 app 显示 `(healthy)` 后再访问。
+
 想让旧目录保留一份完整数据用于回滚，第 3 步可以把 `mv` 换成 `cp -a`：必须在第 2 步停止之后执行，要用 root 执行（保留数据库文件的属主），并且磁盘要有同样大小的空闲空间。
 
 **回滚**：在新版本目录执行 `docker compose down`，把 `.env` 和 `data/` 移回旧版本目录，再在旧目录执行 `docker compose up -d --build`（第 3 步用了 `cp -a` 的话，旧目录里保留着升级前的数据，也可以直接启动，但升级后新产生的数据不在里面）。如果旧版本无法使用升级后的数据库，在旧目录用第 1 步的备份恢复到升级前的状态（升级后新产生的数据会丢失）：
@@ -170,7 +183,7 @@ gunzip -c ../triphub-pre-upgrade-日期.sql.gz | docker compose exec -T db psql 
 docker compose up -d --build
 ```
 
-## 八、不用 Docker 直接运行
+## 九、不用 Docker 直接运行
 
 发布包里的 `triphub-linux-amd64` 是单个静态可执行文件（ARM 服务器用 `triphub-linux-arm64`）：
 
@@ -193,19 +206,20 @@ export TRIPHUB_ADMIN_USERNAME=admin TRIPHUB_ADMIN_PASSWORD=你的密码
 | `TRIPHUB_DATA_DIR` | `./data` | 照片（`uploads/`）和 `jwt_secret` 的存放目录 |
 | `TRIPHUB_JWT_SECRET` | 自动生成 | 登录签名密钥，留空时自动生成并保存为数据目录下的 `jwt_secret`；自己设置时至少 32 个字符 |
 | `TRIPHUB_ADMIN_USERNAME` / `TRIPHUB_ADMIN_PASSWORD` | – | 管理员账号：用户名不存在时创建（密码 8–64 位），不会修改已有账号的密码 |
-| `TRIPHUB_AMAP_KEY` | – | 高德 Web 服务 Key（见第四节） |
+| `TRIPHUB_AMAP_KEY` | – | 高德 Web 服务 Key（见第五节） |
 | `TRIPHUB_CORS_ORIGINS` | – | 允许跨域的来源，逗号分隔（`*` 表示任意）；留空只允许同源 |
-| `TRIPHUB_TRUSTED_PROXIES` | 本机和内网地址 | 可信反向代理的 IP / 网段（逗号分隔），只采信它们传来的 `X-Forwarded-For` / `X-Real-IP`；`none` 表示都不信任 |
+| `TRIPHUB_TRUSTED_PROXIES` | 本机和内网地址 | 可信反向代理的 IP / 网段（逗号分隔），只采信它们传来的 `X-Forwarded-For` / `X-Real-IP`；`none` 表示都不信任（不用反向代理、直接开放应用端口时建议设为 `none`） |
 | `TRIPHUB_MAX_UPLOAD_MB` | `20` | 单张照片最大 MB |
 | `TRIPHUB_SITE_NAME` | `TripHub` | 站点名称初始值（后台「站点设置」保存过之后以后台为准） |
 | `TRIPHUB_TILES_NORMAL` / `TRIPHUB_TILES_SATELLITE` / `TRIPHUB_TILES_SATELLITE_LABEL` | 高德瓦片 | 自定义底图瓦片 URL 模板，逗号分隔，必须是 GCJ-02 坐标系 |
 | `TRIPHUB_TILES_ATTRIBUTION` | `© 高德地图` | 地图右下角显示的底图版权 / 审图号（可含 HTML），换用其他瓦片时填写对应的版权与审图号 |
-| `TRIPHUB_AI_BASE_URL` / `TRIPHUB_AI_API_KEY` / `TRIPHUB_AI_MODEL` | – | OpenAI 兼容接口（见第五节），填了地址和模型才启用 AI |
+| `TRIPHUB_AI_BASE_URL` / `TRIPHUB_AI_API_KEY` / `TRIPHUB_AI_MODEL` | – | OpenAI 兼容接口（见第六节），填了地址和模型才启用 AI |
 | `TRIPHUB_AI_TIMEOUT` | `30s` | AI 请求超时（`90s`、`5m` 这样的时长或秒数） |
+| `GOMEMLIMIT` | 不限（Docker Compose 部署为 `800MiB`） | 程序的内存软上限（如 `800MiB`、`1500MiB`，单位须写 `MiB` / `GiB`），避免与同一台服务器上的 PostgreSQL 抢内存；处理大照片时仍可能临时超过 |
 
-用 Docker Compose 部署时，在 `.env` 中写去掉 `TRIPHUB_` 前缀的同名变量即可（如 `AMAP_KEY`，对应关系见 `docker-compose.yml`）；`TRIPHUB_DB_DSN`、`TRIPHUB_DATA_DIR` 已由 `docker-compose.yml` 设置好（数据库密码填 `DB_PASSWORD`），`TRIPHUB_ADDR`、`TRIPHUB_TRUSTED_PROXIES` 不通过 `.env` 传入。
+用 Docker Compose 部署时，在 `.env` 中写去掉 `TRIPHUB_` 前缀的同名变量即可（如 `AMAP_KEY`、`TRUSTED_PROXIES`，对应关系见 `docker-compose.yml`；`GOMEMLIMIT` 同名）；`TRIPHUB_DB_DSN`、`TRIPHUB_DATA_DIR` 已由 `docker-compose.yml` 设置好（数据库密码填 `DB_PASSWORD`），只有 `TRIPHUB_ADDR` 不通过 `.env` 传入。
 
-## 九、从源码构建
+## 十、从源码构建
 
 ```bash
 # 需要 Node.js 22.12+（或 20.19+）与 Go 1.27+（请使用最新补丁版本，旧版 Go 标准库有已知安全漏洞）
@@ -224,7 +238,7 @@ cp .env.example .env && vim .env   # 同第二节，另外取消 COMPOSE_FILE=do
 docker compose up -d --build       # 在服务器上编译前端和后端，自动按服务器架构编译
 ```
 
-之后本指南的其它命令都在 `deploy/` 目录下照常使用，数据保存在 `deploy/data/`。升级时先按第六节备份，再执行 `git pull && docker compose up -d --build`。国内服务器可在 `.env` 中设置 `NODE_IMAGE` / `GO_IMAGE` / `NPM_REGISTRY` / `GOPROXY` 使用镜像加速（示例见 `.env.example`）。
+之后本指南的其它命令都在 `deploy/` 目录下照常使用，数据保存在 `deploy/data/`。升级时先按第七节备份，再执行 `git pull && docker compose up -d --build`。国内服务器可在 `.env` 中设置 `NODE_IMAGE` / `GO_IMAGE` / `NPM_REGISTRY` / `GOPROXY` 使用镜像加速（示例见 `.env.example`）。
 
 > 手动 `docker run` 运行镜像时，务必挂载数据目录（如 `-v /srv/triphub:/data`）并设置 `TRIPHUB_DB_DSN`，否则照片和 `jwt_secret` 会写进匿名卷，重建容器后就找不到了。
 
@@ -233,7 +247,9 @@ docker compose up -d --build       # 在服务器上编译前端和后端，自�
 - **地图空白 / 只显示省界轮廓**：浏览器访问不到高德瓦片服务器（`webrd0x.is.autonavi.com`），检查网络；页面会自动退回到内置的省界底图。
 - **定位失败**：确认是 HTTPS 访问，并在手机浏览器 / 微信中允许定位权限。
 - **iPhone 上传的照片没有位置**：在系统相册选择照片时点「选项」打开「位置」；或者在微信外用 Safari 打开网站。
-- **忘记管理员密码**：修改 `.env` 中的 `ADMIN_PASSWORD` 不会覆盖已有账号的密码。在部署目录执行 `docker compose exec app /triphub reset-password -user 管理员用户名`，会重置为随机密码并显示出来（也可以加 `-password '新密码'` 自己指定），该账号在所有设备上的登录随之失效，登录后可在「设置」中改成自己的密码。
+- **忘记管理员密码**：修改 `.env` 中的 `ADMIN_PASSWORD` 不会覆盖已有账号的密码。在部署目录执行 `docker compose exec app /triphub reset-password -user 管理员用户名`，会重置为随机密码并显示出来（也可以加 `-password '新密码'` 自己指定），该账号在所有设备上的登录随之失效，登录后可在「账号设置」中改成自己的密码。
+- **app 启动后立即退出或反复重启**：执行 `docker compose logs app` 查看原因。常见原因：`.env` 中的 `ADMIN_PASSWORD` 仍是示例值或不足 8 位；`JWT_SECRET` 填了但不足 32 个字符（留空会自动生成）；`GOMEMLIMIT` 单位写错（日志出现 `malformed GOMEMLIMIT`，应写成 `800MiB`、`1500MiB` 这样）。
+- **普通用户忘记密码**：管理员在「管理后台 → 用户管理」中对该用户执行「重置密码」，会生成一个新密码（转告用户，用户登录后可在「账号设置」中修改），该用户在所有设备上的登录随之失效。
 - **修改 `.env` 后没生效**：要执行 `docker compose up -d` 重新创建容器；`docker compose restart` 不会重新读取 `.env`。
 - **修改数据库密码**：`DB_PASSWORD` 只在第一次启动（`data/postgres` 为空）时用来初始化数据库，之后直接改 `.env` 会导致 app 日志出现 `password authentication failed`。正确做法：先执行 `docker compose exec db psql -U triphub -d triphub -c "ALTER USER triphub PASSWORD '新密码'"`，再把 `.env` 的 `DB_PASSWORD` 改成同一个值，然后 `docker compose up -d`。（首次部署、还没有任何数据时，也可以 `docker compose down && rm -rf data/postgres` 后重新启动。）
-- **HTTPS 没生效**：执行 `docker compose logs caddy` 查看原因（常见：`.env` 未设置 `DOMAIN`、域名未解析到本机、80/443 端口被占用或安全组未放行、国内服务器域名未备案）。
+- **HTTPS 没生效**：Caddy 要等 app 显示 `(healthy)` 后才启动，先用 `docker compose ps` 确认 app 正常；再执行 `docker compose logs caddy` 查看原因（常见：`.env` 未设置 `DOMAIN`、域名未解析到本机、80/443 端口被占用或安全组未放行、国内服务器域名未备案）。
