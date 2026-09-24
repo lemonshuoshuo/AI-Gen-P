@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"triphub/internal/geo"
 	"triphub/internal/media"
@@ -44,6 +45,10 @@ func userBrief(u *model.User) *UserBrief {
 	return &UserBrief{ID: u.ID, Username: u.Username, Nickname: nick, AvatarURL: u.AvatarURL, Level: l.Level, Role: u.Role}
 }
 
+// loadUsers batch-loads users for building UserBriefs. Only the columns
+// userBrief reads are selected; other fields (Email, Status, PasswordHash,
+// Bio, StorageUsed...) are zero values, so callers that need them must query
+// separately.
 func (h *Handler) loadUsers(ctx context.Context, ids []int64) (map[int64]*model.User, error) {
 	out := map[int64]*model.User{}
 	ids = uniq(ids)
@@ -51,7 +56,8 @@ func (h *Handler) loadUsers(ctx context.Context, ids []int64) (map[int64]*model.
 		return out, nil
 	}
 	var users []model.User
-	if err := h.db.WithContext(ctx).Where("id IN ?", ids).Find(&users).Error; err != nil {
+	if err := h.db.WithContext(ctx).Select("id", "username", "nickname", "avatar_url", "exp", "role").
+		Where("id IN ?", ids).Find(&users).Error; err != nil {
 		return nil, err
 	}
 	for i := range users {
@@ -138,6 +144,8 @@ type WaypointDTO struct {
 	PlaceID   *int64  `json:"place_id"`
 	CreatedAt string  `json:"created_at"`
 	UpdatedAt string  `json:"updated_at"`
+	// PlaceStats is set in TripDetail when the linked place has public check-ins.
+	PlaceStats *PlaceStats `json:"place_stats,omitempty"`
 }
 
 func (h *Handler) waypointDTO(w *model.Waypoint) WaypointDTO {
@@ -226,6 +234,26 @@ func (h *Handler) placeDTO(p *model.Place) PlaceDTO {
 	}
 }
 
+// PlaceStats is the community summary of a place with public check-ins,
+// shown where stops are planned (itinerary, place search) so that 踩雷
+// places stand out before anyone goes there.
+type PlaceStats struct {
+	ID             int64   `json:"id"`
+	CheckinCount   int     `json:"checkin_count"`
+	RecommendCount int     `json:"recommend_count"`
+	NeutralCount   int     `json:"neutral_count"`
+	AvoidCount     int     `json:"avoid_count"`
+	RatingAvg      float64 `json:"rating_avg"`
+}
+
+// placeStatsColumns are the columns placeStats reads.
+var placeStatsColumns = []string{"id", "amap_id", "checkin_count", "recommend_count", "neutral_count", "avoid_count", "rating_avg"}
+
+func placeStats(p *model.Place) *PlaceStats {
+	return &PlaceStats{ID: p.ID, CheckinCount: p.CheckinCount, RecommendCount: p.RecommendCount,
+		NeutralCount: p.NeutralCount, AvoidCount: p.AvoidCount, RatingAvg: p.RatingAvg}
+}
+
 // TripRef / PlaceRef are minimal references.
 type TripRef struct {
 	ID    int64  `json:"id"`
@@ -273,22 +301,72 @@ type TripCard struct {
 }
 
 var (
-	mdImage  = regexp.MustCompile(`!\[[^\]]*\]\([^)]*\)`)
-	mdLink   = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
-	mdSymbol = regexp.MustCompile("(?m)^\\s{0,3}(#{1,6}|>|[-*+]|\\d+\\.)\\s+|[*_`~]+|<[^>]+>")
+	mdImage = regexp.MustCompile(`!\[[^\]]*\]\([^)]*\)`)
+	mdLink  = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+	// The tag alternative must not cross '<': with "<[^>]+>" an unclosed '<'
+	// scans to the end of the text for every later match (quadratic).
+	mdSymbol = regexp.MustCompile("(?m)^\\s{0,3}(#{1,6}|>|[-*+]|\\d+\\.)\\s+|[*_`~]+|<[^<>]+>")
 	spaces   = regexp.MustCompile(`\s+`)
 )
+
+// summaryScanBytes is how much of the content summarize looks at; the
+// summary is at most 120 characters, so the start of the text is enough.
+const summaryScanBytes = 4096
+
+// summarySourceChars is how much content list queries load for trips that
+// need a derived summary (see loadSummarySources).
+const summarySourceChars = 1500
 
 // summarize returns the trip summary, derived from the content when empty.
 func summarize(summary, content string) string {
 	s := strings.TrimSpace(summary)
 	if s == "" && content != "" {
+		if len(content) > summaryScanBytes {
+			cut := summaryScanBytes
+			for cut > 0 && !utf8.RuneStart(content[cut]) {
+				cut--
+			}
+			content = content[:cut]
+		}
 		s = mdImage.ReplaceAllString(content, "")
 		s = mdLink.ReplaceAllString(s, "$1")
 		s = mdSymbol.ReplaceAllString(s, "")
 		s = strings.TrimSpace(spaces.ReplaceAllString(s, " "))
 	}
 	return service.Truncate(s, 120)
+}
+
+// loadSummarySources loads the start of the content of trips without a
+// summary, for their cards to derive one; list queries omit the content
+// column (it can be 50,000 characters long).
+func (h *Handler) loadSummarySources(ctx context.Context, trips []model.Trip) error {
+	var ids []int64
+	for _, t := range trips {
+		if strings.TrimSpace(t.Summary) == "" {
+			ids = append(ids, t.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	var rows []struct {
+		ID      int64
+		Content string
+	}
+	if err := h.db.WithContext(ctx).Model(&model.Trip{}).Select("id, left(content, ?) AS content", summarySourceChars).
+		Where("id IN ?", ids).Scan(&rows).Error; err != nil {
+		return err
+	}
+	byID := make(map[int64]string, len(rows))
+	for _, r := range rows {
+		byID[r.ID] = r.Content
+	}
+	for i := range trips {
+		if v, ok := byID[trips[i].ID]; ok {
+			trips[i].Content = v
+		}
+	}
+	return nil
 }
 
 func nonNil(v []string) []string {
@@ -400,6 +478,22 @@ type TripDetail struct {
 	Waypoints     []WaypointDTO `json:"waypoints"`
 	Photos        []PhotoDTO    `json:"photos"`
 	HasTrack      bool          `json:"has_track"`
+	LiveShare     bool          `json:"live_share"`
+}
+
+// redactLive keeps only the planned waypoints, as they were planned: what a
+// non-member may see of an ongoing trip without live sharing (see
+// service.Access.HideLive).
+func redactLive(wps []model.Waypoint) []model.Waypoint {
+	out := make([]model.Waypoint, 0, len(wps))
+	for _, w := range wps {
+		if !w.Planned {
+			continue
+		}
+		w.Status, w.ArrivedAt, w.Verdict, w.Rating, w.UpdatedAt = model.WPTodo, nil, "", 0, w.CreatedAt
+		out = append(out, w)
+	}
+	return out
 }
 
 func (h *Handler) tripDetail(ctx context.Context, t *model.Trip, a service.Access, viewer *model.User) (*TripDetail, error) {
@@ -408,8 +502,9 @@ func (h *Handler) tripDetail(ctx context.Context, t *model.Trip, a service.Acces
 	if err != nil {
 		return nil, err
 	}
+	hide := a.HideLive(t)
 	d := &TripDetail{TripCard: card, Content: t.Content, CanEdit: a.CanEdit(), IsOwner: a.Owner,
-		InvitePending: a.Pending, HasTrack: t.TrackPointCount > 0}
+		InvitePending: a.Pending, HasTrack: t.TrackPointCount > 0 && !hide, LiveShare: t.LiveShare}
 	d.Summary = t.Summary // the raw summary (cards derive one from content when empty)
 	if a.Member {
 		code := t.ShareCode
@@ -419,12 +514,64 @@ func (h *Handler) tripDetail(ctx context.Context, t *model.Trip, a service.Acces
 	if err := db.Where("trip_id = ?", t.ID).Order("seq, id").Find(&wps).Error; err != nil {
 		return nil, err
 	}
-	d.Waypoints = h.waypointDTOs(wps)
-	var photos []model.Photo
-	if err := db.Where("trip_id = ?", t.ID).Order("taken_at ASC NULLS LAST, id ASC").Find(&photos).Error; err != nil {
-		return nil, err
+	if hide {
+		wps = redactLive(wps)
+		d.WaypointCount, d.VisitedCount, d.PhotoCount = len(wps), 0, 0
+		if t.CoverURL == "" {
+			d.CoverURL = "" // the automatic cover is one of the trip's photos
+		}
 	}
-	d.Photos = h.photoDTOs(photos)
+	d.Waypoints = h.waypointDTOs(wps)
+	if !(a.Admin || a.Member || a.Pending || (t.Visibility == model.VisPublic && t.Status == model.TripNormal)) {
+		// The viewer sees this trip (e.g. an unlisted one via its share code)
+		// but maybe not all its places: only link those they can open.
+		var ids []int64
+		for _, w := range wps {
+			if w.PlaceID != nil {
+				ids = append(ids, *w.PlaceID)
+			}
+		}
+		vis, err := h.visiblePlaceIDs(ctx, viewer, ids)
+		if err != nil {
+			return nil, err
+		}
+		for i := range d.Waypoints {
+			if pid := d.Waypoints[i].PlaceID; pid != nil && !vis[*pid] {
+				d.Waypoints[i].PlaceID = nil
+			}
+		}
+	}
+	// Community check-ins of the linked places: only places with public
+	// check-ins have any (the same rule that makes a place public).
+	var placeIDs []int64
+	for _, w := range d.Waypoints {
+		if w.PlaceID != nil {
+			placeIDs = append(placeIDs, *w.PlaceID)
+		}
+	}
+	if len(placeIDs) > 0 {
+		var places []model.Place
+		if err := db.Select(placeStatsColumns).Where("id IN ? AND checkin_count > 0", uniq(placeIDs)).Find(&places).Error; err != nil {
+			return nil, err
+		}
+		stats := make(map[int64]*PlaceStats, len(places))
+		for i := range places {
+			stats[places[i].ID] = placeStats(&places[i])
+		}
+		for i := range d.Waypoints {
+			if pid := d.Waypoints[i].PlaceID; pid != nil {
+				d.Waypoints[i].PlaceStats = stats[*pid]
+			}
+		}
+	}
+	d.Photos = []PhotoDTO{}
+	if !hide {
+		var photos []model.Photo
+		if err := db.Where("trip_id = ?", t.ID).Order("taken_at ASC NULLS LAST, id ASC").Find(&photos).Error; err != nil {
+			return nil, err
+		}
+		d.Photos = h.photoDTOs(photos)
+	}
 	if viewer != nil {
 		var n int64
 		db.Model(&model.Like{}).Where("user_id = ? AND trip_id = ?", viewer.ID, t.ID).Count(&n)

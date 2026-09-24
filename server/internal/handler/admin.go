@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"triphub/internal/auth"
 	"triphub/internal/model"
 	"triphub/internal/service"
 )
@@ -20,6 +21,7 @@ func (h *Handler) adminStats(c *gin.Context) error {
 		Users        int64 `json:"users"`
 		Trips        int64 `json:"trips"`
 		PublicTrips  int64 `json:"public_trips"`
+		PendingTrips int64 `json:"pending_trips"`
 		Places       int64 `json:"places"`
 		Photos       int64 `json:"photos"`
 		Comments     int64 `json:"comments"`
@@ -28,6 +30,7 @@ func (h *Handler) adminStats(c *gin.Context) error {
 	db.Model(&model.User{}).Count(&s.Users)
 	db.Model(&model.Trip{}).Count(&s.Trips)
 	db.Model(&model.Trip{}).Where("visibility = ? AND status = ?", model.VisPublic, model.TripNormal).Count(&s.PublicTrips)
+	db.Model(&model.Trip{}).Where("status = ?", model.TripPending).Count(&s.PendingTrips)
 	db.Model(&model.Place{}).Where("checkin_count > 0").Count(&s.Places)
 	db.Model(&model.Photo{}).Count(&s.Photos)
 	db.Model(&model.Comment{}).Where("NOT deleted").Count(&s.Comments)
@@ -69,7 +72,7 @@ func (h *Handler) adminStats(c *gin.Context) error {
 	}
 	last := trend[len(trend)-1]
 	c.JSON(http.StatusOK, gin.H{
-		"users": s.Users, "trips": s.Trips, "public_trips": s.PublicTrips, "places": s.Places,
+		"users": s.Users, "trips": s.Trips, "public_trips": s.PublicTrips, "pending_trips": s.PendingTrips, "places": s.Places,
 		"photos": s.Photos, "comments": s.Comments, "storage_bytes": s.StorageBytes,
 		"today": gin.H{"users": last.Users, "trips": last.Trips, "comments": last.Comments},
 		"trend": trend,
@@ -173,6 +176,9 @@ func (h *Handler) adminUpdateUser(c *gin.Context) error {
 	if u.ID == 0 {
 		return errNotFound("用户不存在")
 	}
+	if u.Status == model.UserDeleted {
+		return errBad("该账号已注销")
+	}
 	upd := map[string]any{}
 	if req.Role != nil {
 		if *req.Role != model.RoleUser && *req.Role != model.RoleAdmin {
@@ -223,6 +229,46 @@ func (h *Handler) adminUpdateUser(c *gin.Context) error {
 	return nil
 }
 
+// adminResetPassword sets a new password for a user who forgot theirs (a
+// random one when none is given) and signs them out on all devices.
+func (h *Handler) adminResetPassword(c *gin.Context) error {
+	id, err := idParam(c, "id")
+	if err != nil {
+		return err
+	}
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := bindJSON(c, &req); err != nil {
+		return err
+	}
+	pw := req.Password
+	if pw == "" {
+		pw = auth.RandomBase62(12)
+	} else if err := validatePassword(pw); err != nil {
+		return err
+	}
+	ctx := c.Request.Context()
+	var u model.User
+	if err := h.db.WithContext(ctx).Limit(1).Find(&u, id).Error; err != nil {
+		return err
+	}
+	if u.ID == 0 {
+		return errNotFound("用户不存在")
+	}
+	if u.ID == currentUserID(c) {
+		return errBad("请在「设置」中修改自己的密码")
+	}
+	if u.Status == model.UserDeleted {
+		return errBad("该账号已注销")
+	}
+	if err := service.ResetPassword(ctx, h.db, u.ID, pw); err != nil {
+		return err
+	}
+	c.JSON(http.StatusOK, gin.H{"password": pw})
+	return nil
+}
+
 func (h *Handler) adminTrips(c *gin.Context) error {
 	q := h.db.WithContext(c.Request.Context()).Model(&model.Trip{})
 	if kw := strings.TrimSpace(c.Query("q")); kw != "" {
@@ -266,6 +312,14 @@ func (h *Handler) adminUpdateTrip(c *gin.Context) error {
 		return errBad("status 只能是 normal / hidden")
 	}
 	err = db.Transaction(func(tx *gorm.DB) error {
+		// Lock and re-read the trip: its owner may change it meanwhile (a
+		// pending trip made private leaves the review queue).
+		if err := service.LockTrip(tx, t.ID); err != nil {
+			return err
+		}
+		if err := tx.First(&t, t.ID).Error; err != nil {
+			return err
+		}
 		upd := map[string]any{}
 		if req.Featured != nil && *req.Featured != t.Featured {
 			upd["featured"] = *req.Featured
@@ -285,6 +339,20 @@ func (h *Handler) adminUpdateTrip(c *gin.Context) error {
 		statusChanged := req.Status != nil && *req.Status != t.Status
 		if statusChanged {
 			upd["status"] = *req.Status
+			if t.Status == model.TripPending { // the review of a public trip (see ReviewPublicTrips)
+				verdict := "未通过审核"
+				if *req.Status == model.TripNormal {
+					verdict = "已通过审核，现已公开"
+					upd["published_at"] = time.Now()
+					if err := h.svc.AwardExp(tx, t.OwnerID, service.ExpKey("trip_public", t.ID), service.ExpFirstPublic, "trip_public"); err != nil {
+						return err
+					}
+				}
+				if err := h.svc.Notify(tx, service.Notice{UserID: t.OwnerID, Type: "system", TripID: t.ID,
+					Content: "你的旅程「" + t.Title + "」" + verdict}); err != nil {
+					return err
+				}
+			}
 		}
 		if len(upd) == 0 {
 			return nil
@@ -550,12 +618,39 @@ func (h *Handler) adminGetSettings(c *gin.Context) error {
 func (h *Handler) adminPutSettings(c *gin.Context) error {
 	cur := h.svc.Settings.Get()
 	var req struct {
-		SiteName         *string `json:"site_name"`
-		Announcement     *string `json:"announcement"`
-		RegistrationOpen *bool   `json:"registration_open"`
+		SiteName          *string `json:"site_name"`
+		Announcement      *string `json:"announcement"`
+		RegistrationOpen  *bool   `json:"registration_open"`
+		ICPBeian          *string `json:"icp_beian"`
+		PoliceBeian       *string `json:"police_beian"`
+		TermsMD           *string `json:"terms_md"`
+		PrivacyMD         *string `json:"privacy_md"`
+		SensitiveWords    *string `json:"sensitive_words"`
+		ReviewPublicTrips *bool   `json:"review_public_trips"`
 	}
 	if err := bindJSON(c, &req); err != nil {
 		return err
+	}
+	for _, f := range []struct {
+		in    *string
+		out   *string
+		label string
+		max   int
+	}{
+		{req.ICPBeian, &cur.ICPBeian, "ICP 备案号", 50},
+		{req.PoliceBeian, &cur.PoliceBeian, "公安备案号", 60},
+		{req.TermsMD, &cur.TermsMD, "用户协议", 20000},
+		{req.PrivacyMD, &cur.PrivacyMD, "隐私政策", 20000},
+		{req.SensitiveWords, &cur.SensitiveWords, "屏蔽词", 100000},
+	} {
+		if f.in == nil {
+			continue
+		}
+		v, err := clean(*f.in, f.label, f.max, false)
+		if err != nil {
+			return err
+		}
+		*f.out = v
 	}
 	if req.SiteName != nil {
 		v, err := clean(*req.SiteName, "站点名称", 30, true)
@@ -573,6 +668,9 @@ func (h *Handler) adminPutSettings(c *gin.Context) error {
 	}
 	if req.RegistrationOpen != nil {
 		cur.RegistrationOpen = *req.RegistrationOpen
+	}
+	if req.ReviewPublicTrips != nil {
+		cur.ReviewPublicTrips = *req.ReviewPublicTrips
 	}
 	if err := h.svc.Settings.Save(cur); err != nil {
 		return err

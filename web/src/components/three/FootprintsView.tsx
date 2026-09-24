@@ -1,42 +1,89 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
+import { useQuery } from '@tanstack/react-query'
 import { ArcLayer, ColumnLayer, ScatterplotLayer } from '@deck.gl/layers'
 import { Box, Globe2, List, Play } from 'lucide-react'
+import type { Map as MLMap } from 'maplibre-gl'
 import type { Footprints } from '@/api/types'
 import { BaseMap, useMap } from '@/components/map/BaseMap'
 import { removeLayers, upsertSource } from '@/components/map/layers'
-import { Button, Segmented } from '@/components/ui'
+import { Segmented, buttonClass } from '@/components/ui'
+import { loadAtlas } from '@/lib/atlas'
 import { cn } from '@/lib/cn'
-import { fmtDate } from '@/lib/format'
-import { CHINA_CENTER, formatKm } from '@/lib/geo'
+import { CHINA_CENTER } from '@/lib/geo'
 import { DeckLayers } from './deck'
-import { LitProvinces, type LitTheme } from './LitProvinces'
+import { LitProvinces, provinceHeight, type LitTheme } from './LitProvinces'
 
 type Mode = 'china' | 'globe' | 'list'
 type City = Footprints['cities'][number]
 
-function CityLayers({ data, theme }: { data: Footprints; theme: LitTheme }) {
+/** 中国东西跨约 62 个经度，3.2 级需要约 900px 宽；手机等窄容器按宽度缩小，保证东部沿海和西部都在画面内 */
+function fitChinaWidth(map: MLMap) {
+  const w = map.getContainer().clientWidth
+  const z = Math.log2(((w - 24) * 360) / (64 * 512))
+  if (z < 3.2) map.jumpTo({ zoom: z })
+}
+
+// 触屏上单指滑动用来滚动页面（地图很高，否则很难滑到下面的内容），双指才拖动地图
+const coarsePointer = window.matchMedia('(pointer: coarse)').matches
+const mapGestureOptions = {
+  cooperativeGestures: coarsePointer,
+  locale: {
+    'CooperativeGesturesHandler.MobileHelpText': '双指拖动可移动地图',
+    'CooperativeGesturesHandler.WindowsHelpText': '按住 Ctrl 并滚动鼠标可缩放地图',
+    'CooperativeGesturesHandler.MacHelpText': '按住 ⌘ 并滚动鼠标可缩放地图',
+  },
+}
+
+type Arc = { from: [number, number]; to: [number, number]; fromCount: number; toCount: number }
+
+function CityLayers({ data, theme, counts }: { data: Footprints; theme: LitTheme; counts: Record<string, number> }) {
   const max = Math.max(1, ...data.cities.map((c) => c.count))
-  // 按时间顺序把旅程串起来画弧线
+  // deck.gl 画在地图上方的独立画布上，和 LitProvinces 的立体省份没有共同的深度：光柱、光晕、弧线的底部要抬到所在省份的顶面，
+  // 否则会穿过省份、挂在省份侧壁上。省界数据与 LitProvinces 共用同一个查询；加载完省份才升起，这里同步升起（1.2 秒动画）
+  const { data: atlas } = useQuery({ queryKey: ['atlas'], queryFn: loadAtlas, staleTime: Infinity })
+  const [risen, setRisen] = useState(false)
+  useEffect(() => {
+    if (!atlas) return
+    const h = requestAnimationFrame(() => setRisen(true))
+    return () => cancelAnimationFrame(h)
+  }, [atlas])
+  const maxProv = Math.max(1, ...Object.values(counts))
+  const lift = (provinceCount: number) => (risen ? provinceHeight(provinceCount, maxProv) : 0)
+  // 城市编码前两位 + 0000 即省级编码（与服务端 geo.ProvinceCodeOf 一致）
+  const top = (cityCode: string) => lift(counts[cityCode.slice(0, 2) + '0000'] ?? 0)
+  // 按时间顺序把旅程串起来画弧线；弧线两端是各段旅程的起点，所在省份取这段旅程的第一个打卡点
   const arcs = useMemo(() => {
+    const provCount = new Map(data.provinces.map((p) => [p.name, p.count]))
+    const tripCount = new Map<number, number>()
+    for (const p of data.points) if (!tripCount.has(p.trip_id)) tripCount.set(p.trip_id, provCount.get(p.province) ?? 0)
     const trips = [...data.trips].filter((t) => t.path.length).sort((a, b) => (a.start_date ?? '').localeCompare(b.start_date ?? ''))
-    const out: { from: [number, number]; to: [number, number] }[] = []
-    for (let i = 1; i < trips.length; i++) out.push({ from: trips[i - 1].path[0], to: trips[i].path[0] })
+    const out: Arc[] = []
+    for (let i = 1; i < trips.length; i++)
+      out.push({
+        from: trips[i - 1].path[0],
+        to: trips[i].path[0],
+        fromCount: tripCount.get(trips[i - 1].id) ?? 0,
+        toCount: tripCount.get(trips[i].id) ?? 0,
+      })
     return out
-  }, [data.trips])
+  }, [data.trips, data.points, data.provinces])
   const love = theme === 'love'
+  const rise = [risen, maxProv, counts]
   return (
     <DeckLayers
       layers={[
-        new ArcLayer<{ from: [number, number]; to: [number, number] }>({
+        new ArcLayer<Arc>({
           id: 'fp-arcs',
           data: arcs,
-          getSourcePosition: (a) => a.from,
-          getTargetPosition: (a) => a.to,
+          getSourcePosition: (a) => [...a.from, lift(a.fromCount)],
+          getTargetPosition: (a) => [...a.to, lift(a.toCount)],
           getSourceColor: love ? [255, 142, 199, 200] : [255, 154, 68, 200],
           getTargetColor: love ? [155, 92, 255, 200] : [255, 90, 95, 200],
           getWidth: 2,
           getHeight: 0.5,
+          transitions: { getSourcePosition: 1200, getTargetPosition: 1200 },
+          updateTriggers: { getSourcePosition: rise, getTargetPosition: rise },
         }),
         new ColumnLayer<City>({
           id: 'fp-city-columns',
@@ -44,18 +91,22 @@ function CityLayers({ data, theme }: { data: Footprints; theme: LitTheme }) {
           diskResolution: 20,
           radius: 14000,
           extruded: true,
-          getPosition: (c) => [c.lng, c.lat],
+          getPosition: (c) => [c.lng, c.lat, top(c.code)],
           getElevation: (c) => 260000 + (c.count / max) * 420000,
           getFillColor: love ? [255, 220, 240, 240] : [255, 240, 200, 240],
           material: { ambient: 0.7, diffuse: 0.5 },
+          transitions: { getPosition: 1200 },
+          updateTriggers: { getPosition: rise },
         }),
         new ScatterplotLayer<City>({
           id: 'fp-city-glow',
           data: data.cities,
-          getPosition: (c) => [c.lng, c.lat],
+          getPosition: (c) => [c.lng, c.lat, top(c.code)],
           getRadius: (c) => 26000 + (c.count / max) * 30000,
           getFillColor: love ? [255, 110, 180, 90] : [255, 180, 90, 90],
           radiusMinPixels: 5,
+          transitions: { getPosition: 1200 },
+          updateTriggers: { getPosition: rise },
         }),
       ]}
     />
@@ -118,33 +169,11 @@ function GlobeLayers({ data, theme }: { data: Footprints; theme: LitTheme }) {
   return null
 }
 
-export function FootprintStats({ data, className, dark }: { data: Footprints; className?: string; dark?: boolean }) {
-  const s = data.stats
-  const items = [
-    { label: '旅程', value: s.trips },
-    { label: '城市', value: s.cities },
-    { label: '省份', value: s.provinces },
-    { label: '打卡点', value: s.waypoints },
-    { label: '里程', value: formatKm(s.distance_km) },
-    { label: '天', value: s.days },
-  ]
-  return (
-    <div className={cn('grid grid-cols-3 gap-2 sm:grid-cols-6', className)}>
-      {items.map((i) => (
-        <div key={i.label} className={cn('rounded-2xl px-3 py-2.5', dark ? 'bg-white/8 ring-1 ring-white/10' : 'bg-white shadow-card')}>
-          <div className="truncate text-lg font-extrabold tabular-nums">{i.value}</div>
-          <div className={cn('text-xs', dark ? 'text-white/50' : 'text-ink-400')}>{i.label}</div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 export function FootprintsView({
   data,
   theme = 'sunset',
   replayTo,
-  height = 'h-[62vh]',
+  height = 'h-[46vh] sm:h-[62vh]',
 }: {
   data: Footprints
   theme?: LitTheme
@@ -172,10 +201,9 @@ export function FootprintsView({
           ]}
         />
         {replayTo && data.trips.length > 0 && (
-          <Link to={replayTo}>
-            <Button size="sm" variant={theme === 'love' ? 'love' : 'dark'} icon={<Play className="size-4" />}>
-              3D 回放足迹
-            </Button>
+          <Link to={replayTo} className={buttonClass({ size: 'sm', variant: theme === 'love' ? 'love' : 'dark' })}>
+            <Play className="size-4" />
+            3D 回放足迹
           </Link>
         )}
       </div>
@@ -191,11 +219,13 @@ export function FootprintsView({
             zoom={mode === 'globe' ? 1.6 : 3.2}
             pitch={mode === 'china' ? 48 : 0}
             bearing={mode === 'china' ? -8 : 0}
+            options={mapGestureOptions}
+            onReady={mode === 'china' ? fitChinaWidth : undefined}
           >
             {mode === 'china' && (
               <>
                 <LitProvinces counts={counts} theme={theme} />
-                <CityLayers data={data} theme={theme} />
+                <CityLayers data={data} theme={theme} counts={counts} />
               </>
             )}
             {mode === 'globe' && <GlobeLayers data={data} theme={theme} />}
@@ -224,28 +254,6 @@ export function FootprintsView({
           ))}
         </div>
       )}
-    </div>
-  )
-}
-
-export function FootprintTimeline({ data }: { data: Footprints }) {
-  const trips = [...data.trips].sort((a, b) => (b.start_date ?? '').localeCompare(a.start_date ?? ''))
-  if (!trips.length) return null
-  return (
-    <div className="relative space-y-3 pl-5">
-      <div className="absolute top-2 bottom-2 left-1.5 w-0.5 rounded bg-gradient-to-b from-brand-400 to-orange-300" />
-      {trips.map((t) => (
-        <Link key={t.id} to={`/trips/${t.id}`} className="relative flex items-center gap-3 rounded-2xl bg-white p-3 shadow-card hover:shadow-float">
-          <span className="absolute top-1/2 -left-[18px] size-3 -translate-y-1/2 rounded-full border-2 border-white bg-brand-500 shadow" />
-          {t.cover_url && <img src={t.cover_url} alt="" className="size-12 rounded-xl object-cover" />}
-          <div className="min-w-0 flex-1">
-            <div className="truncate font-semibold">{t.title}</div>
-            <div className="text-xs text-ink-400">
-              {fmtDate(t.start_date) || '未设置日期'} · {t.path.length} 个地点 · {formatKm(t.distance_km)}
-            </div>
-          </div>
-        </Link>
-      ))}
     </div>
   )
 }

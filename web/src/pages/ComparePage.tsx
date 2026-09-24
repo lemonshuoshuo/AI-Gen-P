@@ -1,11 +1,15 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Box, CheckCircle2, Clock, Sparkles, SkipForward, XCircle } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, Box, CheckCircle2, Clock, Footprints, PenLine, Share2, Sparkles, SkipForward, XCircle } from 'lucide-react'
 import { api, errorMessage, type Waypoint } from '@/api'
+import { rememberedShareCode } from '@/api/client'
 import { BaseMap } from '@/components/map/BaseMap'
 import { FitOnce, RouteLines, WaypointMarkers } from '@/components/map/layers'
-import { Button, Card, Empty, PageLoader } from '@/components/ui'
+import { ShareDialog } from '@/components/trip/ShareDialog'
+import { Button, Card, Empty, IconButton, PageLoader, buttonClass } from '@/components/ui'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
+import { invalidateTripLists } from '@/lib/cache'
 import { cn } from '@/lib/cn'
 import { formatKm } from '@/lib/geo'
 import { categoryOf } from '@/lib/meta'
@@ -62,6 +66,8 @@ function WpList({ title, icon, list, tone }: { title: string; icon: React.ReactN
 
 export default function ComparePage() {
   const { id } = useParams()
+  const qc = useQueryClient()
+  const [share, setShare] = useState(false)
   const tripQ = useQuery({ queryKey: ['trip', id], queryFn: () => api.trips.get(id!) })
   const cmpQ = useQuery({ queryKey: ['compare', id], queryFn: () => api.trips.compare(Number(id)) })
   const trackQ = useQuery({
@@ -81,6 +87,7 @@ export default function ComparePage() {
     cmp.todo.forEach((w) => (l[w.id] = '?'))
     return l
   }, [cmp])
+  useDocumentTitle(trip && `${trip.title} · 计划 vs 实际`)
 
   if (tripQ.isLoading || cmpQ.isLoading) return <PageLoader />
   if (!trip || !cmp) return <Empty className="min-h-[60vh]" title="无法加载对比" desc={errorMessage(tripQ.error ?? cmpQ.error)} />
@@ -90,7 +97,12 @@ export default function ComparePage() {
   const pct = Math.round(cmp.completion_rate * 100)
   const maxDay = Math.max(1, ...cmp.days.map((d) => Math.max(d.planned, d.visited + d.extra)))
   const allPts = sorted.map((w) => [w.lng, w.lat] as [number, number])
-  const distDiff = cmp.actual.distance_km - cmp.planned.distance_km
+  // 有 GPS 轨迹时实际里程按轨迹算，差值也用显示出来的这个数；计划里程始终是打卡点之间的直线距离
+  const hasTrack = cmp.actual.track_distance_km > 0
+  const actualKm = hasTrack ? cmp.actual.track_distance_km : cmp.actual.distance_km
+  const distDiff = actualKm - cmp.planned.distance_km
+  // 旅程结束后给作者的下一步：写游记、补评价、分享；其他情况在顶栏放一个分享按钮
+  const nextSteps = trip.can_edit && trip.phase === 'finished'
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-5">
@@ -102,12 +114,36 @@ export default function ComparePage() {
           <p className="text-xs text-ink-400">计划 vs 实际</p>
           <h1 className="truncate text-xl font-extrabold">{trip.title}</h1>
         </div>
-        <Link to={`/trips/${trip.id}/replay?compare=1`}>
-          <Button size="sm" variant="dark" icon={<Box className="size-4" />}>
-            3D 对比回放
-          </Button>
+        {!nextSteps && (
+          <IconButton label="分享" onClick={() => setShare(true)}>
+            <Share2 className="size-5" />
+          </IconButton>
+        )}
+        <Link to={`/trips/${trip.id}/replay?compare=1`} className={buttonClass({ size: 'sm', variant: 'dark' })}>
+          <Box className="size-4" />
+          3D 对比回放
         </Link>
       </div>
+
+      {nextSteps && (
+        <Card className="mt-4 flex flex-wrap items-center gap-2 p-3">
+          <span className="w-full text-sm text-ink-700 sm:w-auto">旅程结束啦，趁记忆还新鲜：</span>
+          <Link to={`/trips/${trip.id}/edit?panel=info`} className={buttonClass({ size: 'sm', variant: 'dark' })}>
+            <PenLine className="size-4" />
+            写游记
+          </Link>
+          <Link to={`/trips/${trip.id}/edit`} className={buttonClass({ size: 'sm' })}>
+            补充打卡评价
+          </Link>
+          <Button size="sm" variant="outline" icon={<Share2 className="size-4" />} onClick={() => setShare(true)}>
+            {trip.is_owner && trip.visibility === 'private' ? '发布 / 分享' : '分享'}
+          </Button>
+          <Link to="/footprints" className={buttonClass({ size: 'sm', variant: 'ghost' })}>
+            <Footprints className="size-4" />
+            我的足迹
+          </Link>
+        </Card>
+      )}
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[360px_1fr]">
         <div className="space-y-4">
@@ -136,11 +172,12 @@ export default function ComparePage() {
             <div>
               <div className="text-xs text-ink-400">计划里程</div>
               <div className="text-lg font-bold">{formatKm(cmp.planned.distance_km)}</div>
+              {hasTrack && <div className="text-[11px] text-ink-400">按打卡点直线连线</div>}
             </div>
             <div>
               <div className="text-xs text-ink-400">实际里程</div>
               <div className="text-lg font-bold">
-                {formatKm(cmp.actual.track_distance_km || cmp.actual.distance_km)}
+                {formatKm(actualKm)}
                 {cmp.planned.distance_km > 0 && (
                   <span className={cn('ml-1 text-xs font-medium', distDiff > 0 ? 'text-amber-600' : 'text-emerald-600')}>
                     {distDiff > 0 ? '+' : ''}
@@ -148,7 +185,7 @@ export default function ComparePage() {
                   </span>
                 )}
               </div>
-              {cmp.actual.track_distance_km > 0 && <div className="text-[11px] text-ink-400">按 GPS 轨迹</div>}
+              {hasTrack && <div className="text-[11px] text-ink-400">按 GPS 轨迹</div>}
             </div>
           </Card>
 
@@ -243,6 +280,17 @@ export default function ComparePage() {
           )}
         </div>
       </div>
+
+      <ShareDialog
+        trip={trip}
+        shareCode={rememberedShareCode(trip.id)}
+        open={share}
+        onClose={() => setShare(false)}
+        onUpdated={(t) => {
+          qc.setQueryData(['trip', id], t)
+          invalidateTripLists(qc)
+        }}
+      />
     </div>
   )
 }

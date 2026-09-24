@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -57,6 +58,9 @@ func (h *Handler) prepareComment(c *gin.Context, in *commentInput, scope string,
 	u := currentUser(c)
 	if !h.commentLimit.Allow(strconv.FormatInt(u.ID, 10)) {
 		return nil, nil, errTooMany("评论过于频繁，请稍后再试")
+	}
+	if err := h.screen(c, content); err != nil { // after the limit: rejected attempts count too
+		return nil, nil, err
 	}
 	cm := &model.Comment{UserID: u.ID, Content: content}
 	var parent *model.Comment
@@ -117,6 +121,9 @@ func (h *Handler) postTripComment(c *gin.Context) error {
 	u := currentUser(c)
 	excerpt := service.Truncate(cm.Content, 60)
 	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		if err := service.LockTrip(tx, t.ID); err != nil { // serialise the comment_count recount
+			return err
+		}
 		if err := tx.Create(cm).Error; err != nil {
 			return err
 		}
@@ -156,13 +163,45 @@ func (h *Handler) postTripComment(c *gin.Context) error {
 	return nil
 }
 
+// recountTripComments refreshes a trip's comment_count; callers that add or
+// delete comments lock the trip first (service.LockTrip).
 func (h *Handler) recountTripComments(tx *gorm.DB, tripID int64) error {
 	return tx.Exec("UPDATE trips SET comment_count = (SELECT COUNT(*) FROM comments WHERE trip_id = ? AND NOT deleted) WHERE id = ?",
 		tripID, tripID).Error
 }
 
-// loadPlace loads a place visible to the viewer: places with public check-ins
-// or an AMap POI ID are public; others only to members of trips using them.
+// visiblePlaceIDs returns which of the places ids the viewer u (nil = guest)
+// may open: places with public check-ins, an AMap POI ID, or used by a
+// public trip are public; others are visible only to members (accepted or
+// invited) of a trip using them, and to admins.
+func (h *Handler) visiblePlaceIDs(ctx context.Context, u *model.User, ids []int64) (map[int64]bool, error) {
+	out := map[int64]bool{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	q := h.db.WithContext(ctx).Model(&model.Place{}).Where("id IN ?", ids)
+	if !u.IsAdmin() {
+		uid := int64(0)
+		if u != nil {
+			uid = u.ID
+		}
+		q = q.Where(`(checkin_count > 0 OR amap_id <> '' OR EXISTS (
+  SELECT 1 FROM waypoints w JOIN trips t ON t.id = w.trip_id WHERE w.place_id = places.id AND (
+    (t.visibility = ? AND t.status = ?) OR
+    w.trip_id IN (SELECT trip_id FROM trip_members WHERE user_id = ? AND status IN ?))))`,
+			model.VisPublic, model.TripNormal, uid, []string{model.MemberAccepted, model.MemberPending})
+	}
+	var visible []int64
+	if err := q.Pluck("id", &visible).Error; err != nil {
+		return nil, err
+	}
+	for _, id := range visible {
+		out[id] = true
+	}
+	return out, nil
+}
+
+// loadPlace loads the :id place if the viewer may open it (see visiblePlaceIDs).
 func (h *Handler) loadPlace(c *gin.Context) (*model.Place, error) {
 	id, err := idParam(c, "id")
 	if err != nil {
@@ -180,15 +219,12 @@ func (h *Handler) loadPlace(c *gin.Context) (*model.Place, error) {
 	if p.CheckinCount > 0 || p.AmapID != "" || u.IsAdmin() {
 		return &p, nil
 	}
-	if u != nil {
-		var n int64
-		if err := db.Model(&model.Waypoint{}).Where("place_id = ? AND trip_id IN (?)", p.ID, service.MemberTripIDs(db, u.ID)).
-			Count(&n).Error; err != nil {
-			return nil, err
-		}
-		if n > 0 {
-			return &p, nil
-		}
+	vis, err := h.visiblePlaceIDs(c.Request.Context(), u, []int64{p.ID})
+	if err != nil {
+		return nil, err
+	}
+	if vis[p.ID] {
+		return &p, nil
 	}
 	return nil, errNotFound("地点不存在")
 }
@@ -220,6 +256,9 @@ func (h *Handler) postPlaceComment(c *gin.Context) error {
 	cm.PlaceID = &pid
 	u := currentUser(c)
 	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		if err := service.LockPlace(tx, p.ID); err != nil { // serialise the comment_count recount
+			return err
+		}
 		if err := tx.Create(cm).Error; err != nil {
 			return err
 		}
@@ -249,6 +288,18 @@ func (h *Handler) postPlaceComment(c *gin.Context) error {
 // softDeleteComment marks a comment deleted and refreshes counters.
 func (h *Handler) softDeleteComment(c *gin.Context, cm *model.Comment) error {
 	return h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		// Lock before touching the comment: deleteWaypoint locks the trip and
+		// then updates comments, so the reverse order could deadlock.
+		if cm.TripID != nil {
+			if err := service.LockTrip(tx, *cm.TripID); err != nil {
+				return err
+			}
+		}
+		if cm.PlaceID != nil {
+			if err := service.LockPlace(tx, *cm.PlaceID); err != nil {
+				return err
+			}
+		}
 		if err := tx.Model(cm).Updates(map[string]any{"deleted": true, "content": ""}).Error; err != nil {
 			return err
 		}

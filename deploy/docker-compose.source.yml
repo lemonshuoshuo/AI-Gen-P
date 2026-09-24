@@ -1,0 +1,16 @@
+# 在源码仓库里直接部署（不需要发布包，服务器上只需要 Docker）：
+#   cd deploy && cp .env.example .env && vim .env
+#   在 .env 里取消 COMPOSE_FILE=docker-compose.yml:docker-compose.source.yml 这一行的注释
+#   docker compose up -d --build
+# 会在服务器上编译前端和后端（按服务器架构自动编译）；国内服务器可在 .env 设置 NODE_IMAGE / GO_IMAGE / NPM_REGISTRY / GOPROXY
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      # 只列变量名：.env 中设置了才传入，否则使用仓库根目录 Dockerfile 里的默认值
+      args:
+        - NODE_IMAGE
+        - GO_IMAGE
+        - NPM_REGISTRY
+        - GOPROXY

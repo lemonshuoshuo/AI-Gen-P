@@ -41,9 +41,9 @@
 ```
 
 - **数据与展示分离**：所有核心数据都在服务端，网页只负责展示。以后的 App 直接复用同一套 API，见 [docs/API.md](docs/API.md)
-- **后端**：Go 1.24、Gin、GORM、PostgreSQL、JWT（access + refresh token）。图片压缩和缩略图生成、EXIF 解析、坐标转换（WGS-84 ⇄ GCJ-02）、离线省市识别（内置行政区边界）、高德 Web 服务和 OpenAI 兼容 AI 客户端都在服务端完成
+- **后端**：Go 1.27、Gin、GORM、PostgreSQL、JWT（access + refresh token）。图片压缩和缩略图生成、EXIF 解析、坐标转换（WGS-84 ⇄ GCJ-02）、离线省市识别（内置行政区边界）、高德 Web 服务和 OpenAI 兼容 AI 客户端都在服务端完成
 - **前端**：React 19、TypeScript、Vite、Tailwind CSS 4、TanStack Query。地图用 MapLibre GL 叠加高德瓦片，3D 效果用 deck.gl
-- **部署**：前端打包进 Go 二进制，运行镜像基于 `scratch`（约 20MB），用 Docker Compose 一键启动
+- **部署**：前端打包进 Go 二进制，运行镜像基于 `scratch`（约 26MB，压缩后约 9MB），用 Docker Compose 一键启动
 
 ## 目录
 

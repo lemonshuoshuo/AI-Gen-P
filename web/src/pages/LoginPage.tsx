@@ -105,7 +105,7 @@ export default function LoginPage() {
                     <Input value={form.username} onChange={set('username')} autoComplete="username" required autoFocus />
                   </Field>
                   <Field label="昵称（可选）">
-                    <Input value={form.nickname} onChange={set('nickname')} maxLength={30} />
+                    <Input value={form.nickname} onChange={set('nickname')} maxLength={20} />
                   </Field>
                   <Field label="邮箱（可选）" hint="可用邮箱登录">
                     <Input type="email" value={form.email} onChange={set('email')} autoComplete="email" />

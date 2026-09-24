@@ -3,6 +3,7 @@ package handler
 
 import (
 	"io/fs"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -27,13 +28,18 @@ type Handler struct {
 	register     *auth.Limiter // registrations per IP
 	aiLimit      *auth.Limiter // AI calls per user
 	commentLimit *auth.Limiter // comments per user
+	geoLimit     *auth.Limiter // geo search / regeo per user
 	views        *auth.Limiter // view-count de-duplication
+
+	trackCache *trackCache // rendered GET /trips/:id/track payloads
 
 	webui fs.FS
 
 	atlasOnce sync.Once
 	atlasGz   []byte
 	atlasETag string
+
+	gzAssets sync.Map // embedded asset name → gzip bytes ([]byte(nil) = serve raw)
 }
 
 // New creates a Handler. webui is the embedded SPA (may be nil).
@@ -49,14 +55,16 @@ func New(svc *service.Service, webui fs.FS) *Handler {
 		register:     auth.NewLimiter(10, time.Hour),
 		aiLimit:      auth.NewLimiter(30, time.Hour),
 		commentLimit: auth.NewLimiter(30, 10*time.Minute),
+		geoLimit:     auth.NewLimiter(120, 10*time.Minute),
 		views:        auth.NewLimiter(1, 30*time.Minute),
+		trackCache:   newTrackCache(trackCacheBytes),
 		webui:        webui,
 	}
 }
 
 // Cleanup purges expired limiter state and refresh tokens; call periodically.
 func (h *Handler) Cleanup() {
-	for _, l := range []*auth.Limiter{h.loginAccount, h.loginIP, h.register, h.aiLimit, h.commentLimit, h.views} {
+	for _, l := range []*auth.Limiter{h.loginAccount, h.loginIP, h.register, h.aiLimit, h.commentLimit, h.geoLimit, h.views} {
 		l.Cleanup()
 	}
 	h.db.Exec("DELETE FROM refresh_tokens WHERE expires_at < now()")
@@ -67,17 +75,26 @@ func (h *Handler) Router() *gin.Engine {
 	r := gin.New()
 	r.RedirectTrailingSlash = false
 	r.HandleMethodNotAllowed = false
-	// Honour X-Forwarded-For only from loopback / private networks (reverse
-	// proxies, docker), so clients cannot spoof their IP for rate limits.
-	_ = r.SetTrustedProxies([]string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "::1/128", "fc00::/7"})
+	// Honour X-Forwarded-For / X-Real-IP only from TRIPHUB_TRUSTED_PROXIES
+	// (default: loopback and private networks, i.e. reverse proxies), so
+	// clients cannot spoof their IP for rate limits. Docker's userland proxy
+	// (IPv6 clients of an IPv4-only network, rootless Docker, frp-style
+	// tunnels) makes every client appear as a private address, which is why
+	// the compose file publishes the port on IPv4 only.
+	if err := r.SetTrustedProxies(h.cfg.TrustedProxies); err != nil {
+		slog.Error("invalid trusted proxies", "err", err)
+	}
 	r.Use(recovery(), requestLogger(), h.cors())
 
-	api := r.Group("/api/v1", h.bodyLimit(), h.authenticate())
+	// gzip after bodyLimit (MaxBytesReader keeps the raw writer) and before
+	// authenticate (so its 401 JSON is compressed too).
+	api := r.Group("/api/v1", h.bodyLimit(), gzipAPI(), h.authenticate())
 	user := h.requireUser()
 	admin := h.requireAdmin()
 
 	api.GET("/health", w(h.health))
 	api.GET("/site", w(h.site))
+	api.GET("/site/legal/:doc", w(h.legal))
 
 	api.POST("/auth/register", w(h.registerUser))
 	api.POST("/auth/login", w(h.login))
@@ -86,6 +103,7 @@ func (h *Handler) Router() *gin.Engine {
 
 	api.GET("/me", user, w(h.getMe))
 	api.PATCH("/me", user, w(h.updateMe))
+	api.DELETE("/me", user, w(h.deleteMe))
 	api.POST("/me/password", user, w(h.changePassword))
 	api.POST("/me/avatar", user, w(h.uploadAvatar))
 	api.GET("/me/trips", user, w(h.myTrips))
@@ -132,6 +150,8 @@ func (h *Handler) Router() *gin.Engine {
 	api.POST("/waypoints/:id/reset", user, w(h.waypointReset))
 	api.GET("/trips/:id/recommend", user, w(h.recommend))
 	api.GET("/trips/:id/compare", w(h.compare))
+	// Legs spend the operator's AMap quota: users only.
+	api.GET("/trips/:id/legs", user, w(h.legs))
 	api.POST("/ai/plan", user, w(h.aiPlan))
 
 	api.POST("/trips/:id/photos", user, w(h.uploadPhoto))
@@ -142,6 +162,7 @@ func (h *Handler) Router() *gin.Engine {
 	api.POST("/trips/:id/track", user, w(h.appendTrack))
 	api.GET("/trips/:id/track", w(h.getTrack))
 	api.DELETE("/trips/:id/track", user, w(h.clearTrack))
+	api.POST("/trips/:id/track/import", user, w(h.importTrack))
 
 	api.GET("/trips/:id/comments", w(h.tripComments))
 	api.POST("/trips/:id/comments", user, w(h.postTripComment))
@@ -154,8 +175,9 @@ func (h *Handler) Router() *gin.Engine {
 	api.GET("/places/:id", w(h.getPlace))
 	api.GET("/places/:id/reviews", w(h.placeReviews))
 
-	api.GET("/geo/search", w(h.geoSearch))
-	api.GET("/geo/regeo", w(h.geoRegeo))
+	// Search / regeo spend the operator's AMap quota: users only, rate-limited.
+	api.GET("/geo/search", user, w(h.geoSearch))
+	api.GET("/geo/regeo", user, w(h.geoRegeo))
 	api.GET("/geo/atlas", h.geoAtlas)
 
 	api.GET("/partner", user, w(h.getPartner))
@@ -178,6 +200,7 @@ func (h *Handler) Router() *gin.Engine {
 	adm.GET("/stats", w(h.adminStats))
 	adm.GET("/users", w(h.adminUsers))
 	adm.PATCH("/users/:id", w(h.adminUpdateUser))
+	adm.POST("/users/:id/reset-password", w(h.adminResetPassword))
 	adm.GET("/trips", w(h.adminTrips))
 	adm.PATCH("/trips/:id", w(h.adminUpdateTrip))
 	adm.DELETE("/trips/:id", w(h.adminDeleteTrip))

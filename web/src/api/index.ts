@@ -35,7 +35,7 @@ import type {
 } from './types'
 
 export * from './types'
-export { ApiError, errorMessage } from './client'
+export { ApiError, errorMessage, isNotFound } from './client'
 
 type PageQuery = { page?: number; page_size?: number }
 
@@ -112,7 +112,7 @@ export const api = {
     members: (id: number) => http.get<TripMember[]>(`/trips/${id}/members`),
     invite: (id: number, username: string) => http.post<unknown>(`/trips/${id}/members`, { username }),
     removeMember: (id: number, userId: number) => http.del<unknown>(`/trips/${id}/members/${userId}`),
-    acceptInvite: (id: number) => http.post<unknown>(`/trips/${id}/members/accept`),
+    acceptInvite: (id: number) => http.post<TripDetail>(`/trips/${id}/members/accept`),
     declineInvite: (id: number) => http.post<unknown>(`/trips/${id}/members/decline`),
     track: (id: number, max = 2000) => http.get<TrackData>(`/trips/${id}/track`, { max }),
     appendTrack: (id: number, points: TrackPointIn[], segment = 0) =>
@@ -134,6 +134,9 @@ export const api = {
         category?: string
         note?: string
         waypoint_id?: number | null
+        arrived_at?: string
+        /** 客户端生成的幂等键：离线补发时服务端按它去重 */
+        client_id?: string
       },
     ) => http.post<{ waypoint: Waypoint; matched_plan: boolean }>(`/trips/${id}/checkin`, b),
     recommend: (id: number, q: { lng?: number; lat?: number; coord_type?: CoordType; ai?: boolean }) =>
@@ -170,6 +173,8 @@ export const api = {
         caption?: string
         waypoint_id?: number
         auto_waypoint?: boolean
+        /** 客户端生成的幂等键：离线补发时服务端按它去重 */
+        client_id?: string
       },
       onProgress?: (r: number) => void,
     ) => {
@@ -184,6 +189,7 @@ export const api = {
       if (meta.caption) f.append('caption', meta.caption)
       if (meta.waypoint_id) f.append('waypoint_id', String(meta.waypoint_id))
       if (meta.auto_waypoint) f.append('auto_waypoint', 'true')
+      if (meta.client_id) f.append('client_id', meta.client_id)
       return http.upload<{ photo: Photo; waypoint: Waypoint | null; waypoint_created: boolean }>(
         `/trips/${tripId}/photos`,
         f,
@@ -204,8 +210,8 @@ export const api = {
   },
 
   places: {
-    list: (q: PageQuery & { q?: string; city?: string; category?: string; sort?: string }) =>
-      http.get<Paged<Place>>('/places', q),
+    list: (q: PageQuery & { q?: string; city?: string; category?: string; sort?: string }, signal?: AbortSignal) =>
+      http.get<Paged<Place>>('/places', q, signal),
     nearby: (q: { lng: number; lat: number; radius?: number; limit?: number }) =>
       http.get<Place[]>('/places/nearby', q),
     get: (id: number | string) => http.get<Place>(`/places/${id}`),
@@ -220,6 +226,9 @@ export const api = {
     search: (q: { keyword: string; city?: string; lng?: number; lat?: number }, signal?: AbortSignal) =>
       http.get<{ source: 'amap' | 'local'; items: GeoSearchItem[] }>('/geo/search', q, signal),
     regeo: (q: { lng: number; lat: number; coord_type?: CoordType }) => http.get<Regeo>('/geo/regeo', q),
+    /** 周边地点（GCJ-02 坐标）；服务器未配置高德 Key 时 source 为 none */
+    around: (q: { lng: number; lat: number; radius?: number; keyword?: string }, signal?: AbortSignal) =>
+      http.get<{ source: 'amap' | 'none'; items: (GeoSearchItem & { distance_m: number })[] }>('/geo/around', q, signal),
   },
 
   partner: {

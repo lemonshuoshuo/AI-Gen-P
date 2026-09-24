@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useState, type ReactNode } from 'react'
 import { Search, X } from 'lucide-react'
+import type { Paged } from '@/api'
 import { Button, Input } from '@/components/ui'
 import { cn } from '@/lib/cn'
 
@@ -11,8 +12,19 @@ export function useFilters<F extends Record<string, string>>(init: F) {
   return {
     f: state,
     set: (patch: Partial<F>) => setState((s) => ({ ...s, ...patch, page: 1 })),
-    setPage: (page: number) => setState((s) => ({ ...s, page })),
+    setPage: (page: number) => setState((s) => (s.page === page ? s : { ...s, page })),
   }
+}
+
+/** 服务端对超出范围的页返回空 items（total 仍 > 0）：删除 / 隐藏 / 处理掉当前页最后一条后会停在空页 */
+export const isStalePage = (d?: Paged<unknown>) => !!d && d.page > 1 && d.items.length === 0 && d.total > 0
+
+/** 停在空页时自动退回最后一个有效页；用服务端回显的 page / page_size，保留的旧数据不会重复触发 */
+export function usePageGuard(data: Paged<unknown> | undefined, setPage: (p: number) => void) {
+  const back = useEffectEvent(setPage)
+  useEffect(() => {
+    if (data && isStalePage(data)) back(Math.max(1, Math.min(data.page - 1, Math.ceil(data.total / data.page_size))))
+  }, [data])
 }
 
 /** 带防抖的搜索框：停止输入 350ms 后才触发 onChange */

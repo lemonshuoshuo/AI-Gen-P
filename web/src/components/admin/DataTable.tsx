@@ -48,7 +48,8 @@ export function DataTable<T>({
   pageSize: number
   onPage: (p: number) => void
 }) {
-  if (loading)
+  // 当前页的最后一条被删除 / 隐藏后停在了空页：面板正在退回上一页（usePageGuard），先显示加载中
+  if (loading || (!rows?.length && page > 1 && total > 0))
     return (
       <Card className="flex justify-center py-16">
         <Spinner className="size-6" />

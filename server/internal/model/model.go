@@ -8,8 +8,9 @@ const (
 	RoleUser  = "user"
 	RoleAdmin = "admin"
 
-	UserActive = "active"
-	UserBanned = "banned"
+	UserActive  = "active"
+	UserBanned  = "banned"
+	UserDeleted = "deleted" // account closed by its owner; the row is kept anonymised
 
 	PhasePlanning = "planning"
 	PhaseOngoing  = "ongoing"
@@ -19,8 +20,9 @@ const (
 	VisUnlisted = "unlisted"
 	VisPublic   = "public"
 
-	TripNormal = "normal"
-	TripHidden = "hidden"
+	TripNormal  = "normal"
+	TripHidden  = "hidden"
+	TripPending = "pending" // public, waiting for an admin's review (see SiteSettings.ReviewPublicTrips)
 
 	MemberOwner    = "owner"
 	MemberEditor   = "editor"
@@ -64,6 +66,9 @@ type User struct {
 	LastLoginAt  *time.Time
 	CreatedAt    time.Time `gorm:"index"`
 	UpdatedAt    time.Time
+
+	// TermsAgreedAt is when the user agreed to the 用户协议 / 隐私政策 at registration.
+	TermsAgreedAt *time.Time
 }
 
 // IsAdmin reports whether the user has the admin role.
@@ -79,6 +84,10 @@ type RefreshToken struct {
 }
 
 // Trip is a journey (plan, ongoing trip or finished journal).
+//
+// The jsonb columns default to jsonb_build_array(): the function call
+// round-trips through GORM's default comparison unchanged, while a quoted
+// literal like '[]' is re-ALTERed (ACCESS EXCLUSIVE on trips) on every boot.
 type Trip struct {
 	ID              int64      `gorm:"primaryKey"`
 	OwnerID         int64      `gorm:"not null;index"`
@@ -93,10 +102,10 @@ type Trip struct {
 	StartDate       *time.Time `gorm:"type:date"`
 	EndDate         *time.Time `gorm:"type:date"`
 	Days            int        `gorm:"not null;default:0"`
-	DistanceKm      float64    `gorm:"not null;default:0"`
-	Cities          []string   `gorm:"serializer:json;type:jsonb;not null;default:'[]'"`
-	Provinces       []string   `gorm:"serializer:json;type:jsonb;not null;default:'[]'"`
-	Tags            []string   `gorm:"serializer:json;type:jsonb;not null;default:'[]'"`
+	DistanceKm      float64    `gorm:"type:double precision;not null;default:0"`
+	Cities          []string   `gorm:"serializer:json;type:jsonb;not null;default:jsonb_build_array()"`
+	Provinces       []string   `gorm:"serializer:json;type:jsonb;not null;default:jsonb_build_array()"`
+	Tags            []string   `gorm:"serializer:json;type:jsonb;not null;default:jsonb_build_array()"`
 	WaypointCount   int        `gorm:"not null;default:0"`
 	PlannedCount    int        `gorm:"not null;default:0"`
 	VisitedCount    int        `gorm:"not null;default:0"`
@@ -107,9 +116,10 @@ type Trip struct {
 	FavCount        int        `gorm:"not null;default:0"`
 	ViewCount       int        `gorm:"not null;default:0"`
 	TrackPointCount int        `gorm:"not null;default:0"`
-	TrackDistanceKm float64    `gorm:"not null;default:0"`
+	TrackDistanceKm float64    `gorm:"type:double precision;not null;default:0"`
 	Featured        bool       `gorm:"not null;default:false"`
 	FeaturedAt      *time.Time
+	LiveShare       bool       `gorm:"not null;default:false"` // show GPS track / check-ins to non-members while ongoing
 	ForkedFromID    *int64     `gorm:"index"`
 	ShareCode       string     `gorm:"size:16;not null;uniqueIndex"`
 	PublishedAt     *time.Time `gorm:"index:idx_trips_listing,priority:3"`
@@ -146,13 +156,13 @@ type Waypoint struct {
 	City         string  `gorm:"size:64;not null;default:''"`
 	CityCode     string  `gorm:"size:12;not null;default:''"`
 	District     string  `gorm:"size:64;not null;default:''"`
-	Lng          float64 `gorm:"not null"`
-	Lat          float64 `gorm:"not null"`
+	Lng          float64 `gorm:"type:double precision;not null"`
+	Lat          float64 `gorm:"type:double precision;not null"`
 	Category     string  `gorm:"size:32;not null;default:'other'"`
 	Note         string  `gorm:"type:text;not null;default:''"`
 	Verdict      string  `gorm:"size:16;not null;default:''"`
 	Rating       int     `gorm:"not null;default:0"`
-	Cost         float64 `gorm:"not null;default:0"`
+	Cost         float64 `gorm:"type:double precision;not null;default:0"`
 	AmapID       string  `gorm:"size:64;not null;default:''"`
 	PlaceID      *int64  `gorm:"index"`
 	AutoNamed    bool    `gorm:"not null"`
@@ -173,9 +183,9 @@ type Photo struct {
 	Height     int    `gorm:"not null"`
 	Size       int64  `gorm:"not null"`
 	TakenAt    *time.Time
-	Lng        *float64
-	Lat        *float64
-	Caption    string `gorm:"size:1000;not null;default:''"`
+	Lng        *float64 `gorm:"type:double precision"`
+	Lat        *float64 `gorm:"type:double precision"`
+	Caption    string   `gorm:"size:1000;not null;default:''"`
 	CreatedAt  time.Time
 }
 
@@ -185,12 +195,22 @@ type TrackPoint struct {
 	TripID     int64     `gorm:"not null;index:idx_track_trip_time,priority:1;uniqueIndex:idx_track_unique,priority:1"`
 	UserID     int64     `gorm:"not null;uniqueIndex:idx_track_unique,priority:2"`
 	Segment    int       `gorm:"not null;uniqueIndex:idx_track_unique,priority:3"`
-	Lng        float64   `gorm:"not null"`
-	Lat        float64   `gorm:"not null"`
-	Alt        float64   `gorm:"not null;default:0"`
-	Acc        float64   `gorm:"not null;default:0"`
-	Speed      float64   `gorm:"not null;default:0"`
+	Lng        float64   `gorm:"type:double precision;not null"`
+	Lat        float64   `gorm:"type:double precision;not null"`
+	Alt        float64   `gorm:"type:double precision;not null;default:0"`
+	Acc        float64   `gorm:"type:double precision;not null;default:0"`
+	Speed      float64   `gorm:"type:double precision;not null;default:0"`
 	RecordedAt time.Time `gorm:"not null;index:idx_track_trip_time,priority:2;uniqueIndex:idx_track_unique,priority:4"`
+}
+
+// TrackStat is the GPS distance of one member's track in a trip (the sum of
+// the steps within each of that member's segments). A trip's track distance
+// is the longest of its members' tracks, so members recording the same walk
+// together are not counted twice.
+type TrackStat struct {
+	TripID    int64   `gorm:"primaryKey;autoIncrement:false"`
+	UserID    int64   `gorm:"primaryKey;autoIncrement:false"`
+	DistanceM float64 `gorm:"type:double precision;not null;default:0"`
 }
 
 // Place is a POI aggregated across users' waypoints.
@@ -202,17 +222,17 @@ type Place struct {
 	Province       string  `gorm:"size:64;not null;default:''"`
 	City           string  `gorm:"size:64;not null;default:'';index"`
 	District       string  `gorm:"size:64;not null;default:''"`
-	Lng            float64 `gorm:"not null;index:idx_place_geo,priority:1"`
-	Lat            float64 `gorm:"not null;index:idx_place_geo,priority:2"`
+	Lng            float64 `gorm:"type:double precision;not null;index:idx_place_geo,priority:1"`
+	Lat            float64 `gorm:"type:double precision;not null;index:idx_place_geo,priority:2"`
 	Category       string  `gorm:"size:32;not null;default:'other'"`
 	Tel            string  `gorm:"size:100;not null;default:''"`
 	CheckinCount   int     `gorm:"not null;default:0;index"`
-	RatingAvg      float64 `gorm:"not null;default:0"`
+	RatingAvg      float64 `gorm:"type:double precision;not null;default:0"`
 	RatingCount    int     `gorm:"not null;default:0"`
 	RecommendCount int     `gorm:"not null;default:0"`
 	NeutralCount   int     `gorm:"not null;default:0"`
 	AvoidCount     int     `gorm:"not null;default:0"`
-	AvgCost        float64 `gorm:"not null;default:0"`
+	AvgCost        float64 `gorm:"type:double precision;not null;default:0"`
 	CommentCount   int     `gorm:"not null;default:0"`
 	CoverURL       string  `gorm:"size:500;not null;default:''"`
 	CreatedAt      time.Time
@@ -263,6 +283,9 @@ type Partnership struct {
 	Since   *time.Time `gorm:"type:date"`
 	Title   string     `gorm:"size:100;not null;default:''"`
 	BoundAt time.Time  `gorm:"not null"`
+	// Public shows the relationship on both users' profiles to everyone
+	// (「和 TA 一起旅行中」); otherwise only the two of them see it there.
+	Public bool `gorm:"not null;default:false"`
 }
 
 // PartnerInvite is a pending/processed couple-binding request.
@@ -323,7 +346,7 @@ type Setting struct {
 // All lists every model for AutoMigrate.
 func All() []any {
 	return []any{
-		&User{}, &RefreshToken{}, &Trip{}, &TripMember{}, &Waypoint{}, &Photo{}, &TrackPoint{},
+		&User{}, &RefreshToken{}, &Trip{}, &TripMember{}, &Waypoint{}, &Photo{}, &TrackPoint{}, &TrackStat{},
 		&Place{}, &Comment{}, &Like{}, &Favorite{}, &Follow{}, &Partnership{}, &PartnerInvite{},
 		&Notification{}, &Report{}, &ExpLog{}, &Setting{},
 	}

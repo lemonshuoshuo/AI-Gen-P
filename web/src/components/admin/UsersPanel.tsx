@@ -20,7 +20,7 @@ import {
 import { useSite } from '@/hooks/useSite'
 import { fmtBytes, fromNow } from '@/lib/format'
 import { useAuth } from '@/stores/auth'
-import { ADMIN_PAGE_SIZE, FilterBar, FilterSlot, PanelHeader, Pill, SearchInput, useFilters } from './common'
+import { ADMIN_PAGE_SIZE, FilterBar, FilterSlot, PanelHeader, Pill, SearchInput, useFilters, usePageGuard } from './common'
 import { DataTable, type Column } from './DataTable'
 
 type UserPatch = { role?: 'user' | 'admin'; status?: 'active' | 'banned'; exp?: number }
@@ -87,6 +87,7 @@ export function UsersPanel() {
     queryFn: () => api.admin.users({ ...f, page_size: ADMIN_PAGE_SIZE }),
     placeholderData: keepPreviousData,
   })
+  usePageGuard(data, setPage)
   const [expUser, setExpUser] = useState<AdminUser | null>(null)
 
   const update = useMutation({
@@ -188,8 +189,8 @@ export function UsersPanel() {
     const self = u.id === me?.id
     return (
       <Menu
-        trigger={(toggle) => (
-          <IconButton label="更多操作" onClick={toggle} className="size-8">
+        trigger={(toggle, open) => (
+          <IconButton label="更多操作" onClick={toggle} aria-expanded={open} className="size-8">
             <Ellipsis className="size-4.5" />
           </IconButton>
         )}

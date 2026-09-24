@@ -3,11 +3,11 @@ import { Link } from 'react-router'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowUpRight, CircleCheck, CircleX, Flag, Inbox } from 'lucide-react'
 import { toast } from 'sonner'
-import { api, errorMessage, type Report } from '@/api'
+import { api, errorMessage, isNotFound, type Report } from '@/api'
 import { Avatar, Button, Card, Empty, Field, Modal, Pagination, Segmented, Spinner, Switch, Textarea, UserName } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { fmtTime, fromNow } from '@/lib/format'
-import { ADMIN_PAGE_SIZE, PanelHeader, Pill, useFilters } from './common'
+import { ADMIN_PAGE_SIZE, isStalePage, PanelHeader, Pill, useFilters, usePageGuard } from './common'
 
 type Status = Report['status']
 type Target = Report['target_type']
@@ -67,7 +67,14 @@ function HandleDialog({ report, status, onClose }: { report: Report; status: 're
   const [alsoAct, setAlsoAct] = useState(false)
   const m = useMutation({
     mutationFn: async () => {
-      if (action && alsoAct) await moderate(report)
+      if (action && alsoAct) {
+        try {
+          await moderate(report)
+        } catch (e) {
+          // 对象已不存在（作者自删、随旅程删除，或已在另一条举报里处理）：视为处置已完成，照常结案
+          if (!isNotFound(e)) throw e
+        }
+      }
       return api.admin.updateReport(report.id, { status, note: note.trim() || undefined })
     },
     onSuccess: () => {
@@ -174,6 +181,7 @@ export function ReportsPanel() {
     queryFn: () => api.admin.reports({ ...f, page_size: ADMIN_PAGE_SIZE }),
     placeholderData: keepPreviousData,
   })
+  usePageGuard(data, setPage)
   const [handling, setHandling] = useState<{ report: Report; status: 'resolved' | 'rejected' } | null>(null)
 
   return (
@@ -195,7 +203,8 @@ export function ReportsPanel() {
           />
         }
       />
-      {isLoading ? (
+      {/* 处理掉当前页最后一条后先显示加载中，退回上一页后再显示结果（而不是「没有待处理的举报」） */}
+      {isLoading || isStalePage(data) ? (
         <Card className="flex justify-center py-16">
           <Spinner className="size-6" />
         </Card>

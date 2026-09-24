@@ -25,13 +25,14 @@ func ptrOrNil(id int64) *int64 {
 }
 
 // Notify stores a notification. Users are never notified about their own
-// actions, and repeated like/favorite/follow notifications are collapsed.
+// actions, and repeated like/favorite/follow/fork notifications (same actor,
+// same trip) are collapsed.
 func (s *Service) Notify(tx *gorm.DB, n Notice) error {
 	if n.UserID == 0 || (n.ActorID != 0 && n.ActorID == n.UserID) {
 		return nil
 	}
 	switch n.Type {
-	case "like", "favorite", "follow":
+	case "like", "favorite", "follow", "fork":
 		var cnt int64
 		q := tx.Model(&model.Notification{}).Where("user_id = ? AND type = ? AND actor_id = ?", n.UserID, n.Type, n.ActorID)
 		if n.TripID != 0 {

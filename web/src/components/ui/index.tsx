@@ -1,8 +1,9 @@
-import { forwardRef, useEffect, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { forwardRef, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router'
 import { Loader2, Star, X } from 'lucide-react'
 import { create } from 'zustand'
+import { errorMessage, isNotFound } from '@/api/client'
 import type { Category, UserBrief, Verdict } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { categoryOf, levelColor, verdicts } from '@/lib/meta'
@@ -35,6 +36,25 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   block?: boolean
 }
 
+/**
+ * 按钮样式，也给 Link / a 用：跳转用「长得像按钮的链接」，不要把 Button 套在 Link 里
+ * （按钮嵌在链接里是无效 HTML，键盘要按两次 Tab 才能经过）
+ */
+export function buttonClass({
+  variant = 'primary',
+  size = 'md',
+  block,
+  className,
+}: { variant?: Variant; size?: Size; block?: boolean; className?: string } = {}) {
+  return cn(
+    'inline-flex shrink-0 items-center justify-center font-medium whitespace-nowrap transition select-none disabled:opacity-50',
+    variantCls[variant],
+    sizeCls[size],
+    block && 'w-full',
+    className,
+  )
+}
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { variant = 'primary', size = 'md', loading, icon, block, className, children, disabled, type = 'button', ...rest },
   ref,
@@ -44,13 +64,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ref={ref}
       type={type}
       disabled={disabled || loading}
-      className={cn(
-        'inline-flex shrink-0 items-center justify-center font-medium whitespace-nowrap transition select-none disabled:opacity-50',
-        variantCls[variant],
-        sizeCls[size],
-        block && 'w-full',
-        className,
-      )}
+      className={buttonClass({ variant, size, block, className })}
       {...rest}
     >
       {loading ? <Loader2 className="size-4 animate-spin" /> : icon}
@@ -100,7 +114,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
 
 export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select className={cn(fieldBase, 'h-10 appearance-none bg-[length:16px] pr-8', className)} {...rest}>
+    <select className={cn(fieldBase, 'select-chevron h-10 appearance-none pr-8', className)} {...rest}>
       {children}
     </select>
   )
@@ -401,11 +415,53 @@ export function Empty({
   )
 }
 
+/** 加载失败：只有 404 才说「不存在」；网络错误、5xx 显示「加载失败」并可重试 */
+export function LoadError({
+  error,
+  onRetry,
+  title,
+  notFoundTitle,
+  desc,
+  back,
+  className,
+}: {
+  error: unknown
+  onRetry?: () => void
+  title?: ReactNode
+  notFoundTitle?: ReactNode
+  /** 默认显示错误信息 */
+  desc?: ReactNode
+  /** 返回入口（全屏页面没有顶栏和底部导航） */
+  back?: ReactNode
+  className?: string
+}) {
+  const nf = isNotFound(error)
+  const retry = !!onRetry && !nf
+  return (
+    <Empty
+      className={className}
+      title={nf ? (notFoundTitle ?? '内容不存在') : (title ?? '加载失败')}
+      desc={desc ?? errorMessage(error)}
+      action={
+        (retry || back) && (
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {retry && <Button onClick={onRetry}>重试</Button>}
+            {back}
+          </div>
+        )
+      }
+    />
+  )
+}
+
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
   return <div className={cn('rounded-2xl bg-white shadow-card', className)}>{children}</div>
 }
 
 /* ---------------- Modal / Sheet ---------------- */
+const FOCUSABLE =
+  'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+
 export function Modal({
   open,
   onClose,
@@ -423,6 +479,8 @@ export function Modal({
   className?: string
   wide?: boolean
 }) {
+  const titleId = useId()
+  const panelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
@@ -434,29 +492,72 @@ export function Modal({
       document.body.style.overflow = prev
     }
   }, [open, onClose])
+  // 打开时把焦点移进弹窗（已自动聚焦的输入框除外），关闭后还给打开它的按钮。
+  // 只依赖 open：onClose 通常是内联函数，放进上面的 effect 会在父组件每次渲染时抢走焦点
+  useEffect(() => {
+    if (!open) return
+    const prev = document.activeElement as HTMLElement | null
+    const panel = panelRef.current
+    if (panel && !panel.contains(document.activeElement)) panel.focus({ preventScroll: true })
+    return () => {
+      if (prev && prev.isConnected) prev.focus({ preventScroll: true })
+    }
+  }, [open])
   if (!open) return null
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center sm:p-4">
       <div className="animate-fade-in absolute inset-0 bg-ink-900/40 backdrop-blur-[2px]" onClick={onClose} />
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={title !== undefined ? titleId : undefined}
+        tabIndex={-1}
+        // Tab 键在弹窗内循环，不跑到背后的页面上。只处理焦点在本弹窗里的按键：
+        // React 事件会沿组件树穿过 portal 冒泡，嵌套弹窗的按键也会传到外层弹窗
+        onKeyDown={(e) => {
+          const p = panelRef.current
+          if (e.key !== 'Tab' || !p || !p.contains(e.target as Node)) return
+          const els = [...p.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.getClientRects().length > 0)
+          if (!els.length) {
+            e.preventDefault()
+            return
+          }
+          const first = els[0]
+          const last = els[els.length - 1]
+          if (e.shiftKey && (document.activeElement === first || document.activeElement === p)) {
+            e.preventDefault()
+            last.focus()
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault()
+            first.focus()
+          }
+        }}
         className={cn(
-          'animate-slide-up relative flex max-h-[90dvh] w-full flex-col rounded-t-3xl bg-white shadow-float sm:rounded-3xl',
+          'animate-slide-up relative flex max-h-[90dvh] w-full flex-col rounded-t-3xl bg-white shadow-float outline-none sm:rounded-3xl',
           wide ? 'sm:max-w-3xl' : 'sm:max-w-lg',
           className,
         )}
       >
         {title !== undefined && (
           <div className="flex items-center justify-between gap-3 px-5 pt-4 pb-2">
-            <h3 className="text-base font-semibold">{title}</h3>
+            <h3 id={titleId} className="text-base font-semibold">
+              {title}
+            </h3>
             <IconButton label="关闭" onClick={onClose} className="-mr-2">
               <X className="size-5" />
             </IconButton>
           </div>
         )}
-        <div className="flex-1 overflow-y-auto px-5 pb-5">{children}</div>
-        {footer && <div className="pb-safe flex justify-end gap-2 border-t border-ink-100 px-5 py-3">{footer}</div>}
+        {/* 没有底栏的底部面板要避开 iPhone 底部横条 */}
+        <div className={cn('flex-1 overflow-y-auto px-5', footer ? 'pb-5' : 'pb-[max(1.25rem,env(safe-area-inset-bottom))]')}>
+          {children}
+        </div>
+        {footer && (
+          <div className="flex justify-end gap-2 border-t border-ink-100 px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            {footer}
+          </div>
+        )}
       </div>
     </div>,
     document.body,
@@ -507,15 +608,27 @@ export function Menu({
   align = 'right',
   className,
 }: {
-  trigger: (toggle: () => void) => ReactNode
+  /** open 用于触发按钮的 aria-expanded */
+  trigger: (toggle: () => void, open: boolean) => ReactNode
   children: (close: () => void) => ReactNode
   align?: 'left' | 'right'
   className?: string
 }) {
   const [open, setOpen] = useState(false)
+  // Esc 关闭菜单：在捕获阶段处理并阻止传播，弹窗里的菜单按 Esc 只关菜单、不连弹窗一起关
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      setOpen(false)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [open])
   return (
     <div className="relative inline-block">
-      {trigger(() => setOpen((v) => !v))}
+      {trigger(() => setOpen((v) => !v), open)}
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />

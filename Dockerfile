@@ -1,11 +1,11 @@
 # TripHub 源码构建镜像（前端 + 后端打包成单个静态二进制，运行镜像基于 scratch）
 # 国内构建可传入镜像加速参数，例如：
 #   docker build --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:22-alpine \
-#                --build-arg GO_IMAGE=docker.m.daocloud.io/library/golang:1.24-alpine \
+#                --build-arg GO_IMAGE=docker.m.daocloud.io/library/golang:1.27-alpine \
 #                --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
 #                --build-arg GOPROXY=https://goproxy.cn,direct -t triphub .
 ARG NODE_IMAGE=node:22-alpine
-ARG GO_IMAGE=golang:1.24-alpine
+ARG GO_IMAGE=golang:1.27-alpine
 
 FROM ${NODE_IMAGE} AS web
 ARG NPM_REGISTRY=https://registry.npmjs.org

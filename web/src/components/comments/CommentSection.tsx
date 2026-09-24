@@ -1,16 +1,22 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { MessageCircle, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type Comment, type Waypoint } from '@/api'
-import { Avatar, Button, Empty, Textarea, UserName, confirmDialog } from '@/components/ui'
+import { ReportDialog } from '@/components/report/ReportDialog'
+import { Avatar, Button, Empty, LoadError, Textarea, UserName, confirmDialog } from '@/components/ui'
 import { useRequireAuth } from '@/hooks/useRequireAuth'
 import { fromNow } from '@/lib/format'
+import { flattenPages } from '@/lib/pages'
 import { useAuth } from '@/stores/auth'
 
 interface Props {
   tripId?: number
   placeId?: number
+  /** 评论总数（含回复），取自 trip.comment_count / place.comment_count；分页的 total 只数顶层评论 */
+  count?: number
+  /** 发布 / 删除成功后通知父级调整计数 */
+  onCountChange?: (delta: number) => void
   waypoints?: Waypoint[]
   /** 预选的打卡点（针对某个点评论） */
   waypointId?: number | null
@@ -18,12 +24,22 @@ interface Props {
   onJumpWaypoint?: (id: number) => void
 }
 
-export function CommentSection({ tripId, placeId, waypoints, waypointId, onClearWaypoint, onJumpWaypoint }: Props) {
+export function CommentSection({ tripId, placeId, count, onCountChange, waypoints, waypointId, onClearWaypoint, onJumpWaypoint }: Props) {
   const qc = useQueryClient()
   const user = useAuth((s) => s.user)
   const requireAuth = useRequireAuth()
   const [text, setText] = useState('')
   const [replyTo, setReplyTo] = useState<Comment | null>(null)
+  const [reporting, setReporting] = useState<number | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  // 输入框在评论列表上方：回复下面的评论时把它滚到视野中间并聚焦。
+  // 在点击事件里同步调用（不放进 effect / requestAnimationFrame），iOS 才会弹出键盘
+  const startReply = (c: Comment) => {
+    setReplyTo(c)
+    const el = inputRef.current
+    el?.focus({ preventScroll: true })
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
   const key = ['comments', tripId ? `t${tripId}` : `p${placeId}`]
   const wpName = (id: number | null) => waypoints?.find((w) => w.id === id)?.name
 
@@ -36,8 +52,8 @@ export function CommentSection({ tripId, placeId, waypoints, waypointId, onClear
     initialPageParam: 1,
     getNextPageParam: (l) => (l.page * l.page_size < l.total ? l.page + 1 : undefined),
   })
-  const total = q.data?.pages[0]?.total ?? 0
-  const comments = q.data?.pages.flatMap((p) => p.items) ?? []
+  const shown = count ?? q.data?.pages[0]?.total ?? 0
+  const comments = flattenPages(q.data?.pages)
 
   const send = useMutation({
     mutationFn: () => {
@@ -51,6 +67,7 @@ export function CommentSection({ tripId, placeId, waypoints, waypointId, onClear
       setReplyTo(null)
       onClearWaypoint?.()
       qc.invalidateQueries({ queryKey: key })
+      onCountChange?.(1)
       toast.success('评论已发布')
     },
     onError: (e) => toast.error(errorMessage(e)),
@@ -60,6 +77,7 @@ export function CommentSection({ tripId, placeId, waypoints, waypointId, onClear
     if (!(await confirmDialog({ title: '删除这条评论？', danger: true, okText: '删除' }))) return
     try {
       await api.comments.remove(c.id)
+      onCountChange?.(-1) // 软删除只标记这一条，回复仍保留并计数
       qc.invalidateQueries({ queryKey: key })
     } catch (e) {
       toast.error(errorMessage(e))
@@ -87,7 +105,7 @@ export function CommentSection({ tripId, placeId, waypoints, waypointId, onClear
             📍 {wpName(c.waypoint_id)}
           </button>
         )}
-        <p className={`mt-1 text-sm leading-relaxed whitespace-pre-wrap ${c.deleted ? 'text-ink-300 italic' : 'text-ink-700'}`}>
+        <p className={`mt-1 text-sm leading-relaxed whitespace-pre-wrap ${c.deleted ? 'text-ink-400 italic' : 'text-ink-700'}`}>
           {c.deleted ? '该评论已删除' : c.content}
         </p>
         <div className="mt-1 flex items-center gap-3 text-xs text-ink-400">
@@ -96,9 +114,14 @@ export function CommentSection({ tripId, placeId, waypoints, waypointId, onClear
             <button
               type="button"
               className="hover:text-brand-600"
-              onClick={() => requireAuth(() => setReplyTo(c))}
+              onClick={() => requireAuth(() => startReply(c))}
             >
               回复
+            </button>
+          )}
+          {!c.deleted && c.author.id !== user?.id && (
+            <button type="button" className="hover:text-red-600" onClick={() => requireAuth(() => setReporting(c.id))}>
+              举报
             </button>
           )}
           {c.can_delete && !c.deleted && (
@@ -116,7 +139,7 @@ export function CommentSection({ tripId, placeId, waypoints, waypointId, onClear
     <section id="comments">
       <h3 className="mb-4 flex items-center gap-2 text-lg font-bold">
         <MessageCircle className="size-5" />
-        评论 {total > 0 && <span className="text-sm font-normal text-ink-400">{total}</span>}
+        评论 {shown > 0 && <span className="text-sm font-normal text-ink-400">{shown}</span>}
       </h3>
 
       <div className="rounded-2xl bg-white p-3 shadow-card">
@@ -139,25 +162,39 @@ export function CommentSection({ tripId, placeId, waypoints, waypointId, onClear
             </button>
           </div>
         )}
-        <Textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onFocus={() => !user && requireAuth(() => {})}
-          placeholder={placeId ? '去过吗？说说真实体验，帮大家避雷～' : '说点什么，或者问问作者细节～'}
-          maxLength={1000}
-          className="min-h-20 border-none bg-ink-50 focus:ring-0"
-        />
-        <div className="mt-2 flex items-center justify-between">
-          <span className="text-xs text-ink-300">{text.length}/1000</span>
-          <Button size="sm" disabled={!text.trim()} loading={send.isPending} onClick={() => requireAuth(() => send.mutate())}>
-            发布
-          </Button>
-        </div>
+        {user ? (
+          <>
+            <Textarea
+              ref={inputRef}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder={placeId ? '说说你的真实体验，或问问去过的人～' : '说点什么，或者问问作者细节～'}
+              maxLength={1000}
+              className="min-h-20 border-transparent bg-ink-100 focus:bg-white"
+            />
+            <div className="mt-2 flex items-center justify-between">
+              <span className="text-xs text-ink-400">{text.length}/1000</span>
+              <Button size="sm" disabled={!text.trim()} loading={send.isPending} onClick={() => requireAuth(() => send.mutate())}>
+                发布
+              </Button>
+            </div>
+          </>
+        ) : (
+          // 未登录时不放输入框：聚焦（Tab 键、读屏、滚动时误触）就跳去登录页会打断浏览，改为明确点击才去登录
+          <button
+            type="button"
+            onClick={() => requireAuth(() => {})}
+            className="flex min-h-20 w-full items-center justify-center rounded-xl bg-ink-100 px-3 text-sm text-ink-500 transition hover:text-brand-600"
+          >
+            {placeId ? '登录后说说你的真实体验，或问问去过的人' : '登录后参与评论'}
+          </button>
+        )}
       </div>
 
       <div className="mt-5 space-y-5">
         {comments.map((c) => renderComment(c))}
-        {!q.isLoading && comments.length === 0 && <Empty title="还没有评论" desc="来抢沙发吧" className="py-8" />}
+        {q.isLoadingError && <LoadError className="py-8" title="评论加载失败" error={q.error} onRetry={() => q.refetch()} />}
+        {!q.isLoading && !q.isLoadingError && comments.length === 0 && <Empty title="还没有评论" desc="来抢沙发吧" className="py-8" />}
         {q.hasNextPage && (
           <div className="flex justify-center">
             <Button variant="ghost" size="sm" loading={q.isFetchingNextPage} onClick={() => q.fetchNextPage()}>
@@ -166,6 +203,7 @@ export function CommentSection({ tripId, placeId, waypoints, waypointId, onClear
           </div>
         )}
       </div>
+      <ReportDialog target={reporting ? { type: 'comment', id: reporting } : null} onClose={() => setReporting(null)} />
     </section>
   )
 }

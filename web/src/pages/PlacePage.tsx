@@ -1,23 +1,130 @@
 import { useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { MapPin, Phone, ThumbsDown, ThumbsUp, Users } from 'lucide-react'
-import { api, errorMessage, type Photo, type Verdict } from '@/api'
+import { Link, useNavigate, useParams } from 'react-router'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Flag, MapPin, Phone, Plus, Share2, ThumbsDown, ThumbsUp, Users } from 'lucide-react'
+import { toast } from 'sonner'
+import { api, errorMessage, isNotFound, type Photo, type Place, type TripCard, type Verdict } from '@/api'
 import { CommentSection } from '@/components/comments/CommentSection'
 import { BaseMap } from '@/components/map/BaseMap'
 import { WaypointMarkers } from '@/components/map/layers'
 import { VerdictBar, recommendRate } from '@/components/place/PlaceCard'
+import { ReportDialog, type ReportTarget } from '@/components/report/ReportDialog'
 import { NavigateMenu } from '@/components/trip/NavigateMenu'
 import { PhotoViewer } from '@/components/trip/PhotoViewer'
-import { Avatar, Button, CategoryChip, Empty, PageLoader, Segmented, Stars, UserName, VerdictBadge } from '@/components/ui'
+import { ShareSheet } from '@/components/trip/ShareDialog'
+import {
+  Avatar,
+  Button,
+  CategoryChip,
+  Empty,
+  LoadError,
+  Modal,
+  PageLoader,
+  Segmented,
+  Spinner,
+  Stars,
+  UserName,
+  VerdictBadge,
+  buttonClass,
+} from '@/components/ui'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
+import { useRequireAuth } from '@/hooks/useRequireAuth'
+import { invalidateTripLists } from '@/lib/cache'
+import { cn } from '@/lib/cn'
 import { fromNow } from '@/lib/format'
-import { categoryOf } from '@/lib/meta'
+import { categoryOf, phases } from '@/lib/meta'
+import { dedupeBy } from '@/lib/pages'
+import { useAuth } from '@/stores/auth'
+
+/** 把地点加入自己还没结束的旅程：作为计划点追加到路线末尾 */
+function AddToTripModal({ place, open, onClose }: { place: Place; open: boolean; onClose: () => void }) {
+  const qc = useQueryClient()
+  const nav = useNavigate()
+  const [adding, setAdding] = useState<number | null>(null)
+  const q = useQuery({ queryKey: ['my-trips', 'addable'], queryFn: () => api.me.trips({ page_size: 50 }), enabled: open })
+  const trips = (q.data?.items ?? []).filter((t) => t.phase !== 'finished')
+  const add = async (t: TripCard) => {
+    setAdding(t.id)
+    try {
+      // 必须显式 planned：否则旅行中的旅程会把它记成「此刻已到达」的计划外打卡
+      await api.waypoints.create(t.id, {
+        name: place.name,
+        address: place.address,
+        lng: place.lng,
+        lat: place.lat,
+        category: place.category,
+        amap_id: place.amap_id || undefined,
+        planned: true,
+        status: 'todo',
+      })
+      qc.invalidateQueries({ queryKey: ['trip', String(t.id)] })
+      invalidateTripLists(qc)
+      toast.success(`已加入「${t.title}」`, { action: { label: '去编辑', onClick: () => nav(`/trips/${t.id}/edit`) } })
+      onClose()
+    } catch (e) {
+      toast.error(errorMessage(e))
+    } finally {
+      setAdding(null)
+    }
+  }
+  return (
+    <Modal open={open} onClose={onClose} title={`把「${place.name}」加入行程`}>
+      {q.isLoading ? (
+        <div className="flex justify-center py-10">
+          <Spinner />
+        </div>
+      ) : q.isLoadingError ? (
+        <LoadError className="py-8" error={q.error} onRetry={() => q.refetch()} />
+      ) : trips.length === 0 ? (
+        <Empty
+          className="py-8"
+          title="还没有规划中的行程"
+          desc="新建一段旅程，再把这里加进路线"
+          action={
+            <Link to="/trips/new" className={buttonClass()}>
+              新建旅程
+            </Link>
+          }
+        />
+      ) : (
+        <div className="space-y-1">
+          <p className="mb-2 text-xs text-ink-400">会加到计划路线的末尾，之后可以在编辑页调整顺序和日期</p>
+          {trips.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              disabled={adding != null}
+              onClick={() => add(t)}
+              className="flex w-full items-center gap-2.5 rounded-xl p-2.5 text-left transition hover:bg-ink-50 disabled:opacity-60"
+            >
+              <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold', phases[t.phase].cls)}>
+                {phases[t.phase].label}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{t.title}</span>
+              {adding === t.id ? (
+                <Spinner className="size-4" />
+              ) : (
+                <span className="shrink-0 text-xs text-ink-400">{t.waypoint_count} 个地点</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </Modal>
+  )
+}
 
 export default function PlacePage() {
   const { id } = useParams()
+  const qc = useQueryClient()
+  const requireAuth = useRequireAuth()
+  const me = useAuth((s) => s.user)
   const [verdict, setVerdict] = useState<Verdict | ''>('')
   const [viewer, setViewer] = useState<{ list: Photo[]; i: number } | null>(null)
-  const { data: place, isLoading, error } = useQuery({ queryKey: ['place', id], queryFn: () => api.places.get(id!) })
+  const [addOpen, setAddOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
+  const [report, setReport] = useState<ReportTarget | null>(null)
+  const { data: place, isLoading, error, refetch } = useQuery({ queryKey: ['place', id], queryFn: () => api.places.get(id!) })
   const reviews = useInfiniteQuery({
     queryKey: ['place-reviews', id, verdict],
     queryFn: ({ pageParam }) => api.places.reviews(Number(id), { verdict, page: pageParam, page_size: 10 }),
@@ -42,14 +149,18 @@ export default function PlacePage() {
         : [],
     [place],
   )
+  useDocumentTitle(place && [place.name, place.city].filter(Boolean).join(' · '))
 
   if (isLoading) return <PageLoader />
-  if (error || !place) return <Empty className="min-h-[60vh]" title="地点不存在" desc={errorMessage(error)} />
+  // 后台刷新失败时保留已加载的内容；404 说明地点已不可见
+  if (!place || isNotFound(error))
+    return <LoadError className="min-h-[60vh]" error={error} notFoundTitle="地点不存在" onRetry={() => refetch()} />
 
   const rate = recommendRate(place)
   const total = place.recommend_count + place.neutral_count + place.avoid_count
   const warn = place.avoid_count > place.recommend_count && place.avoid_count > 0
-  const items = reviews.data?.pages.flatMap((p) => p.items) ?? []
+  // 点评没有自己的 id，按打卡点去重
+  const items = dedupeBy(reviews.data?.pages.flatMap((p) => p.items) ?? [], (r) => r.waypoint.id)
   const Icon = categoryOf(place.category).icon
 
   return (
@@ -123,8 +234,21 @@ export default function PlacePage() {
               </div>
             </div>
           )}
-          <div className="mt-4">
+          <div className="mt-4 flex flex-wrap gap-2">
             <NavigateMenu target={{ lng: place.lng, lat: place.lat, name: place.name, address: place.address }} size="md" variant="primary" label="导航过去" />
+            <Button variant="outline" icon={<Plus className="size-4" />} onClick={() => requireAuth(() => setAddOpen(true))}>
+              加入行程
+            </Button>
+            <Button variant="outline" icon={<Share2 className="size-4" />} onClick={() => setShareOpen(true)}>
+              分享
+            </Button>
+            <Button
+              variant="ghost"
+              icon={<Flag className="size-4" />}
+              onClick={() => requireAuth(() => setReport({ type: 'place', id: place.id }))}
+            >
+              举报
+            </Button>
           </div>
         </div>
       </div>
@@ -144,7 +268,8 @@ export default function PlacePage() {
         />
       </div>
       <div className="mt-4 space-y-3">
-        {!reviews.isLoading && items.length === 0 && <Empty title="暂无公开的打卡评价" className="py-8" />}
+        {reviews.isLoadingError && <LoadError className="py-8" error={reviews.error} onRetry={() => reviews.refetch()} />}
+        {!reviews.isLoading && !reviews.isLoadingError && items.length === 0 && <Empty title="暂无公开的打卡评价" className="py-8" />}
         {items.map((r) => (
           <div key={r.waypoint.id} className="rounded-2xl bg-white p-4 shadow-card">
             <div className="flex items-center gap-2.5">
@@ -159,6 +284,16 @@ export default function PlacePage() {
                 </div>
               </div>
               <VerdictBadge verdict={r.waypoint.verdict} />
+              {/* 点评是那段旅程里的一个打卡点：举报这段旅程，管理员处理方式是隐藏旅程 */}
+              {r.author.id !== me?.id && (
+                <button
+                  type="button"
+                  className="shrink-0 text-xs text-ink-400 hover:text-red-600"
+                  onClick={() => requireAuth(() => setReport({ type: 'trip', id: r.trip.id }))}
+                >
+                  举报
+                </button>
+              )}
             </div>
             <div className="mt-2 flex items-center gap-3 text-xs text-ink-500">
               {r.waypoint.rating > 0 && <Stars value={r.waypoint.rating} size={12} />}
@@ -186,9 +321,23 @@ export default function PlacePage() {
       </div>
 
       <div className="mt-10">
-        <CommentSection placeId={place.id} />
+        <CommentSection
+          placeId={place.id}
+          count={place.comment_count}
+          onCountChange={(d) => qc.setQueryData<Place>(['place', id], (p) => (p ? { ...p, comment_count: Math.max(0, p.comment_count + d) } : p))}
+        />
       </div>
       <PhotoViewer photos={viewer?.list ?? []} index={viewer?.i ?? null} onClose={() => setViewer(null)} />
+      <AddToTripModal place={place} open={addOpen} onClose={() => setAddOpen(false)} />
+      <ShareSheet
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        heading="分享地点"
+        title={place.name}
+        text={warn ? `⚠️ ${place.avoid_count} 人踩雷` : `${rate != null ? `推荐率 ${rate}% · ` : ''}${place.checkin_count} 人打卡`}
+        url={`${window.location.origin}/places/${place.id}`}
+      />
+      <ReportDialog target={report} onClose={() => setReport(null)} />
     </div>
   )
 }

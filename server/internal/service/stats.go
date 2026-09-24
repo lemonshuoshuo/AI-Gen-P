@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"triphub/internal/amap"
 	"triphub/internal/geo"
 	"triphub/internal/media"
 	"triphub/internal/model"
@@ -36,16 +38,7 @@ func (s *Service) RecomputeTrip(tx *gorm.DB, tripID int64) error {
 		}
 	}
 	cities, provinces := distinctRegions(regionSrc)
-
-	var dist float64
-	switch {
-	case t.TrackPointCount > 0:
-		dist = t.TrackDistanceKm
-	case len(actual) > 0:
-		dist = RouteKm(actual)
-	default:
-		dist = RouteKm(planned)
-	}
+	dist := tripDistanceKm(t.TrackPointCount > 0, t.TrackDistanceKm, planned, actual)
 
 	var photoCount int64
 	if err := tx.Model(&model.Photo{}).Where("trip_id = ?", tripID).Count(&photoCount).Error; err != nil {
@@ -73,6 +66,21 @@ func (s *Service) RecomputeTrip(tx *gorm.DB, tripID int64) error {
 	}).Error
 }
 
+// tripDistanceKm is a trip's distance_km. A GPS track often covers only part
+// of a trip (the web recorder only runs while the page is open), so it must
+// never shrink the distance below the check-in route: the longer of the two
+// is used. Before any check-in it is the track, without a track the planned
+// route.
+func tripDistanceKm(hasTrack bool, trackKm float64, planned, actual []model.Waypoint) float64 {
+	switch {
+	case len(actual) > 0:
+		return max(trackKm, RouteKm(actual))
+	case hasTrack:
+		return trackKm
+	}
+	return RouteKm(planned)
+}
+
 // jsonList produces a value for a jsonb column in a map-based update.
 func jsonList(v []string) any {
 	if v == nil {
@@ -85,27 +93,38 @@ func jsonList(v []string) any {
 // JSONList exposes jsonList for handlers updating jsonb columns.
 func JSONList(v []string) any { return jsonList(v) }
 
-// RecomputeTrack refreshes a trip's track point count and GPS distance
-// (sum of great-circle steps within each user/segment), then the trip stats.
+// RecomputeTrack refreshes a trip's track point count and GPS distance, then
+// the trip stats. GPS distance: each member's track is measured separately
+// (great-circle steps within each of that user's segments, kept as
+// model.TrackStat rows) and the longest is used, so members recording the
+// same walk together are not counted twice.
 func (s *Service) RecomputeTrack(tx *gorm.DB, tripID int64) error {
-	var row struct {
-		N    int64
-		Dist float64
+	if err := tx.Exec("DELETE FROM track_stats WHERE trip_id = ?", tripID).Error; err != nil {
+		return err
 	}
-	err := tx.Raw(`
-SELECT COUNT(*) AS n, COALESCE(SUM(d), 0) AS dist FROM (
-  SELECT CASE WHEN plng IS NULL THEN 0 ELSE
+	err := tx.Exec(`
+INSERT INTO track_stats (trip_id, user_id, distance_m)
+SELECT ?, user_id, SUM(d) FROM (
+  SELECT user_id, CASE WHEN plng IS NULL THEN 0 ELSE
     2 * 6371008.8 * asin(least(1, sqrt(
       power(sin(radians(lat - plat) / 2), 2) +
       cos(radians(plat)) * cos(radians(lat)) * power(sin(radians(lng - plng) / 2), 2)))) END AS d
   FROM (
-    SELECT lng, lat,
+    SELECT user_id, lng, lat,
       lag(lng) OVER w AS plng, lag(lat) OVER w AS plat
     FROM track_points WHERE trip_id = ?
     WINDOW w AS (PARTITION BY user_id, segment ORDER BY recorded_at)
   ) s
-) x`, tripID).Scan(&row).Error
+) x GROUP BY user_id`, tripID, tripID).Error
 	if err != nil {
+		return err
+	}
+	var row struct {
+		N    int64
+		Dist float64
+	}
+	if err := tx.Raw(`SELECT (SELECT COUNT(*) FROM track_points WHERE trip_id = ?) AS n,
+  COALESCE((SELECT MAX(distance_m) FROM track_stats WHERE trip_id = ?), 0) AS dist`, tripID, tripID).Scan(&row).Error; err != nil {
 		return err
 	}
 	if err := tx.Model(&model.Trip{}).Where("id = ?", tripID).UpdateColumns(map[string]any{
@@ -117,12 +136,122 @@ SELECT COUNT(*) AS n, COALESCE(SUM(d), 0) AS dist FROM (
 	return s.RecomputeTrip(tx, tripID)
 }
 
+// trackStepsSQL sums the great-circle steps (metres) between consecutive
+// points of one user's track segment recorded within [from, to].
+const trackStepsSQL = `
+SELECT COALESCE(SUM(2 * 6371008.8 * asin(least(1, sqrt(
+    power(sin(radians(lat - plat) / 2), 2) +
+    cos(radians(plat)) * cos(radians(lat)) * power(sin(radians(lng - plng) / 2), 2))))), 0)
+FROM (
+  SELECT lng::float8 AS lng, lat::float8 AS lat,
+    lag(lng::float8) OVER w AS plng, lag(lat::float8) OVER w AS plat
+  FROM track_points
+  WHERE trip_id = ? AND user_id = ? AND segment = ? AND recorded_at BETWEEN ? AND ?
+  WINDOW w AS (ORDER BY recorded_at)
+) s WHERE plng IS NOT NULL`
+
+// AppendTrack inserts GPS points of one user's track segment (points already
+// stored are ignored) and updates the trip's point count and GPS distance
+// incrementally: only the steps between the stored neighbours of the new
+// points change, so the cost does not grow with the size of the track. The
+// change is added to the user's own distance (model.TrackStat) and the trip
+// keeps the longest member's, as RecomputeTrack does. The caller must hold
+// the trip lock. It returns the number of points inserted.
+func (s *Service) AppendTrack(tx *gorm.DB, tripID, userID int64, segment int, rows []model.TrackPoint) (int64, error) {
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	from, to := rows[0].RecordedAt, rows[0].RecordedAt
+	for _, r := range rows[1:] {
+		if r.RecordedAt.Before(from) {
+			from = r.RecordedAt
+		}
+		if r.RecordedAt.After(to) {
+			to = r.RecordedAt
+		}
+	}
+	// Widen [from, to] to the stored points right before and after the batch.
+	var prev, next sql.NullTime
+	if err := tx.Raw("SELECT max(recorded_at) FROM track_points WHERE trip_id = ? AND user_id = ? AND segment = ? AND recorded_at < ?",
+		tripID, userID, segment, from).Scan(&prev).Error; err != nil {
+		return 0, err
+	}
+	if err := tx.Raw("SELECT min(recorded_at) FROM track_points WHERE trip_id = ? AND user_id = ? AND segment = ? AND recorded_at > ?",
+		tripID, userID, segment, to).Scan(&next).Error; err != nil {
+		return 0, err
+	}
+	if prev.Valid {
+		from = prev.Time
+	}
+	if next.Valid {
+		to = next.Time
+	}
+	steps := func() (float64, error) {
+		var m float64
+		err := tx.Raw(trackStepsSQL, tripID, userID, segment, from, to).Scan(&m).Error
+		return m, err
+	}
+	before, err := steps()
+	if err != nil {
+		return 0, err
+	}
+	res := tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(&rows, 500)
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return 0, nil
+	}
+	// A trip whose points were stored before per-member distances were kept
+	// has none of them yet: measure it once in full.
+	var legacy bool
+	if err := tx.Raw("SELECT track_point_count > 0 AND NOT EXISTS (SELECT 1 FROM track_stats WHERE trip_id = ?) FROM trips WHERE id = ?",
+		tripID, tripID).Scan(&legacy).Error; err != nil {
+		return 0, err
+	}
+	if legacy {
+		return res.RowsAffected, s.RecomputeTrack(tx, tripID)
+	}
+	after, err := steps()
+	if err != nil {
+		return 0, err
+	}
+	// Increments are not rounded so rounding errors do not add up.
+	if err := tx.Exec(`INSERT INTO track_stats (trip_id, user_id, distance_m) VALUES (?, ?, ?)
+ON CONFLICT (trip_id, user_id) DO UPDATE SET distance_m = track_stats.distance_m + EXCLUDED.distance_m`,
+		tripID, userID, after-before).Error; err != nil {
+		return 0, err
+	}
+	var km float64
+	if err := tx.Raw("SELECT COALESCE(MAX(distance_m), 0) / 1000 FROM track_stats WHERE trip_id = ?", tripID).Scan(&km).Error; err != nil {
+		return 0, err
+	}
+	// distance_km as RecomputeTrip sets it (tripDistanceKm): only the visited
+	// stops are needed, and they do not grow with the track.
+	var visited []model.Waypoint
+	if err := tx.Select("id", "seq", "status", "arrived_at", "lng", "lat").
+		Where("trip_id = ? AND status = ?", tripID, model.WPVisited).Find(&visited).Error; err != nil {
+		return 0, err
+	}
+	err = tx.Exec("UPDATE trips SET track_point_count = track_point_count + ?, track_distance_km = ?, distance_km = ? WHERE id = ?",
+		res.RowsAffected, km, tripDistanceKm(true, km, nil, ActualRoute(visited)), tripID).Error
+	return res.RowsAffected, err
+}
+
 // RecomputePlaces refreshes aggregate statistics of places, counting only
-// visited waypoints in public, normal trips.
+// visited waypoints in public, normal trips, and each person once with
+// their latest non-empty verdict, rating and cost (by arrival time), so that
+// "N 人打卡 / N 人踩雷" really counts people and a later visit replaces an
+// earlier opinion.
 func (s *Service) RecomputePlaces(tx *gorm.DB, ids []int64) error {
 	ids = uniqueIDs(ids)
 	if len(ids) == 0 {
 		return nil
+	}
+	// Lock the rows (in id order) so the comment_count recount cannot
+	// overwrite the count of a place comment committed meanwhile.
+	if err := tx.Exec("SELECT id FROM places WHERE id IN ? ORDER BY id FOR UPDATE", ids).Error; err != nil {
+		return err
 	}
 	return tx.Exec(`
 UPDATE places p SET
@@ -145,18 +274,58 @@ FROM (
   SELECT pl.id, agg.* FROM places pl
   LEFT JOIN LATERAL (
     SELECT COUNT(*) AS cnt,
-      ROUND(AVG(w.rating) FILTER (WHERE w.rating > 0)::numeric, 1) AS ravg,
-      COUNT(*) FILTER (WHERE w.rating > 0) AS rcnt,
-      COUNT(*) FILTER (WHERE w.verdict = 'recommend') AS rec,
-      COUNT(*) FILTER (WHERE w.verdict = 'neutral') AS neu,
-      COUNT(*) FILTER (WHERE w.verdict = 'avoid') AS avo,
-      ROUND(AVG(w.cost) FILTER (WHERE w.cost > 0)::numeric, 0) AS cost
-    FROM waypoints w JOIN trips t ON t.id = w.trip_id
-    WHERE w.place_id = pl.id AND w.status = 'visited' AND t.visibility = 'public' AND t.status = 'normal'
+      ROUND(AVG(u.rating)::numeric, 1) AS ravg,
+      COUNT(u.rating) AS rcnt,
+      COUNT(*) FILTER (WHERE u.verdict = 'recommend') AS rec,
+      COUNT(*) FILTER (WHERE u.verdict = 'neutral') AS neu,
+      COUNT(*) FILTER (WHERE u.verdict = 'avoid') AS avo,
+      ROUND(AVG(u.cost)::numeric, 0) AS cost
+    FROM (
+      -- one row per person: the latest verdict / rating / cost they gave
+      SELECT
+        (array_agg(w.verdict ORDER BY COALESCE(w.arrived_at, w.created_at) DESC, w.id DESC) FILTER (WHERE w.verdict <> ''))[1] AS verdict,
+        (array_agg(w.rating ORDER BY COALESCE(w.arrived_at, w.created_at) DESC, w.id DESC) FILTER (WHERE w.rating > 0))[1] AS rating,
+        (array_agg(w.cost ORDER BY COALESCE(w.arrived_at, w.created_at) DESC, w.id DESC) FILTER (WHERE w.cost > 0))[1] AS cost
+      FROM waypoints w JOIN trips t ON t.id = w.trip_id
+      WHERE w.place_id = pl.id AND w.status = 'visited' AND t.visibility = 'public' AND t.status = 'normal'
+      GROUP BY COALESCE(NULLIF(w.created_by_id, 0), t.owner_id)
+    ) u
   ) agg ON true
   WHERE pl.id IN ?
 ) a
 WHERE p.id = a.id`, ids).Error
+}
+
+// placeStatsVersion identifies how place statistics are counted (2: each
+// person once, by their latest opinion); see BackfillPlaceStats.
+const placeStatsVersion = "2"
+
+// BackfillPlaceStats recomputes the statistics of every place once after an
+// upgrade that changed how they are counted, so that counts stored by an
+// older version are corrected. The version done is kept in the settings
+// table (key place_stats_v).
+func (s *Service) BackfillPlaceStats(ctx context.Context) error {
+	db := s.DB.WithContext(ctx)
+	var done model.Setting
+	if err := db.Where("key = ?", "place_stats_v").Limit(1).Find(&done).Error; err != nil {
+		return err
+	}
+	if done.Value == placeStatsVersion {
+		return nil
+	}
+	var ids []int64
+	if err := db.Model(&model.Place{}).Order("id").Pluck("id", &ids).Error; err != nil {
+		return err
+	}
+	for len(ids) > 0 {
+		chunk := ids[:min(len(ids), 1000)]
+		if err := db.Transaction(func(tx *gorm.DB) error { return s.RecomputePlaces(tx, chunk) }); err != nil {
+			return err
+		}
+		ids = ids[len(chunk):]
+	}
+	return db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "key"}}, DoUpdates: clause.AssignmentColumns([]string{"value"})}).
+		Create(&model.Setting{Key: "place_stats_v", Value: placeStatsVersion}).Error
 }
 
 // TripPlaceIDs returns the place IDs referenced by a trip's waypoints.
@@ -189,17 +358,27 @@ func PlaceIDs(ptrs ...*int64) []int64 {
 	return out
 }
 
-// ResolvePlace finds or creates the Place a waypoint belongs to: by AMap ID,
-// else by same name within 100 m; new places are only created for waypoints
-// whose name was given by the user (or that carry an AMap ID).
-func (s *Service) ResolvePlace(tx *gorm.DB, wp *model.Waypoint, userNamed bool) (*int64, error) {
+// ResolvePlace finds or creates the Place a waypoint belongs to: by AMap ID
+// (only a Place built from AMap's own POI data, within amapLinkMaxM of the
+// waypoint), else by same name within 100 m; new places are only created for
+// waypoints whose name was given by the user (or that carry a verified AMap
+// ID). Name matching only joins places that are public (public check-ins or
+// an AMap ID) or already used in a trip the actor is a member of, since a
+// place's name, address and position come from the waypoint that created
+// it, which may belong to a private trip.
+func (s *Service) ResolvePlace(tx *gorm.DB, wp *model.Waypoint, userNamed bool, actorID int64) (*int64, error) {
 	if wp.AmapID != "" {
 		var p model.Place
 		if err := tx.Where("amap_id = ?", wp.AmapID).Limit(1).Find(&p).Error; err != nil {
 			return nil, err
 		}
-		if p.ID == 0 {
-			p = placeFromWaypoint(wp)
+		if p.ID != 0 && geo.Haversine(wp.Lng, wp.Lat, p.Lng, p.Lat) <= amapLinkMaxM {
+			return &p.ID, nil
+		}
+		// A shared AMap place is only created from AMap's own data (cached from
+		// search results or by WarmPOI), never from the client's name and position.
+		if poi, ok := s.Amap.CachedPOI(wp.AmapID); ok && p.ID == 0 && geo.Haversine(wp.Lng, wp.Lat, poi.Lng, poi.Lat) <= amapLinkMaxM {
+			p = placeFromPOI(poi)
 			err := tx.Clauses(clause.OnConflict{
 				Columns:     []clause.Column{{Name: "amap_id"}},
 				TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "amap_id <> ''"}}},
@@ -213,16 +392,19 @@ func (s *Service) ResolvePlace(tx *gorm.DB, wp *model.Waypoint, userNamed bool) 
 					return nil, err
 				}
 			}
+			return &p.ID, nil
 		}
-		return &p.ID, nil
+		// Unverified, unknown or far-away AMap ID: match by name like any other waypoint.
 	}
 	name := strings.TrimSpace(wp.Name)
 	if !userNamed || name == "" {
 		return nil, nil
 	}
 	minLng, minLat, maxLng, maxLat := geo.BBoxAround(wp.Lng, wp.Lat, 100)
+	own := tx.Model(&model.Waypoint{}).Select("place_id").Where("place_id IS NOT NULL AND trip_id IN (?)", MemberTripIDs(tx, actorID))
 	var cands []model.Place
 	if err := tx.Where("lower(name) = lower(?) AND lng BETWEEN ? AND ? AND lat BETWEEN ? AND ?", name, minLng, maxLng, minLat, maxLat).
+		Where("(checkin_count > 0 OR amap_id <> '' OR id IN (?))", own).
 		Limit(20).Find(&cands).Error; err != nil {
 		return nil, err
 	}
@@ -242,12 +424,49 @@ func (s *Service) ResolvePlace(tx *gorm.DB, wp *model.Waypoint, userNamed bool) 
 	return &p.ID, nil
 }
 
+// amapLinkMaxM is how far (metres) a waypoint may be from an AMap POI and
+// still be linked to its Place by amap_id; generous because large scenic
+// areas have a single POI point.
+const amapLinkMaxM = 5000
+
+// placeFromWaypoint builds a Place from a user's waypoint. It never carries
+// the waypoint's amap_id: places with an AMap ID come from AMap's data only.
 func placeFromWaypoint(wp *model.Waypoint) model.Place {
 	return model.Place{
-		AmapID: wp.AmapID, Name: strings.TrimSpace(wp.Name), Address: wp.Address,
+		Name: strings.TrimSpace(wp.Name), Address: wp.Address,
 		Province: wp.Province, City: wp.City, District: wp.District,
 		Lng: wp.Lng, Lat: wp.Lat, Category: wp.Category,
 	}
+}
+
+// placeFromPOI builds a Place from AMap's POI data (strings cut to the column
+// sizes; Truncate appends "…", hence size-1).
+func placeFromPOI(p amap.POI) model.Place {
+	return model.Place{
+		AmapID: p.ID, Name: Truncate(strings.TrimSpace(p.Name), 199), Address: Truncate(p.Address, 299),
+		Province: Truncate(p.Province, 63), City: Truncate(p.City, 63), District: Truncate(p.District, 63),
+		Lng: p.Lng, Lat: p.Lat, Category: p.Category, Tel: Truncate(p.Tel, 99),
+	}
+}
+
+// WarmPOI caches AMap's own data for an amap_id that has no Place yet, so
+// that ResolvePlace (which runs inside a transaction and never uses the
+// network) can create the Place from it. Errors are ignored: an unverified
+// ID is then matched by name.
+func (s *Service) WarmPOI(ctx context.Context, id string) {
+	if id == "" || !s.Amap.Enabled() {
+		return
+	}
+	if _, ok := s.Amap.CachedPOI(id); ok {
+		return
+	}
+	var n int64
+	if err := s.DB.WithContext(ctx).Model(&model.Place{}).Where("amap_id = ?", id).Count(&n).Error; err != nil || n > 0 {
+		return
+	}
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_, _ = s.Amap.Detail(cctx, id)
 }
 
 // GeoInfo is the result of locating a coordinate.
@@ -358,6 +577,20 @@ func ChronoInsertSeq(wps []model.Waypoint, t *time.Time) *int {
 	return nil
 }
 
+// RecomputeForkCount sets a trip's fork_count to the number of distinct
+// users other than its owner who currently hold a fork of it (exact, like
+// like_count / fav_count). The row is locked first so the count sees forks
+// committed concurrently.
+func RecomputeForkCount(tx *gorm.DB, tripID int64) error {
+	if err := LockTrip(tx, tripID); err != nil {
+		return err
+	}
+	return tx.Exec(`UPDATE trips t SET fork_count = (
+  SELECT COUNT(DISTINCT f.owner_id) FROM trips f
+  WHERE f.forked_from_id = t.id AND f.owner_id <> t.owner_id)
+WHERE t.id = ?`, tripID).Error
+}
+
 // DeleteTrip removes a trip and everything that belongs to it, releasing
 // storage quota and deleting files.
 func (s *Service) DeleteTrip(ctx context.Context, tripID int64) error {
@@ -381,10 +614,15 @@ func (s *Service) DeleteTrip(ctx context.Context, tripID int64) error {
 		if err != nil {
 			return err
 		}
+		var self model.Trip
+		if err := tx.Select("id", "forked_from_id").Limit(1).Find(&self, tripID).Error; err != nil {
+			return err
+		}
 		stmts := []string{
 			"DELETE FROM photos WHERE trip_id = ?",
 			"DELETE FROM waypoints WHERE trip_id = ?",
 			"DELETE FROM track_points WHERE trip_id = ?",
+			"DELETE FROM track_stats WHERE trip_id = ?",
 			"DELETE FROM comments WHERE trip_id = ?",
 			"DELETE FROM likes WHERE trip_id = ?",
 			"DELETE FROM favorites WHERE trip_id = ?",
@@ -395,6 +633,11 @@ func (s *Service) DeleteTrip(ctx context.Context, tripID int64) error {
 		}
 		for _, q := range stmts {
 			if err := tx.Exec(q, tripID).Error; err != nil {
+				return err
+			}
+		}
+		if self.ForkedFromID != nil { // one fork fewer
+			if err := RecomputeForkCount(tx, *self.ForkedFromID); err != nil {
 				return err
 			}
 		}

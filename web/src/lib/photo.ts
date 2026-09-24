@@ -1,5 +1,6 @@
 // 照片预处理：读取 EXIF（GPS / 拍摄时间）→ HEIC 转换 → 压缩
 import exifr from 'exifr'
+import { MAX_EDGE, compressImage, loadImage } from './image'
 
 export interface PreparedPhoto {
   file: Blob
@@ -14,7 +15,8 @@ export interface PreparedPhoto {
   original: File
 }
 
-const MAX_EDGE = 2560
+// 预览缩略图的短边：预览网格一格约 62px，3 倍屏约 186 像素
+const THUMB_EDGE = 256
 
 function isHeic(f: File) {
   return /\.(heic|heif)$/i.test(f.name) || /image\/hei[cf]/i.test(f.type)
@@ -22,9 +24,9 @@ function isHeic(f: File) {
 
 async function readExif(f: File) {
   try {
+    // latitude / longitude 是 exifr 由原始 GPS 标签（含 Ref 半球标记）算出来的，pick 里必须列原始标签
     const data = await exifr.parse(f, {
-      gps: true,
-      pick: ['DateTimeOriginal', 'CreateDate', 'OffsetTimeOriginal', 'latitude', 'longitude'],
+      pick: ['DateTimeOriginal', 'CreateDate', 'OffsetTimeOriginal', 'GPSLatitude', 'GPSLatitudeRef', 'GPSLongitude', 'GPSLongitudeRef'],
     })
     if (!data) return {}
     let takenAt: string | undefined
@@ -39,48 +41,22 @@ async function readExif(f: File) {
   }
 }
 
-async function heicToJpeg(f: File): Promise<Blob> {
-  // 按需加载转换库，避免拖慢首屏
-  const { default: heic2any } = await import('heic2any')
-  const out = await heic2any({ blob: f, toType: 'image/jpeg', quality: 0.9 })
-  return Array.isArray(out) ? out[0] : out
-}
+// heic2any 只有一个全局 worker，每张都要解码成全尺寸位图：一次只转一张，并发只会抬高内存峰值
+let heicQueue: Promise<unknown> = Promise.resolve()
 
-async function loadImage(blob: Blob): Promise<HTMLImageElement> {
-  const url = URL.createObjectURL(blob)
-  try {
-    const img = new Image()
-    img.decoding = 'async'
-    img.src = url
-    await img.decode()
-    return img
-  } finally {
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
-  }
-}
-
-export async function compressImage(blob: Blob, maxEdge = MAX_EDGE, quality = 0.86) {
-  const img = await loadImage(blob)
-  const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight))
-  const w = Math.round(img.naturalWidth * scale)
-  const h = Math.round(img.naturalHeight * scale)
-  // 小图且本身是 JPEG 时直接上传原图
-  if (scale === 1 && blob.type === 'image/jpeg' && blob.size < 3 * 1024 * 1024) return { blob, width: w, height: h }
-  const canvas = document.createElement('canvas')
-  canvas.width = w
-  canvas.height = h
-  const ctx = canvas.getContext('2d')!
-  ctx.drawImage(img, 0, 0, w, h)
-  const out = await new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('图片压缩失败'))), 'image/jpeg', quality),
-  )
-  return { blob: out, width: w, height: h }
+function heicToJpeg(f: File): Promise<Blob> {
+  const run = heicQueue.then(async () => {
+    // 按需加载转换库，避免拖慢首屏
+    const { default: heic2any } = await import('heic2any')
+    const out = await heic2any({ blob: f, toType: 'image/jpeg', quality: 0.9 })
+    return Array.isArray(out) ? out[0] : out
+  })
+  heicQueue = run.catch(() => {})
+  return run
 }
 
 export async function preparePhoto(f: File): Promise<PreparedPhoto> {
   const exif = await readExif(f)
-  let source: Blob = f
-  if (isHeic(f)) source = await heicToJpeg(f)
   if (f.type === 'image/gif') {
     const img = await loadImage(f)
     return {
@@ -93,14 +69,25 @@ export async function preparePhoto(f: File): Promise<PreparedPhoto> {
       original: f,
     }
   }
-  const { blob, width, height } = await compressImage(source)
+  let r: Awaited<ReturnType<typeof compressImage>>
+  if (isHeic(f)) {
+    // Safari / iOS 17+ 能直接解码 HEIC；其他浏览器解码失败时再用 heic2any 转换（库很大、转换慢）
+    try {
+      r = await compressImage(f, MAX_EDGE, 0.86, THUMB_EDGE)
+    } catch {
+      r = await compressImage(await heicToJpeg(f), MAX_EDGE, 0.86, THUMB_EDGE)
+    }
+  } else {
+    r = await compressImage(f, MAX_EDGE, 0.86, THUMB_EDGE)
+  }
   return {
-    file: blob,
+    file: r.blob,
     filename: f.name.replace(/\.[^.]+$/, '') + '.jpg',
-    previewUrl: URL.createObjectURL(blob),
+    // 预览用小缩略图：上传的仍是上面压缩好的整张照片
+    previewUrl: URL.createObjectURL(r.thumb ?? r.blob),
     ...exif,
-    width,
-    height,
+    width: r.width,
+    height: r.height,
     original: f,
   }
 }

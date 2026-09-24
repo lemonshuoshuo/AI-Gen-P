@@ -5,9 +5,10 @@ import { Heart, Map as MapIcon, Plus, Route } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type Phase, type TripCard, type UserBrief, type Visibility } from '@/api'
 import { TripGrid, TripGridSkeleton } from '@/components/trip/TripCard'
-import { Avatar, Button, Card, Empty, Segmented } from '@/components/ui'
+import { Avatar, Button, Card, Empty, LoadError, Segmented } from '@/components/ui'
 import { fromNow } from '@/lib/format'
 import { phases, visibilities } from '@/lib/meta'
+import { flattenPages } from '@/lib/pages'
 
 type TripInvite = { trip: TripCard; from: UserBrief; created_at: string }
 
@@ -18,6 +19,7 @@ function InviteCard({ inv }: { inv: TripInvite }) {
     onSuccess: (_, accept) => {
       toast.success(accept ? '已加入旅程，一起规划吧' : '已拒绝邀请')
       qc.invalidateQueries({ queryKey: ['me', 'invites'] })
+      qc.invalidateQueries({ queryKey: ['notifications'] })
       if (accept) qc.invalidateQueries({ queryKey: ['my-trips'] })
     },
     onError: (e) => toast.error(errorMessage(e)),
@@ -27,7 +29,7 @@ function InviteCard({ inv }: { inv: TripInvite }) {
     <Card className="flex items-center gap-3 p-3">
       <div className="bg-brand-gradient flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-xl">
         {inv.trip.cover_url ? (
-          <img src={inv.trip.cover_url} alt="" loading="lazy" className="size-full object-cover" />
+          <img src={inv.trip.cover_thumb_url || inv.trip.cover_url} alt="" loading="lazy" className="size-full object-cover" />
         ) : (
           <Route className="size-6 text-white" />
         )}
@@ -66,7 +68,7 @@ export default function MyTripsPage() {
     getNextPageParam: (last) => (last.page * last.page_size < last.total ? last.page + 1 : undefined),
   })
   const invites = useQuery({ queryKey: ['me', 'invites'], queryFn: api.me.invites })
-  const trips = q.data?.pages.flatMap((p) => p.items) ?? []
+  const trips = flattenPages(q.data?.pages)
   const total = q.data?.pages[0]?.total
   const filtered = phase !== '' || visibility !== ''
   const tripInvites = invites.data?.trip_invites ?? []
@@ -89,7 +91,7 @@ export default function MyTripsPage() {
       {tripInvites.length > 0 && (
         <section className="mt-5">
           <h2 className="mb-2.5 text-sm font-semibold text-ink-700">待处理的邀请</h2>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {tripInvites.map((inv) => (
               <InviteCard key={inv.trip.id} inv={inv} />
             ))}
@@ -134,8 +136,8 @@ export default function MyTripsPage() {
       <div className="mt-4">
         {q.isLoading ? (
           <TripGridSkeleton />
-        ) : q.isError ? (
-          <Empty title="加载失败" desc={errorMessage(q.error)} action={<Button onClick={() => q.refetch()}>重试</Button>} />
+        ) : q.isLoadingError ? (
+          <LoadError error={q.error} onRetry={() => q.refetch()} />
         ) : trips.length === 0 ? (
           filtered ? (
             <Empty icon={<MapIcon className="size-12" />} title="没有符合条件的旅程" desc="换个筛选条件试试" />

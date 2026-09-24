@@ -1,0 +1,18 @@
+/* 地图样式只在用到地图的页面加载（不放进首屏全局 CSS）。
+   必须放在 base 层：否则 .maplibregl-map{position:relative} 会盖过 BaseMap 容器上的 absolute inset-0，地图高度塌成 0 */
+@import 'maplibre-gl/dist/maplibre-gl.css' layer(base);
+
+/* 地图控件风格微调 */
+.maplibregl-ctrl-group {
+  border-radius: 12px !important;
+  overflow: hidden;
+  box-shadow: var(--shadow-card) !important;
+}
+.maplibregl-ctrl-attrib {
+  font-size: 10px;
+}
+.maplibregl-popup-content {
+  border-radius: 14px !important;
+  padding: 10px 12px !important;
+  box-shadow: var(--shadow-float) !important;
+}

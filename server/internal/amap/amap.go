@@ -10,16 +10,24 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
 // ErrUnavailable means the API is not configured or temporarily disabled.
 var ErrUnavailable = errors.New("amap unavailable")
+
+// ErrNotFound means AMap has no POI with the requested ID.
+var ErrNotFound = errors.New("amap poi not found")
+
+// ErrNoRoute means AMap found no route, e.g. no public transport between two points.
+var ErrNoRoute = errors.New("amap: no route")
 
 // DefaultBaseURL is the AMap REST endpoint.
 const DefaultBaseURL = "https://restapi.amap.com"
@@ -30,7 +38,21 @@ type Client struct {
 	baseURL   string
 	http      *http.Client
 	regeo     *lru[*Regeo]
-	failUntil atomic.Int64 // unix nanos; circuit breaker after network errors
+	search    *lru[[]POI]  // Search results, by query
+	around    *lru[[]POI]  // Around results, by query at a point snapped to ~100 m
+	pois      *lru[POI]    // POIs seen in search / around / detail results, by ID
+	dir       *lru[*Route] // Direction results, by mode and end points
+	failUntil atomic.Int64 // unix nanos; circuit breaker after network / key errors
+	lastWarn  atomic.Int64 // unix nanos of the last throttled warning
+
+	// 路径规划 has a daily quota of its own: its key / quota errors pause
+	// only Direction (dirFailUntil), not search. Its requests are spaced
+	// dirGap apart; a caller whose turn is over dirMaxWait away gives up.
+	dirFailUntil atomic.Int64
+	dirMu        sync.Mutex
+	dirNext      time.Time
+	dirGap       time.Duration
+	dirMaxWait   time.Duration
 }
 
 // New creates a client. An empty key yields a disabled client.
@@ -40,6 +62,13 @@ func New(key string) *Client {
 		baseURL: DefaultBaseURL,
 		http:    &http.Client{Timeout: 3 * time.Second},
 		regeo:   newLRU[*Regeo](20000, 24*time.Hour),
+		search:  newLRU[[]POI](2000, 30*time.Minute),
+		around:  newLRU[[]POI](2000, 10*time.Minute),
+		pois:    newLRU[POI](20000, 24*time.Hour),
+		dir:     newLRU[*Route](20000, 7*24*time.Hour),
+		// About 3 requests a second: the QPS limit of a personal key is low.
+		dirGap:     300 * time.Millisecond,
+		dirMaxWait: 3 * time.Second,
 	}
 }
 
@@ -82,8 +111,60 @@ type baseResp struct {
 	Infocode string `json:"infocode"`
 }
 
+// AMap infocodes (https://lbs.amap.com/api/webservice/guide/tools/info).
+var (
+	// keyErrors: the key is invalid, not allowed for this service / platform
+	// / IP, or its (daily) quota is used up, so every request would fail.
+	keyErrors = map[string]bool{
+		"10001": true, "10002": true, "10003": true, "10005": true, "10006": true, "10007": true, "10008": true,
+		"10009": true, "10010": true, "10012": true, "10013": true, "10026": true, "10041": true, "10044": true,
+	}
+	// qpsErrors: too many requests per second; only this request failed.
+	qpsErrors = map[string]bool{
+		"10004": true, "10014": true, "10015": true, "10016": true, "10019": true, "10020": true, "10021": true,
+	}
+)
+
+// warnAllowed reports whether a throttled warning may be logged now (at most
+// once a minute).
+func (c *Client) warnAllowed() bool {
+	now := time.Now().UnixNano()
+	last := c.lastWarn.Load()
+	return now-last >= int64(time.Minute) && c.lastWarn.CompareAndSwap(last, now)
+}
+
+// apiError handles a response with status "0". Key and quota errors open
+// the breaker (pausing its calls) for 10 minutes. Other errors only fail this
+// request: QPS limits pass by themselves, and per-request errors (2xxxx /
+// 3xxxx, e.g. 20012 for a keyword with illegal content) must not let crafted
+// input disable AMap for everyone.
+func (c *Client) apiError(breaker *atomic.Int64, path string, br baseResp) error {
+	switch {
+	case keyErrors[br.Infocode]:
+		breaker.Store(time.Now().Add(10 * time.Minute).UnixNano())
+		c.lastWarn.Store(time.Now().UnixNano())
+		slog.Warn("高德 Key 无效或调用额度已用尽，暂停调用 10 分钟", "path", path, "infocode", br.Infocode, "info", br.Info)
+	case qpsErrors[br.Infocode]:
+		if c.warnAllowed() {
+			slog.Warn("高德接口调用超出 QPS 限制", "path", path, "infocode", br.Infocode, "info", br.Info)
+		}
+	default:
+		if c.warnAllowed() {
+			slog.Warn("高德接口返回错误", "path", path, "infocode", br.Infocode, "info", br.Info)
+		}
+	}
+	return fmt.Errorf("%w: amap error %s: %s", ErrUnavailable, br.Infocode, br.Info)
+}
+
 func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
-	if !c.available() {
+	return c.getWith(ctx, &c.failUntil, path, q, out)
+}
+
+// getWith is get for an API with a quota of its own: its key and quota
+// errors open breaker instead of the shared one. Network errors still open
+// the shared breaker.
+func (c *Client) getWith(ctx context.Context, breaker *atomic.Int64, path string, q url.Values, out any) error {
+	if !c.available() || time.Now().UnixNano() < breaker.Load() {
 		return ErrUnavailable
 	}
 	q.Set("key", c.key)
@@ -94,7 +175,12 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		// Network failure: back off for a while so requests fail fast.
+		if errors.Is(ctx.Err(), context.Canceled) {
+			// The caller went away (browser abort, client disconnect): not
+			// an AMap failure, so the breaker stays closed.
+			return fmt.Errorf("%w: %v", ErrUnavailable, ctx.Err())
+		}
+		// Network failure or timeout: back off for a while so requests fail fast.
 		c.failUntil.Store(time.Now().Add(60 * time.Second).UnixNano())
 		msg := strings.ReplaceAll(err.Error(), c.key, "***") // never log the key
 		slog.Warn("amap request failed, disabling for 60s", "path", path, "err", msg)
@@ -113,7 +199,7 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 	var br baseResp
 	_ = json.Unmarshal(raw, &br)
 	if br.Status != "1" {
-		return fmt.Errorf("amap error %s: %s", br.Infocode, br.Info)
+		return c.apiError(breaker, path, br)
 	}
 	return json.Unmarshal(raw, out)
 }
@@ -181,10 +267,15 @@ func parseLocation(s string) (float64, float64, bool) {
 }
 
 // Search runs a keyword search (/v3/place/text). city may be empty;
-// cityLimit restricts results to that city.
+// cityLimit restricts results to that city. Results are cached for 30
+// minutes; the returned slice is shared and must not be modified.
 func (c *Client) Search(ctx context.Context, keyword, city string, cityLimit bool, limit int) ([]POI, error) {
 	if limit <= 0 || limit > 25 {
 		limit = 20
+	}
+	key := fmt.Sprintf("%s\x00%s\x00%t\x00%d", keyword, city, cityLimit, limit)
+	if ps, ok := c.search.Get(key); ok {
+		return c.remember(ps), nil // refreshed for CachedPOI, as after a request
 	}
 	q := url.Values{}
 	q.Set("keywords", keyword)
@@ -203,14 +294,24 @@ func (c *Client) Search(ctx context.Context, keyword, city string, cityLimit boo
 	if err := c.get(ctx, "/v3/place/text", q, &resp); err != nil {
 		return nil, err
 	}
-	return convertPOIs(resp.Pois), nil
+	out := c.remember(convertPOIs(resp.Pois))
+	c.search.Put(key, out)
+	return out, nil
 }
 
 // Around searches near a GCJ-02 point (/v3/place/around), sorted by distance.
-// types is an AMap type code list such as "050000|110000".
+// types is an AMap type code list such as "050000|110000". The point is
+// snapped to a grid of about 100 m and results are cached for 10 minutes, so
+// POI.Distance is measured from the snapped point; the returned slice is
+// shared and must not be modified.
 func (c *Client) Around(ctx context.Context, lng, lat float64, radius int, types, keyword string, limit int) ([]POI, error) {
 	if limit <= 0 || limit > 25 {
 		limit = 20
+	}
+	lng, lat = math.Round(lng*1000)/1000, math.Round(lat*1000)/1000
+	key := fmt.Sprintf("%.3f,%.3f|%d|%s|%s|%d", lng, lat, radius, types, keyword, limit)
+	if ps, ok := c.around.Get(key); ok {
+		return c.remember(ps), nil // refreshed for CachedPOI, as after a request
 	}
 	q := url.Values{}
 	q.Set("location", fmt.Sprintf("%.6f,%.6f", lng, lat))
@@ -231,7 +332,50 @@ func (c *Client) Around(ctx context.Context, lng, lat float64, radius int, types
 	if err := c.get(ctx, "/v3/place/around", q, &resp); err != nil {
 		return nil, err
 	}
-	return convertPOIs(resp.Pois), nil
+	out := c.remember(convertPOIs(resp.Pois))
+	c.around.Put(key, out)
+	return out, nil
+}
+
+// remember caches POIs returned by AMap by their ID (see CachedPOI).
+func (c *Client) remember(ps []POI) []POI {
+	for _, p := range ps {
+		if p.ID != "" {
+			c.pois.Put(p.ID, p)
+		}
+	}
+	return ps
+}
+
+// CachedPOI returns AMap's own data for a POI recently returned by search,
+// around or detail lookups; it never hits the network.
+func (c *Client) CachedPOI(id string) (POI, bool) {
+	if c == nil || c.pois == nil || id == "" {
+		return POI{}, false
+	}
+	return c.pois.Get(id)
+}
+
+// Detail looks up a POI by its ID (/v3/place/detail); results are cached.
+// It returns ErrNotFound when AMap has no such POI.
+func (c *Client) Detail(ctx context.Context, id string) (*POI, error) {
+	if p, ok := c.CachedPOI(id); ok {
+		return &p, nil
+	}
+	q := url.Values{}
+	q.Set("id", id)
+	var resp struct {
+		Pois []poiJSON `json:"pois"`
+	}
+	if err := c.get(ctx, "/v3/place/detail", q, &resp); err != nil {
+		return nil, err
+	}
+	for _, p := range c.remember(convertPOIs(resp.Pois)) {
+		if p.ID == id {
+			return &p, nil
+		}
+	}
+	return nil, ErrNotFound
 }
 
 func convertPOIs(in []poiJSON) []POI {
@@ -289,6 +433,120 @@ func (c *Client) Regeo(ctx context.Context, lng, lat float64) (*Regeo, error) {
 	}
 	c.regeo.Put(key, r)
 	return r, nil
+}
+
+// Route is a 路径规划 result.
+type Route struct {
+	Mode      string // walking, transit or driving
+	DistanceM int
+	DurationS int
+}
+
+// Direction plans a trip between two GCJ-02 points. mode is "walking"
+// (/v3/direction/walking), "driving" (/v3/direction/driving) or "transit"
+// (/v3/direction/transit/integrated: city and cityd are the city names of
+// both ends; ErrNoRoute when AMap has no public transport between them).
+// Successful results are cached for 7 days (the returned Route is shared and
+// must not be modified); requests are throttled (see throttle).
+func (c *Client) Direction(ctx context.Context, mode string, fromLng, fromLat, toLng, toLat float64, city, cityd string) (*Route, error) {
+	q := url.Values{}
+	var path string
+	switch mode {
+	case "walking":
+		path = "/v3/direction/walking"
+	case "driving":
+		path = "/v3/direction/driving"
+		q.Set("extensions", "base")
+		q.Set("strategy", "0")
+	case "transit":
+		path = "/v3/direction/transit/integrated"
+		q.Set("city", city)
+		q.Set("cityd", cityd)
+	default:
+		return nil, fmt.Errorf("amap: unknown direction mode %q", mode)
+	}
+	key := fmt.Sprintf("%s|%.5f,%.5f|%.5f,%.5f|%s|%s", mode, fromLng, fromLat, toLng, toLat, city, cityd)
+	if r, ok := c.dir.Get(key); ok {
+		return r, nil
+	}
+	if !c.available() || time.Now().UnixNano() < c.dirFailUntil.Load() {
+		return nil, ErrUnavailable
+	}
+	if err := c.throttle(ctx); err != nil {
+		return nil, err
+	}
+	q.Set("origin", fmt.Sprintf("%.6f,%.6f", fromLng, fromLat))
+	q.Set("destination", fmt.Sprintf("%.6f,%.6f", toLng, toLat))
+	type leg struct {
+		Distance flexString `json:"distance"`
+		Duration flexString `json:"duration"`
+	}
+	var resp struct {
+		Route struct {
+			Distance flexString `json:"distance"`
+			Paths    []leg      `json:"paths"`
+			Transits []leg      `json:"transits"`
+		} `json:"route"`
+	}
+	if err := c.getWith(ctx, &c.dirFailUntil, path, q, &resp); err != nil {
+		return nil, err
+	}
+	legs := resp.Route.Paths
+	if mode == "transit" {
+		legs = resp.Route.Transits
+	}
+	if len(legs) == 0 {
+		return nil, ErrNoRoute
+	}
+	dist, okDist := roundNumber(legs[0].Distance)
+	if !okDist && mode == "transit" {
+		dist, okDist = roundNumber(resp.Route.Distance)
+	}
+	dur, okDur := roundNumber(legs[0].Duration)
+	if !okDist || !okDur {
+		return nil, ErrNoRoute
+	}
+	r := &Route{Mode: mode, DistanceM: dist, DurationS: dur}
+	c.dir.Put(key, r)
+	return r, nil
+}
+
+// roundNumber parses one of AMap's numeric strings (metres, seconds).
+func roundNumber(s flexString) (int, bool) {
+	v, err := strconv.ParseFloat(strings.TrimSpace(string(s)), 64)
+	if err != nil || !(v >= 0 && v < 1e9) {
+		return 0, false
+	}
+	return int(math.Round(v)), true
+}
+
+// throttle waits for the caller's turn to send a 路径规划 request (one every
+// dirGap). A caller whose turn is more than dirMaxWait away gives up at once
+// with ErrUnavailable, so a burst of callers cannot build up a long queue.
+func (c *Client) throttle(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	c.dirMu.Lock()
+	now := time.Now()
+	wait := max(c.dirNext.Sub(now), 0)
+	if wait > c.dirMaxWait {
+		c.dirMu.Unlock()
+		return fmt.Errorf("%w: too many direction requests", ErrUnavailable)
+	}
+	c.dirNext = now.Add(wait + c.dirGap)
+	c.dirMu.Unlock()
+	if wait == 0 {
+		return nil
+	}
+	t := time.NewTimer(wait)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("%w: %v", ErrUnavailable, ctx.Err())
+	}
 }
 
 // Category maps an AMap POI type string ("餐饮服务;中餐厅;浙江菜") to a TripHub category.

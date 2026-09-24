@@ -50,6 +50,7 @@ export function WaypointItem({
   const address = [w.district, w.address].filter(Boolean).join(' · ') || w.city
   return (
     <div
+      id={`wp-${w.id}`}
       onClick={onSelect}
       className={cn(
         'relative flex cursor-pointer gap-3 rounded-2xl p-3 transition',
@@ -60,7 +61,17 @@ export function WaypointItem({
       <WaypointNumber w={w} label={label} className="mt-0.5" />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
-          <h4 className={cn('font-semibold', w.status === 'skipped' && 'line-through')}>{w.name || '未命名地点'}</h4>
+          <h4 className={cn('font-semibold', w.status === 'skipped' && 'line-through')}>
+            {/* 整行可点：名称做成按钮，键盘也能选中（回车 / 空格触发的点击冒泡到整行的 onSelect）；
+                删除线不会延伸到按钮里，要单独加 */}
+            {onSelect ? (
+              <button type="button" className={cn('text-left', w.status === 'skipped' && 'line-through')}>
+                {w.name || '未命名地点'}
+              </button>
+            ) : (
+              w.name || '未命名地点'
+            )}
+          </h4>
           <CategoryChip category={w.category} />
           <VerdictBadge verdict={w.verdict} />
           {showStatus && w.planned && (

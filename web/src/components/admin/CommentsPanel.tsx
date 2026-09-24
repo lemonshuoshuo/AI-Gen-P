@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { api, errorMessage, type Comment } from '@/api'
 import { Avatar, UserName, confirmDialog } from '@/components/ui'
 import { fromNow } from '@/lib/format'
-import { ActionButton, ADMIN_PAGE_SIZE, FilterBar, PanelHeader, Pill, SearchInput, useFilters } from './common'
+import { ActionButton, ADMIN_PAGE_SIZE, FilterBar, PanelHeader, Pill, SearchInput, useFilters, usePageGuard } from './common'
 import { DataTable, type Column } from './DataTable'
 
 export function CommentWhere({ c }: { c: Pick<Comment, 'trip' | 'place' | 'trip_id' | 'place_id'> }) {
@@ -35,6 +35,7 @@ export function CommentsPanel() {
     queryFn: () => api.admin.comments({ ...f, page_size: ADMIN_PAGE_SIZE }),
     placeholderData: keepPreviousData,
   })
+  usePageGuard(data, setPage)
 
   const remove = useMutation({
     mutationFn: (id: number) => api.admin.deleteComment(id),

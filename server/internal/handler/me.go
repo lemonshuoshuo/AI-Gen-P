@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -43,11 +44,17 @@ func (h *Handler) updateMe(c *gin.Context) error {
 		if err != nil {
 			return err
 		}
+		if err := h.screen(c, v); err != nil {
+			return err
+		}
 		upd["nickname"] = v
 	}
 	if req.Bio != nil {
 		v, err := clean(*req.Bio, "个人简介", 200, false)
 		if err != nil {
+			return err
+		}
+		if err := h.screen(c, v); err != nil {
 			return err
 		}
 		upd["bio"] = v
@@ -131,6 +138,233 @@ func (h *Handler) changePassword(c *gin.Context) error {
 	return nil
 }
 
+// deleteMe closes the current user's account (注销). Trips nobody else can
+// edit are deleted; shared trips pass to their earliest co-author. The
+// user's photos, GPS tracks, likes, favourites, follows, memberships,
+// invites, notifications and couple binding are removed and their comments
+// become "deleted" placeholders. The user row is kept anonymised so that
+// comment threads and co-authored waypoints still resolve their author.
+func (h *Handler) deleteMe(c *gin.Context) error {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := bindJSON(c, &req); err != nil {
+		return err
+	}
+	u := currentUser(c)
+	if u.IsAdmin() {
+		return errBad("管理员账号不能注销")
+	}
+	if !auth.CheckPassword(u.PasswordHash, req.Password) {
+		return errBad("密码不正确")
+	}
+	ctx := c.Request.Context()
+	db := h.db.WithContext(ctx)
+	// successor is the earliest other accepted member of a trip (0 if none).
+	successor := func(tx *gorm.DB, tripID int64) (int64, error) {
+		var m model.TripMember
+		err := tx.Where("trip_id = ? AND user_id <> ? AND status = ?", tripID, u.ID, model.MemberAccepted).
+			Order("created_at, id").Limit(1).Find(&m).Error
+		return m.UserID, err
+	}
+	var owned []int64
+	if err := db.Model(&model.Trip{}).Where("owner_id = ?", u.ID).Pluck("id", &owned).Error; err != nil {
+		return err
+	}
+	for _, id := range owned {
+		next, err := successor(db, id)
+		if err != nil {
+			return err
+		}
+		if next == 0 {
+			if err := h.svc.DeleteTrip(ctx, id); err != nil {
+				return err
+			}
+		}
+	}
+
+	var files []string
+	var orphans, trackTrips []int64
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var shared []model.Trip
+		if err := tx.Select("id", "title").Where("owner_id = ?", u.ID).Find(&shared).Error; err != nil {
+			return err
+		}
+		for _, t := range shared {
+			next, err := successor(tx, t.ID)
+			if err != nil {
+				return err
+			}
+			if next == 0 { // the co-author left in the meantime
+				orphans = append(orphans, t.ID)
+				continue
+			}
+			if err := tx.Model(&model.Trip{}).Where("id = ?", t.ID).Update("owner_id", next).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&model.TripMember{}).Where("trip_id = ? AND user_id = ?", t.ID, next).Update("role", model.MemberOwner).Error; err != nil {
+				return err
+			}
+			if err := h.svc.Notify(tx, service.Notice{UserID: next, Type: "system", TripID: t.ID,
+				Content: "共同作者注销了账号，你已成为旅程「" + t.Title + "」的作者"}); err != nil {
+				return err
+			}
+		}
+
+		// Photos (files are removed after commit).
+		var photos []model.Photo
+		if err := tx.Where("user_id = ?", u.ID).Find(&photos).Error; err != nil {
+			return err
+		}
+		touched := map[int64]bool{} // trips whose statistics change
+		var urls []string
+		var photoWPs, placeIDs []int64
+		for _, p := range photos {
+			files = append(files, p.Path, p.ThumbPath)
+			urls = append(urls, media.URL(p.Path), media.URL(p.ThumbPath))
+			touched[p.TripID] = true
+			if p.WaypointID != nil {
+				photoWPs = append(photoWPs, *p.WaypointID)
+			}
+		}
+		if len(photos) > 0 {
+			if err := tx.Where("user_id = ?", u.ID).Delete(&model.Photo{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&model.Trip{}).Where("cover_url IN ?", urls).Update("cover_url", "").Error; err != nil {
+				return err
+			}
+		}
+		if len(photoWPs) > 0 {
+			if err := tx.Model(&model.Waypoint{}).Where("id IN ? AND place_id IS NOT NULL", photoWPs).Pluck("place_id", &placeIDs).Error; err != nil {
+				return err
+			}
+		}
+
+		// GPS tracks.
+		if err := tx.Model(&model.TrackPoint{}).Where("user_id = ?", u.ID).Distinct().Pluck("trip_id", &trackTrips).Error; err != nil {
+			return err
+		}
+		if len(trackTrips) > 0 {
+			// Lock the trips (in id order) against concurrent appends, which update the counters incrementally.
+			if err := tx.Exec("SELECT id FROM trips WHERE id IN ? ORDER BY id FOR UPDATE", trackTrips).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("user_id = ?", u.ID).Delete(&model.TrackPoint{}).Error; err != nil {
+				return err
+			}
+		}
+
+		// Comments stay as placeholders (threads keep their replies).
+		var cms []model.Comment
+		if err := tx.Select("id", "trip_id", "place_id").Where("user_id = ? AND NOT deleted", u.ID).Find(&cms).Error; err != nil {
+			return err
+		}
+		commentTrips := map[int64]bool{}
+		for _, cm := range cms {
+			if cm.TripID != nil {
+				commentTrips[*cm.TripID] = true
+			}
+			if cm.PlaceID != nil {
+				placeIDs = append(placeIDs, *cm.PlaceID)
+			}
+		}
+		if len(cms) > 0 {
+			if err := tx.Model(&model.Comment{}).Where("user_id = ?", u.ID).Updates(map[string]any{"deleted": true, "content": ""}).Error; err != nil {
+				return err
+			}
+		}
+		for id := range commentTrips {
+			if err := h.recountTripComments(tx, id); err != nil {
+				return err
+			}
+		}
+
+		// Likes and favourites.
+		for _, lf := range []struct{ table, counter string }{{"likes", "like_count"}, {"favorites", "fav_count"}} {
+			var ids []int64
+			if err := tx.Raw("DELETE FROM "+lf.table+" WHERE user_id = ? RETURNING trip_id", u.ID).Scan(&ids).Error; err != nil {
+				return err
+			}
+			if len(ids) > 0 {
+				if err := tx.Exec("UPDATE trips SET "+lf.counter+" = (SELECT COUNT(*) FROM "+lf.table+" x WHERE x.trip_id = trips.id) WHERE id IN ?",
+					ids).Error; err != nil {
+					return err
+				}
+			}
+		}
+
+		// Relations and personal records.
+		for _, del := range []struct {
+			q    string
+			args []any
+		}{
+			{"DELETE FROM follows WHERE follower_id = ? OR followee_id = ?", []any{u.ID, u.ID}},
+			{"DELETE FROM trip_members WHERE user_id = ?", []any{u.ID}},
+			{"DELETE FROM partner_invites WHERE from_id = ? OR to_id = ?", []any{u.ID, u.ID}},
+			{"DELETE FROM notifications WHERE user_id = ?", []any{u.ID}},
+			{"DELETE FROM exp_logs WHERE user_id = ?", []any{u.ID}},
+			{"DELETE FROM refresh_tokens WHERE user_id = ?", []any{u.ID}},
+		} {
+			if err := tx.Exec(del.q, del.args...).Error; err != nil {
+				return err
+			}
+		}
+		partnerID, p, err := service.PartnerOf(tx, u.ID)
+		if err != nil {
+			return err
+		}
+		if p != nil {
+			if err := tx.Delete(p).Error; err != nil {
+				return err
+			}
+			if err := h.svc.Notify(tx, service.Notice{UserID: partnerID, Type: "system", Content: "对方已注销账号，情侣绑定已解除"}); err != nil {
+				return err
+			}
+		}
+
+		// Refresh statistics.
+		for _, id := range trackTrips {
+			if err := h.svc.RecomputeTrack(tx, id); err != nil { // includes RecomputeTrip
+				return err
+			}
+			delete(touched, id)
+		}
+		for id := range touched {
+			if err := h.svc.RecomputeTrip(tx, id); err != nil {
+				return err
+			}
+		}
+		if err := h.svc.RecomputePlaces(tx, placeIDs); err != nil {
+			return err
+		}
+
+		// Anonymise the account; the hyphen keeps the name from ever being registered.
+		return tx.Model(&model.User{}).Where("id = ?", u.ID).Updates(map[string]any{
+			"username": fmt.Sprintf("deleted-%d", u.ID), "email": "", "nickname": "已注销用户", "bio": "", "avatar_url": "",
+			"password_hash": "", "role": model.RoleUser, "status": model.UserDeleted, "exp": 0, "storage_used": 0,
+			"last_login_at": nil,
+		}).Error
+	})
+	if err != nil {
+		return err
+	}
+	for _, id := range orphans {
+		if err := h.svc.DeleteTrip(ctx, id); err != nil {
+			slog.Error("delete trip of closed account", "trip", id, "err", err)
+		}
+	}
+	h.svc.Media.Remove(files...)
+	if rel, ok := media.RelFromURL(u.AvatarURL); ok && strings.HasPrefix(rel, media.AvatarPrefix(u.ID)) {
+		h.svc.Media.Remove(rel)
+	}
+	for _, id := range trackTrips {
+		h.trackCache.dropTrip(id)
+	}
+	c.JSON(http.StatusOK, gin.H{})
+	return nil
+}
+
 // readUpload reads the multipart "file" field into memory, enforcing the size limit.
 func (h *Handler) readUpload(c *gin.Context) ([]byte, error) {
 	fh, err := c.FormFile("file")
@@ -199,8 +433,11 @@ func (h *Handler) uploadAvatar(c *gin.Context) error {
 func (h *Handler) respondTripPage(c *gin.Context, q *gorm.DB, order string) error {
 	p := pageParams(c)
 	var trips []model.Trip
-	total, err := paginate(q, p, order, &trips)
+	total, err := paginate(q.Omit("content"), p, order, &trips)
 	if err != nil {
+		return err
+	}
+	if err := h.loadSummarySources(c.Request.Context(), trips); err != nil {
 		return err
 	}
 	cards, err := h.tripCards(c.Request.Context(), trips)
@@ -247,8 +484,11 @@ func (h *Handler) myFavorites(c *gin.Context) error {
 	q := db.Model(&model.Trip{}).Joins("JOIN favorites f ON f.trip_id = trips.id AND f.user_id = ?", u.ID).
 		Where("trips.id IN (?)", visible)
 	var trips []model.Trip
-	total, err := paginate(q, p, "f.created_at DESC", &trips)
+	total, err := paginate(q.Omit("content"), p, "f.created_at DESC", &trips)
 	if err != nil {
+		return err
+	}
+	if err := h.loadSummarySources(c.Request.Context(), trips); err != nil {
 		return err
 	}
 	cards, err := h.tripCards(c.Request.Context(), trips)
@@ -291,7 +531,10 @@ func (h *Handler) myInvites(c *gin.Context) error {
 			inviters = append(inviters, m.InvitedByID)
 		}
 		var trips []model.Trip
-		if err := db.Where("id IN ?", ids).Find(&trips).Error; err != nil {
+		if err := db.Omit("content").Where("id IN ?", ids).Find(&trips).Error; err != nil {
+			return err
+		}
+		if err := h.loadSummarySources(ctx, trips); err != nil {
 			return err
 		}
 		cards, err := h.tripCards(ctx, trips)

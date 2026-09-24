@@ -5,10 +5,11 @@ import { LocateFixed, MapPinned, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, type Category } from '@/api'
 import { PlaceRow } from '@/components/place/PlaceCard'
-import { Button, Empty, Input, Segmented } from '@/components/ui'
+import { Button, Empty, Input, LoadError, Segmented } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { getCurrentPosition } from '@/lib/geo'
 import { categories, categoryList } from '@/lib/meta'
+import { flattenPages } from '@/lib/pages'
 
 type Sort = 'hot' | 'rating' | 'avoid' | 'nearby'
 
@@ -53,8 +54,11 @@ export default function PlacesPage() {
   const places =
     sort === 'nearby'
       ? (nearby.data ?? []).filter((p) => !category || p.category === category)
-      : (list.data?.pages.flatMap((p) => p.items) ?? [])
+      : flattenPages(list.data?.pages)
   const loading = sort === 'nearby' ? nearby.isLoading && !!pos : list.isLoading
+  // 首次加载失败（没有任何数据）才显示错误；「加载更多」失败时保留已加载的列表
+  const active = sort === 'nearby' ? nearby : list
+  const failed = active.isLoadingError
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
@@ -117,7 +121,8 @@ export default function PlacesPage() {
       <div className="mt-4 space-y-2.5">
         {loading &&
           Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-24 animate-pulse rounded-2xl bg-white shadow-card" />)}
-        {!loading && places.length === 0 && (
+        {!loading && failed && <LoadError error={active.error} onRetry={() => active.refetch()} />}
+        {!loading && !failed && places.length === 0 && (
           <Empty
             icon={<MapPinned className="size-12" />}
             title={sort === 'nearby' && !pos ? '需要定位权限' : '暂时没有打卡地'}

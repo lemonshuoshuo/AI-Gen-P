@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Camera, HardDrive, KeyRound, Sparkles, UserRound } from 'lucide-react'
 import { toast } from 'sonner'
@@ -7,7 +7,7 @@ import { Avatar, Button, Card, Field, Input, LevelBadge, Textarea } from '@/comp
 import { useSite } from '@/hooks/useSite'
 import { cn } from '@/lib/cn'
 import { fmtBytes } from '@/lib/format'
-import { compressImage } from '@/lib/photo'
+import { compressImage } from '@/lib/image'
 import { useAuth } from '@/stores/auth'
 
 const expRules = [
@@ -308,6 +308,10 @@ function PasswordSection() {
 
 export default function SettingsPage() {
   const user = useAuth((s) => s.user)!
+  // 等级、经验和存储空间以服务端为准：每次打开都刷新
+  useEffect(() => {
+    void useAuth.getState().refreshMe()
+  }, [])
   return (
     <div className="mx-auto max-w-2xl space-y-5 px-4 py-6">
       <h1 className="text-2xl font-extrabold">账号设置</h1>

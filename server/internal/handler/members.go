@@ -83,7 +83,7 @@ func (h *Handler) inviteMember(c *gin.Context) error {
 		if err := tx.Where("lower(username) = lower(?)", name).Limit(1).Find(&target).Error; err != nil {
 			return err
 		}
-		if target.ID == 0 {
+		if target.ID == 0 || target.Status == model.UserDeleted {
 			return errNotFound("用户不存在")
 		}
 		if target.ID == me.ID {

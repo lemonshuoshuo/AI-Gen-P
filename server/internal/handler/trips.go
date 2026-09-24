@@ -77,8 +77,10 @@ func (h *Handler) tripForOwner(c *gin.Context) (*model.Trip, service.Access, err
 	return t, a, nil
 }
 
-const hotScoreSQL = `(like_count * 3 + comment_count * 2 + fork_count * 5 + fav_count * 2 + view_count / 20.0)
- / power(extract(epoch from (now() - coalesce(published_at, created_at))) / 86400.0 + 2, 1.2)`
+// hotScoreSQL is evaluated in float8. The numeric form (x / 20.0, extract(epoch), numeric power())
+// costs about 19 µs per public trip on every hot page or search; float8 costs about 1 µs.
+const hotScoreSQL = `(like_count * 3 + comment_count * 2 + fork_count * 5 + fav_count * 2 + view_count / 20.0::float8)
+ / power(date_part('epoch', now() - coalesce(published_at, created_at)) / 86400 + 2, 1.2::float8)`
 
 func (h *Handler) listTrips(c *gin.Context) error {
 	db := h.db.WithContext(c.Request.Context())
@@ -103,7 +105,10 @@ func (h *Handler) listTrips(c *gin.Context) error {
 		}
 		q = q.Where("phase = ?", p)
 	}
-	order := "published_at DESC NULLS LAST, id DESC"
+	// Public trips always have published_at (set by createTrip / updateTrip /
+	// the admin review), so no NULLS LAST: idx_trips_listing (visibility,
+	// status, published_at) is then scanned backward instead of sorting all trips.
+	order := "published_at DESC, id DESC"
 	switch c.DefaultQuery("tab", "latest") {
 	case "latest", "":
 	case "featured":
@@ -139,6 +144,7 @@ type tripInput struct {
 	StartDate   Opt[string] `json:"start_date"`
 	EndDate     Opt[string] `json:"end_date"`
 	Tags        *[]string   `json:"tags"`
+	LiveShare   *bool       `json:"live_share"`
 	WithPartner bool        `json:"with_partner"`
 }
 
@@ -219,7 +225,29 @@ func (in *tripInput) apply(t *model.Trip, creating bool) (map[string]any, error)
 		}
 		t.Tags, upd["tags"] = tags, service.JSONList(tags)
 	}
+	if in.LiveShare != nil {
+		t.LiveShare, upd["live_share"] = *in.LiveShare, *in.LiveShare
+	}
 	return upd, nil
+}
+
+// screenedTexts returns the user-written texts of t that in sets, for
+// Handler.screen (each tag on its own).
+func (in *tripInput) screenedTexts(t *model.Trip) []string {
+	var out []string
+	if in.Title != nil {
+		out = append(out, t.Title)
+	}
+	if in.Summary != nil {
+		out = append(out, t.Summary)
+	}
+	if in.Content != nil {
+		out = append(out, t.Content)
+	}
+	if in.Tags != nil {
+		out = append(out, t.Tags...)
+	}
+	return out
 }
 
 func cleanTags(in []string) ([]string, error) {
@@ -270,6 +298,12 @@ func (h *Handler) createTrip(c *gin.Context) error {
 	if _, err := in.apply(&t, true); err != nil {
 		return err
 	}
+	if err := h.screen(c, in.screenedTexts(&t)...); err != nil {
+		return err
+	}
+	if t.Visibility == model.VisPublic && h.svc.Settings.Get().ReviewPublicTrips && !u.IsAdmin() {
+		t.Status = model.TripPending // public once an admin approves it
+	}
 	if t.StartDate != nil && t.EndDate != nil {
 		t.Days = service.TripDays(t.StartDate, t.EndDate, nil, h.loc)
 	}
@@ -301,7 +335,7 @@ func (h *Handler) createTrip(c *gin.Context) error {
 		if err := h.svc.AwardExp(tx, u.ID, service.ExpKey("trip_create", t.ID), service.ExpCreateTrip, "trip_create"); err != nil {
 			return err
 		}
-		if t.Visibility == model.VisPublic {
+		if t.Visibility == model.VisPublic && t.Status == model.TripNormal {
 			return h.svc.AwardExp(tx, u.ID, service.ExpKey("trip_public", t.ID), service.ExpFirstPublic, "trip_public")
 		}
 		return nil
@@ -397,9 +431,28 @@ func (h *Handler) updateTrip(c *gin.Context) error {
 	if in.Visibility != nil && *in.Visibility != t.Visibility && !a.Owner {
 		return errForbidden("只有作者可以修改可见性")
 	}
+	if in.LiveShare != nil && *in.LiveShare != t.LiveShare && !a.Owner {
+		return errForbidden("只有作者可以修改实时位置公开设置")
+	}
 	upd, err := in.apply(t, false)
 	if err != nil {
 		return err
+	}
+	if err := h.screen(c, in.screenedTexts(t)...); err != nil {
+		return err
+	}
+	// Review of public trips (a site setting): a trip a non-admin makes public
+	// waits for an admin, one that is no longer public leaves the queue.
+	// Hidden trips stay hidden, also when an admin hides one meanwhile.
+	setStatus := func(from, to string) {
+		t.Status, upd["status"] = to, gorm.Expr("CASE WHEN status = ? THEN ? ELSE status END", from, to)
+	}
+	switch {
+	case oldVis != model.VisPublic && t.Visibility == model.VisPublic && t.Status == model.TripNormal &&
+		h.svc.Settings.Get().ReviewPublicTrips && !currentUser(c).IsAdmin():
+		setStatus(model.TripNormal, model.TripPending)
+	case t.Status == model.TripPending && t.Visibility != model.VisPublic:
+		setStatus(model.TripPending, model.TripNormal)
 	}
 	if len(upd) == 0 {
 		return h.respondTripDetail(c, t.ID)
@@ -430,7 +483,7 @@ func (h *Handler) updateTrip(c *gin.Context) error {
 				return err
 			}
 		}
-		if firstPublic {
+		if firstPublic && t.Status == model.TripNormal { // a pending trip earns it when approved
 			return h.svc.AwardExp(tx, t.OwnerID, service.ExpKey("trip_public", t.ID), service.ExpFirstPublic, "trip_public")
 		}
 		return nil
@@ -457,18 +510,22 @@ func (h *Handler) deleteTrip(c *gin.Context) error {
 }
 
 func (h *Handler) forkTrip(c *gin.Context) error {
-	src, _, err := h.tripForView(c)
+	src, a, err := h.tripForView(c)
 	if err != nil {
 		return err
 	}
 	var req struct {
-		Title string `json:"title"`
+		Title        string `json:"title"`
+		IncludeAvoid bool   `json:"include_avoid"` // also copy stops the author marked 踩雷
 	}
 	if err := bindJSON(c, &req); err != nil {
 		return err
 	}
 	title, err := clean(req.Title, "标题", 100, false)
 	if err != nil {
+		return err
+	}
+	if err := h.screen(c, title); err != nil {
 		return err
 	}
 	if title == "" {
@@ -483,17 +540,37 @@ func (h *Handler) forkTrip(c *gin.Context) error {
 		if err := createTripRecord(tx, &nt); err != nil {
 			return err
 		}
+		q := tx.Where("trip_id = ?", src.ID)
+		hide := a.HideLive(src)
+		if hide {
+			// The plan as planned: unplanned stops and skips are live progress (see redactLive).
+			q = q.Where("planned")
+		} else {
+			q = q.Where("status <> ?", model.WPSkipped)
+			if !req.IncludeAvoid { // a 踩雷 stop must not become a planned stop of the copy
+				q = q.Where("verdict <> ?", model.VerdictAvoid)
+			}
+		}
 		var wps []model.Waypoint
-		if err := tx.Where("trip_id = ? AND status <> ?", src.ID, model.WPSkipped).Order("seq, id").Find(&wps).Error; err != nil {
+		if err := q.Order("seq, id").Find(&wps).Error; err != nil {
 			return err
 		}
 		copies := make([]model.Waypoint, 0, len(wps))
 		for i, w := range wps {
+			// Verdicts are not copied (they would be the copier's reviews), but a
+			// 踩雷 copied on request keeps its warning in the note.
+			note := w.Note
+			if w.Verdict == model.VerdictAvoid && !hide {
+				note = "⚠️ 原作者标记为踩雷"
+				if w.Note != "" {
+					note = "⚠️ 原作者踩雷：" + w.Note
+				}
+			}
 			copies = append(copies, model.Waypoint{
 				TripID: nt.ID, Seq: i, Day: w.Day, Planned: true, Status: model.WPTodo,
 				Name: w.Name, Address: w.Address, Province: w.Province, ProvinceCode: w.ProvinceCode,
 				City: w.City, CityCode: w.CityCode, District: w.District, Lng: w.Lng, Lat: w.Lat,
-				Category: w.Category, Note: w.Note, Cost: w.Cost, AmapID: w.AmapID, PlaceID: w.PlaceID,
+				Category: w.Category, Note: note, Cost: w.Cost, AmapID: w.AmapID, PlaceID: w.PlaceID,
 				AutoNamed: w.AutoNamed, CreatedByID: u.ID,
 			})
 		}
@@ -508,7 +585,7 @@ func (h *Handler) forkTrip(c *gin.Context) error {
 		if src.OwnerID == u.ID {
 			return nil
 		}
-		if err := tx.Model(&model.Trip{}).Where("id = ?", src.ID).UpdateColumn("fork_count", gorm.Expr("fork_count + 1")).Error; err != nil {
+		if err := service.RecomputeForkCount(tx, src.ID); err != nil {
 			return err
 		}
 		if err := h.svc.Notify(tx, service.Notice{UserID: src.OwnerID, Type: "fork", ActorID: u.ID, TripID: src.ID,
@@ -533,6 +610,11 @@ func (h *Handler) toggle(c *gin.Context, table string, on bool) (int, *model.Tri
 	counter := map[string]string{"likes": "like_count", "favorites": "fav_count"}[table]
 	var count int
 	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		// Lock first: under READ COMMITTED the recount below would otherwise
+		// miss rows of a concurrent like that commits while we wait for the row.
+		if err := service.LockTrip(tx, t.ID); err != nil {
+			return err
+		}
 		changed := int64(0)
 		if on {
 			var res *gorm.DB

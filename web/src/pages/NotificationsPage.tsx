@@ -18,10 +18,11 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { api, errorMessage, type Notification, type NotificationType, type Paged } from '@/api'
-import { Avatar, Button, Empty, PageLoader, Segmented } from '@/components/ui'
+import { api, ApiError, errorMessage, type Notification, type NotificationType, type Paged } from '@/api'
+import { Avatar, Button, Empty, LoadError, PageLoader, Segmented } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { fromNow } from '@/lib/format'
+import { flattenPages } from '@/lib/pages'
 
 type Filter = 'all' | 'unread'
 type NoticePages = InfiniteData<Paged<Notification>, number>
@@ -71,7 +72,8 @@ function describe(n: Notification): ReactNode {
     case 'follow':
       return <>{who} 关注了你</>
     case 'trip_invite':
-      return <>{who} 邀请你一起编辑旅程{trip}</>
+      // 邀请已处理，或情侣被直接加入旅程（「把你加入了共同旅程…」）时按通知原文展示
+      return n.invite_pending || !n.content ? <>{who} 邀请你一起编辑旅程{trip}</> : <>{who} {n.content}</>
     case 'partner_invite':
       return (
         <>
@@ -81,12 +83,8 @@ function describe(n: Notification): ReactNode {
     case 'partner_accept':
       return <>{who} 接受了你的情侣空间邀请，你们绑定啦 💕</>
     case 'featured':
-      return (
-        <>
-          你的旅程{trip}被设为精选 🎉
-          {n.content && <span className="text-ink-500"> {n.content}</span>}
-        </>
-      )
+      // content 是服务端生成的同一句摘要（「你的旅程「X」被设为精选」），不再重复显示
+      return <>你的旅程{trip}被设为精选 🎉</>
     default:
       return n.content || '系统通知'
   }
@@ -100,8 +98,6 @@ function targetOf(n: Notification): string | null {
     case 'partner_invite':
     case 'partner_accept':
       return '/together'
-    case 'trip_invite':
-      return null
   }
   if (n.trip) return `/trips/${n.trip.id}`
   if (n.place) return `/places/${n.place.id}`
@@ -144,7 +140,11 @@ function InviteActions({ tripId, onDone }: { tripId: number; onDone: () => void 
       qc.invalidateQueries({ queryKey: ['my-trips'] })
       onDone()
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => {
+      toast.error(errorMessage(e))
+      // 邀请已在别处处理：刷新列表，按钮会消失
+      if (e instanceof ApiError && e.status === 404) qc.invalidateQueries({ queryKey: ['notifications'] })
+    },
   })
   if (result === 'accepted')
     return (
@@ -169,13 +169,15 @@ function InviteActions({ tripId, onDone }: { tripId: number; onDone: () => void 
 }
 
 function NoticeItem({ n, onOpen, onRead }: { n: Notification; onOpen: () => void; onRead: () => void }) {
+  // 只有仍待处理的旅程邀请才显示接受 / 拒绝
+  const actionable = n.type === 'trip_invite' && !!n.trip && !!n.invite_pending
   const body = (
     <>
       <NoticeAvatar n={n} />
       <div className="min-w-0 flex-1">
         <p className="line-clamp-3 text-sm leading-relaxed break-words text-ink-700">{describe(n)}</p>
         <div className="mt-1 text-xs text-ink-400">{fromNow(n.created_at)}</div>
-        {n.type === 'trip_invite' && n.trip && <InviteActions tripId={n.trip.id} onDone={onRead} />}
+        {actionable && n.trip && <InviteActions tripId={n.trip.id} onDone={onRead} />}
       </div>
       {!n.read && <span className="mt-1.5 size-2 shrink-0 rounded-full bg-brand-500" aria-label="未读" />}
     </>
@@ -184,8 +186,8 @@ function NoticeItem({ n, onOpen, onRead }: { n: Notification; onOpen: () => void
     'flex w-full gap-3 rounded-2xl p-4 text-left transition',
     n.read ? 'bg-white shadow-card' : 'bg-brand-50 ring-1 ring-brand-100',
   )
-  // 旅程邀请包含操作按钮，不整体可点
-  if (n.type === 'trip_invite') return <div className={cls}>{body}</div>
+  // 待处理的旅程邀请包含操作按钮，不整体可点
+  if (actionable) return <div className={cls}>{body}</div>
   return (
     <button type="button" onClick={onOpen} className={cn(cls, 'hover:brightness-[0.98]')}>
       {body}
@@ -209,7 +211,7 @@ export default function NotificationsPage() {
     queryFn: api.notifications.unreadCount,
     select: (d) => d.count,
   })
-  const items = q.data?.pages.flatMap((p) => p.items) ?? []
+  const items = flattenPages(q.data?.pages)
 
   /** 在本地缓存中标记已读（未读筛选下保留条目，避免列表跳动） */
   const markLocal = (ids?: number[]) => {
@@ -285,12 +287,8 @@ export default function NotificationsPage() {
       <div className="mt-4">
         {q.isLoading ? (
           <PageLoader />
-        ) : q.isError ? (
-          <Empty
-            title="通知加载失败"
-            desc={errorMessage(q.error)}
-            action={<Button onClick={() => q.refetch()}>重试</Button>}
-          />
+        ) : q.isLoadingError ? (
+          <LoadError title="通知加载失败" error={q.error} onRetry={() => q.refetch()} />
         ) : items.length === 0 ? (
           <Empty
             icon={filter === 'unread' ? <BellOff className="size-12" /> : <Bell className="size-12" />}

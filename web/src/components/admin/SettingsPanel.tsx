@@ -41,7 +41,7 @@ function SettingsForm({ initial }: { initial: SiteSettings }) {
           <Input
             value={form.site_name}
             onChange={(e) => setForm({ ...form, site_name: e.target.value })}
-            maxLength={40}
+            maxLength={30}
             placeholder="TripHub"
           />
         </Field>

@@ -1,4 +1,4 @@
-// 中国省/市边界（服务端 /api/v1/geo/atlas 提供 TopoJSON）
+// 中国省界（服务端 /api/v1/geo/atlas 提供 TopoJSON，含省、地市、国界；页面只用到省界：点亮省份、底图加载失败时的兜底轮廓）
 import { feature } from 'topojson-client'
 import type { FeatureCollection, MultiPolygon, Polygon } from 'geojson'
 import type { Topology } from 'topojson-specification'
@@ -10,7 +10,7 @@ export interface AtlasProps {
 }
 export type AtlasFC = FeatureCollection<Polygon | MultiPolygon, AtlasProps>
 
-let cache: Promise<{ provinces: AtlasFC; prefectures: AtlasFC; nation: AtlasFC }> | null = null
+let cache: Promise<{ provinces: AtlasFC }> | null = null
 
 // 边界数据为 WGS-84，底图为 GCJ-02，转换后贴合更准确
 function toGcj(fc: FeatureCollection): AtlasFC {
@@ -32,10 +32,8 @@ export function loadAtlas() {
         if (!r.ok) throw new Error('边界数据加载失败')
         return r.json() as Promise<Topology>
       })
-      .then((topo) => {
-        const get = (k: string) => toGcj(feature(topo, topo.objects[k]) as unknown as FeatureCollection)
-        return { provinces: get('provinces'), prefectures: get('prefectures'), nation: get('nation') }
-      })
+      // 只转换省界：地市边界的顶点数是省界的 2.5 倍，逐点坐标转换在主线程上要多花几倍时间，转换结果还一直缓存在内存里
+      .then((topo) => ({ provinces: toGcj(feature(topo, topo.objects.provinces) as unknown as FeatureCollection) }))
       .catch((e) => {
         cache = null
         throw e

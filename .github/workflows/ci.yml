@@ -3,6 +3,11 @@ name: CI
 on:
   push:
   pull_request:
+  # 发布流程（release.yml）先调用本工作流跑测试，通过后才构建发布包
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   server:
@@ -24,12 +29,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: server/go.mod
+          # 不用 go-version-file：go.mod 中带补丁号的 go 版本会被当成精确版本，装上缺少安全修复的旧工具链
+          go-version: '1.27.x'
+          check-latest: true
           cache-dependency-path: server/go.sum
       - run: go vet ./...
       - run: go test ./...
         env:
           TRIPHUB_TEST_DSN: postgres://triphub:triphub@localhost:5432/triphub_test?sslmode=disable
+      # 用 go run 让当前工具链编译 govulncheck（预编译的旧版本读不了新版标准库）
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+        # 暂不阻塞：x/image、x/text、pgx 还有已知漏洞，server/go.mod 升级依赖后删掉这一行
+        continue-on-error: true
 
   web:
     runs-on: ubuntu-latest

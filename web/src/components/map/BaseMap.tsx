@@ -8,6 +8,7 @@ import { loadAtlas } from '@/lib/atlas'
 import { cn } from '@/lib/cn'
 import { CHINA_CENTER, getCurrentPosition } from '@/lib/geo'
 import { buildStyle, defaultTiles, setBaseKind, type BaseKind } from './style'
+import './maplibre.css'
 
 setWorkerUrl(workerUrl)
 

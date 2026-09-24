@@ -17,7 +17,12 @@ import (
 	"triphub/internal/service"
 )
 
-const autoWaypointRadius = 300.0
+const (
+	autoWaypointRadius = 300.0
+	// photoVisitRadius: a photo marks a todo planned stop visited only this
+	// close to it (one taken on the way, 300 m before, does not).
+	photoVisitRadius = 100.0
+)
 
 func formatBytes(n int64) string {
 	switch {
@@ -86,6 +91,9 @@ func (h *Handler) uploadPhoto(c *gin.Context) error {
 
 	caption, err := clean(c.PostForm("caption"), "说明", 500, false)
 	if err != nil {
+		return err
+	}
+	if err := h.screen(c, caption); err != nil {
 		return err
 	}
 	ct, err := coordType(c.PostForm("coord_type"), "wgs84")
@@ -212,8 +220,9 @@ func queryBoolValue(v string) bool {
 	return false
 }
 
-// autoWaypoint links a geotagged photo to a waypoint within 300 m or creates
-// an unplanned, visited waypoint inserted chronologically. The trip must be locked.
+// autoWaypoint links a geotagged photo to the nearest waypoint within 300 m
+// (marking a todo planned stop within 100 m visited) or creates an
+// unplanned, visited waypoint inserted chronologically. The trip must be locked.
 func (h *Handler) autoWaypoint(ctx context.Context, tx *gorm.DB, t *model.Trip, u *model.User, lng, lat float64,
 	takenAt *time.Time, info service.GeoInfo) (*model.Waypoint, bool, error) {
 	var wps []model.Waypoint
@@ -223,7 +232,8 @@ func (h *Handler) autoWaypoint(ctx context.Context, tx *gorm.DB, t *model.Trip, 
 	if near := nearestWaypoint(wps, lng, lat, autoWaypointRadius); near != nil {
 		wp := *near
 		// A photo taken at a planned stop during the trip proves the visit.
-		if wp.Planned && wp.Status == model.WPTodo && takenAt != nil && t.Phase != model.PhasePlanning {
+		if wp.Planned && wp.Status == model.WPTodo && takenAt != nil && t.Phase != model.PhasePlanning &&
+			geo.Haversine(lng, lat, wp.Lng, wp.Lat) <= photoVisitRadius {
 			if err := markVisited(tx, &wp, *takenAt, true); err != nil {
 				return nil, false, err
 			}
@@ -302,6 +312,9 @@ func (h *Handler) updatePhoto(c *gin.Context) error {
 		if err != nil {
 			return err
 		}
+		if err := h.screen(c, s); err != nil {
+			return err
+		}
 		upd["caption"], p.Caption = s, s
 	}
 	oldWP := p.WaypointID
@@ -322,6 +335,18 @@ func (h *Handler) updatePhoto(c *gin.Context) error {
 	}
 	if len(upd) > 0 {
 		err := db.Transaction(func(tx *gorm.DB) error {
+			// Serialise with other changes of the trip, then read the current link.
+			if err := service.LockTrip(tx, t.ID); err != nil {
+				return err
+			}
+			var cur model.Photo
+			if err := tx.Select("id", "waypoint_id").Limit(1).Find(&cur, p.ID).Error; err != nil {
+				return err
+			}
+			if cur.ID == 0 {
+				return errNotFound("照片不存在")
+			}
+			oldWP = cur.WaypointID
 			if err := tx.Model(&model.Photo{}).Where("id = ?", p.ID).Updates(upd).Error; err != nil {
 				return err
 			}
@@ -344,6 +369,19 @@ func (h *Handler) deletePhoto(c *gin.Context) error {
 		return err
 	}
 	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		// Lock the trip, then reload the photo: a concurrent delete of the same
+		// photo must not release its storage twice.
+		if err := service.LockTrip(tx, t.ID); err != nil {
+			return err
+		}
+		var cur model.Photo
+		if err := tx.Limit(1).Find(&cur, p.ID).Error; err != nil {
+			return err
+		}
+		if cur.ID == 0 {
+			return errNotFound("照片不存在")
+		}
+		*p = cur
 		places := h.waypointPlace(tx, p.WaypointID)
 		if err := tx.Delete(&model.Photo{}, p.ID).Error; err != nil {
 			return err

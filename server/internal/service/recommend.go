@@ -31,12 +31,19 @@ type Suggestion struct {
 	score float64
 }
 
+// MinAvoidWarn is the number of distinct users who must mark a place 踩雷
+// (with 踩雷 outnumbering 推荐) before it is pushed as a warning or listed
+// for the AI planner to avoid; one person's opinion is not a warning.
+const MinAvoidWarn = 2
+
 // Warning flags a nearby place many people marked as 踩雷.
 type Warning struct {
 	PlaceID   int64  `json:"place_id"`
 	Name      string `json:"name"`
 	DistanceM int    `json:"distance_m"`
 	Reason    string `json:"reason"`
+
+	avoid int // the place's avoid_count, for Reason
 }
 
 // Recommendation is the result of Recommend.
@@ -134,12 +141,7 @@ func (s *Service) Recommend(ctx context.Context, trip *model.Trip, pos *geo.Poin
 	if err := s.DB.WithContext(ctx).Where("trip_id = ?", trip.ID).Order("seq, id").Find(&wps).Error; err != nil {
 		return nil, err
 	}
-	var todo []model.Waypoint
-	for _, w := range wps {
-		if w.Planned && w.Status == model.WPTodo {
-			todo = append(todo, w)
-		}
-	}
+	todo, ahead := PendingPlan(wps)
 	actual := ActualRoute(wps)
 	if pos == nil {
 		switch {
@@ -174,7 +176,9 @@ func (s *Service) Recommend(ctx context.Context, trip *model.Trip, pos *geo.Poin
 		}
 		d := dist(w.Lng, w.Lat)
 		reason := "计划中的下一站"
-		if i > 0 {
+		if i >= ahead {
+			reason = "计划中尚未去的站点"
+		} else if i > 0 {
 			reason = "计划中的后续站点"
 		}
 		if pos != nil {
@@ -214,9 +218,9 @@ func (s *Service) Recommend(ctx context.Context, trip *model.Trip, pos *geo.Poin
 			if d > 3000 {
 				continue
 			}
-			if p.AvoidCount >= 1 && p.AvoidCount > p.RecommendCount {
-				if d <= 2000 {
-					res.Warnings = append(res.Warnings, Warning{PlaceID: p.ID, Name: p.Name, DistanceM: int(math.Round(d)), Reason: s.avoidReason(ctx, &p)})
+			if p.AvoidCount > p.RecommendCount { // never suggested; a warning needs MinAvoidWarn people
+				if p.AvoidCount >= MinAvoidWarn && d <= 2000 { // Reason is filled for the warnings kept
+					res.Warnings = append(res.Warnings, Warning{PlaceID: p.ID, Name: p.Name, DistanceM: int(math.Round(d)), avoid: p.AvoidCount})
 				}
 				continue
 			}
@@ -260,10 +264,8 @@ func (s *Service) Recommend(ctx context.Context, trip *model.Trip, pos *geo.Poin
 					if p.ID != "" && inTripAmap[p.ID] {
 						continue
 					}
-					d := p.Distance
-					if d == 0 {
-						d = dist(p.Lng, p.Lat)
-					}
+					// Not AMap's distance: cached results are measured from a snapped point.
+					d := dist(p.Lng, p.Lat)
 					sub := p.Type
 					if i := strings.LastIndex(sub, ";"); i >= 0 {
 						sub = sub[i+1:]
@@ -288,6 +290,10 @@ func (s *Service) Recommend(ctx context.Context, trip *model.Trip, pos *geo.Poin
 	if len(res.Warnings) > 5 {
 		res.Warnings = res.Warnings[:5]
 	}
+	for i := range res.Warnings { // before aiRerank, whose prompt includes the reasons
+		w := &res.Warnings[i]
+		w.Reason = s.avoidReason(ctx, w.PlaceID, w.avoid)
+	}
 	res.Suggestions = pickRuleBased(cands, 5)
 
 	if useAI && s.AI.Enabled() && len(cands) > 0 {
@@ -296,6 +302,32 @@ func (s *Service) Recommend(ctx context.Context, trip *model.Trip, pos *geo.Poin
 		}
 	}
 	return res, nil
+}
+
+// PendingPlan returns the planned todo waypoints of wps (ordered by seq, id):
+// first those after the last visited planned waypoint, then the earlier ones
+// the traveller passed without checking in. ahead is how many come after the
+// last visited stop. Unplanned and skipped waypoints never move progress.
+func PendingPlan(wps []model.Waypoint) (todo []model.Waypoint, ahead int) {
+	last := -1
+	for i, w := range wps {
+		if w.Planned && w.Status == model.WPVisited {
+			last = i
+		}
+	}
+	var behind []model.Waypoint
+	for i, w := range wps {
+		if !w.Planned || w.Status != model.WPTodo {
+			continue
+		}
+		if i > last {
+			todo = append(todo, w)
+		} else {
+			behind = append(behind, w)
+		}
+	}
+	ahead = len(todo)
+	return append(todo, behind...), ahead
 }
 
 // pickRuleBased keeps the next planned stop first and fills the rest by score,
@@ -318,14 +350,19 @@ func pickRuleBased(cands []Suggestion, limit int) []Suggestion {
 	return out
 }
 
-func (s *Service) avoidReason(ctx context.Context, p *model.Place) string {
+// avoidReason summarises a 踩雷 place (avoidCount people): the number of
+// people and the latest notes, at most one per person.
+func (s *Service) avoidReason(ctx context.Context, placeID int64, avoidCount int) string {
 	var notes []string
 	s.DB.WithContext(ctx).Raw(`
-SELECT w.note FROM waypoints w JOIN trips t ON t.id = w.trip_id
-WHERE w.place_id = ? AND w.verdict = 'avoid' AND w.status = 'visited' AND w.note <> ''
-  AND t.visibility = 'public' AND t.status = 'normal'
-ORDER BY w.updated_at DESC LIMIT 3`, p.ID).Scan(&notes)
-	reason := fmt.Sprintf("%d 人踩雷", p.AvoidCount)
+SELECT note FROM (
+  SELECT DISTINCT ON (COALESCE(NULLIF(w.created_by_id, 0), t.owner_id)) w.note, w.updated_at
+  FROM waypoints w JOIN trips t ON t.id = w.trip_id
+  WHERE w.place_id = ? AND w.verdict = 'avoid' AND w.status = 'visited' AND w.note <> ''
+    AND t.visibility = 'public' AND t.status = 'normal'
+  ORDER BY COALESCE(NULLIF(w.created_by_id, 0), t.owner_id), w.updated_at DESC
+) x ORDER BY updated_at DESC LIMIT 3`, placeID).Scan(&notes)
+	reason := fmt.Sprintf("%d 人踩雷", avoidCount)
 	if len(notes) > 0 {
 		for i, n := range notes {
 			notes[i] = Truncate(strings.ReplaceAll(strings.TrimSpace(n), "\n", " "), 15)
@@ -362,7 +399,7 @@ func (s *Service) aiRerank(ctx context.Context, trip *model.Trip, wps, todo, act
 		city = info.City
 		fmt.Fprintf(&b, "当前位置：%s%s（经纬度 %.5f,%.5f）\n", info.Province, strings.TrimPrefix(info.City, info.Province), pos.Lng, pos.Lat)
 	}
-	fmt.Fprintf(&b, "旅程：%s", trip.Title)
+	fmt.Fprintf(&b, "旅程：「%s」", promptText(trip.Title, 50))
 	if d := DayOfTrip(trip.StartDate, &now, s.Loc); d > 0 {
 		fmt.Fprintf(&b, "（第 %d 天）", d)
 	}
@@ -374,7 +411,7 @@ func (s *Service) aiRerank(ctx context.Context, trip *model.Trip, wps, todo, act
 				n = append(n, "…")
 				break
 			}
-			n = append(n, w.Name)
+			n = append(n, "「"+promptText(w.Name, 50)+"」")
 		}
 		if len(n) == 0 {
 			return "无"
@@ -385,7 +422,8 @@ func (s *Service) aiRerank(ctx context.Context, trip *model.Trip, wps, todo, act
 	fmt.Fprintf(&b, "计划中未去：%s\n", names(todo, 15))
 	b.WriteString("候选地点（编号. 名称 | 类别 | 距离 | 说明）：\n")
 	for i, c := range cands {
-		fmt.Fprintf(&b, "%d. %s | %s | %s | %s\n", i+1, c.Name, CategoryNames[c.Category], FormatDistance(float64(c.DistanceM)), c.Reason)
+		fmt.Fprintf(&b, "%d. 「%s」 | %s | %s | %s\n", i+1, promptText(c.Name, 50), CategoryNames[c.Category],
+			FormatDistance(float64(c.DistanceM)), promptText(c.Reason, 80))
 	}
 	if len(res.Warnings) > 0 {
 		b.WriteString("附近的踩雷点（不要推荐）：")
@@ -393,7 +431,7 @@ func (s *Service) aiRerank(ctx context.Context, trip *model.Trip, wps, todo, act
 			if i > 0 {
 				b.WriteString("；")
 			}
-			b.WriteString(w.Name + "（" + w.Reason + "）")
+			b.WriteString("「" + promptText(w.Name, 50) + "」（" + promptText(w.Reason, 80) + "）")
 		}
 		b.WriteString("\n")
 	}
@@ -404,7 +442,7 @@ func (s *Service) aiRerank(ctx context.Context, trip *model.Trip, wps, todo, act
 	actx, cancel := context.WithTimeout(ctx, s.Cfg.AITimeout)
 	defer cancel()
 	var reply aiRecommendReply
-	system := "你是一名熟悉中国各地的资深旅行向导，根据游客的实时位置、时间和行程推荐下一站。回答必须是严格的 JSON。"
+	system := "你是一名熟悉中国各地的资深旅行向导，根据游客的实时位置、时间和行程推荐下一站。" + communityTextRule + "回答必须是严格的 JSON。"
 	if err := s.AI.ChatJSON(actx, system, b.String(), &reply); err != nil {
 		return err
 	}
@@ -424,11 +462,15 @@ func (s *Service) aiRerank(ctx context.Context, trip *model.Trip, wps, todo, act
 	// Locate extra ideas through AMap so they carry real coordinates.
 	if pos != nil && s.Amap.Enabled() {
 		for i, idea := range reply.Ideas {
-			if i >= 2 || len(picked) >= 6 || strings.TrimSpace(idea.Name) == "" {
+			name := strings.TrimSpace(idea.Name)
+			if i >= 2 || len(picked) >= 6 || name == "" {
 				break
 			}
+			if len([]rune(name)) > 50 { // the /geo/search keyword limit
+				continue
+			}
 			sctx, scancel := context.WithTimeout(ctx, 3*time.Second)
-			pois, err := s.Amap.Search(sctx, idea.Name, city, city != "", 3)
+			pois, err := s.Amap.Search(sctx, name, city, city != "", 3)
 			scancel()
 			if err != nil || len(pois) == 0 {
 				continue

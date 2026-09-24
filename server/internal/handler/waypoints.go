@@ -20,6 +20,10 @@ import (
 
 const maxBatchWaypoints = 200
 
+// relocateRadius: moving an existing waypoint farther than this (metres) makes it a
+// different place — its AMap POI link and address are dropped unless the request supplies them.
+const relocateRadius = 500.0
+
 // waypointInput is the create/update request body.
 type waypointInput struct {
 	Name      *string     `json:"name"`
@@ -54,7 +58,7 @@ type wpChange struct {
 }
 
 // applyWaypoint validates in and applies it to wp.
-func (h *Handler) applyWaypoint(t *model.Trip, wp *model.Waypoint, in *waypointInput, creating bool) (wpChange, error) {
+func (h *Handler) applyWaypoint(c *gin.Context, t *model.Trip, wp *model.Waypoint, in *waypointInput, creating bool) (wpChange, error) {
 	var ch wpChange
 	if in.Name != nil {
 		s, err := clean(*in.Name, "名称", 100, false)
@@ -86,7 +90,16 @@ func (h *Handler) applyWaypoint(t *model.Trip, wp *model.Waypoint, in *waypointI
 			return ch, errBad("坐标无效")
 		}
 		lng, lat := geo.ToGCJ02(*in.Lng, *in.Lat, ct)
-		if creating || geo.Haversine(lng, lat, wp.Lng, wp.Lat) > 0.5 {
+		d := geo.Haversine(lng, lat, wp.Lng, wp.Lat)
+		if creating || d > 0.5 {
+			if !creating && d > relocateRadius {
+				if in.AmapID == nil {
+					wp.AmapID = "" // no longer at that POI; ResolvePlace re-links by name + new position
+				}
+				if in.Address == nil {
+					wp.Address = "" // stale; refilled by reverse geocoding when an AMap key is configured
+				}
+			}
 			wp.Lng, wp.Lat = lng, lat
 			ch.coords, ch.relink = true, true
 		}
@@ -206,13 +219,28 @@ func (h *Handler) applyWaypoint(t *model.Trip, wp *model.Waypoint, in *waypointI
 	if creating {
 		ch.relink = true
 	}
-	return ch, nil
+	var texts []string
+	if in.Name != nil {
+		texts = append(texts, wp.Name)
+	}
+	if in.Address != nil {
+		texts = append(texts, wp.Address)
+	}
+	if in.Note != nil {
+		texts = append(texts, wp.Note)
+	}
+	return ch, h.screen(c, texts...)
 }
 
 // locateWaypoint fills province/city (offline atlas) and, when requested and
 // available, district/address from reverse geocoding; auto-named waypoints
-// get a name from the user's address or the district/street.
+// get a name from the user's address or the district/street. It also fetches
+// AMap's data for a new amap_id (see service.WarmPOI), all before the caller
+// takes the trip lock.
 func (h *Handler) locateWaypoint(ctx context.Context, wp *model.Waypoint, ch wpChange, in *waypointInput) {
+	if ch.relink {
+		h.svc.WarmPOI(ctx, wp.AmapID)
+	}
 	var info service.GeoInfo
 	if ch.coords {
 		info = h.svc.Locate(ctx, wp.Lng, wp.Lat, ch.wantDetail)
@@ -254,12 +282,26 @@ func (h *Handler) locateWaypoint(ctx context.Context, wp *model.Waypoint, ch wpC
 
 // saveNewWaypoint inserts a prepared waypoint inside tx (trip must be locked).
 func (h *Handler) saveNewWaypoint(tx *gorm.DB, wp *model.Waypoint, seq *int) error {
-	pid, err := h.svc.ResolvePlace(tx, wp, !wp.AutoNamed)
+	pid, err := h.svc.ResolvePlace(tx, wp, !wp.AutoNamed, wp.CreatedByID)
 	if err != nil {
 		return err
 	}
 	wp.PlaceID = pid
 	if err := service.InsertWaypoint(tx, wp, seq); err != nil {
+		return err
+	}
+	return h.svc.AwardExp(tx, wp.CreatedByID, service.ExpKey("waypoint", wp.ID), service.ExpWaypoint, "waypoint")
+}
+
+// createNewWaypoint is saveNewWaypoint for a waypoint whose Seq the caller
+// has already chosen (later waypoints are not shifted).
+func (h *Handler) createNewWaypoint(tx *gorm.DB, wp *model.Waypoint) error {
+	pid, err := h.svc.ResolvePlace(tx, wp, !wp.AutoNamed, wp.CreatedByID)
+	if err != nil {
+		return err
+	}
+	wp.PlaceID = pid
+	if err := tx.Create(wp).Error; err != nil {
 		return err
 	}
 	return h.svc.AwardExp(tx, wp.CreatedByID, service.ExpKey("waypoint", wp.ID), service.ExpWaypoint, "waypoint")
@@ -275,7 +317,7 @@ func (h *Handler) createWaypoint(c *gin.Context) error {
 		return err
 	}
 	wp := model.Waypoint{TripID: t.ID, CreatedByID: currentUserID(c)}
-	ch, err := h.applyWaypoint(t, &wp, &in, true)
+	ch, err := h.applyWaypoint(c, t, &wp, &in, true)
 	if err != nil {
 		return err
 	}
@@ -329,7 +371,7 @@ func (h *Handler) batchWaypoints(c *gin.Context) error {
 	changes := make([]wpChange, len(req.Items))
 	for i := range req.Items {
 		wps[i] = model.Waypoint{TripID: t.ID, CreatedByID: uid}
-		ch, err := h.applyWaypoint(t, &wps[i], &req.Items[i], true)
+		ch, err := h.applyWaypoint(c, t, &wps[i], &req.Items[i], true)
 		if err != nil {
 			if ae, ok := err.(*apiError); ok {
 				return errBad(fmt.Sprintf("第 %d 项：%s", i+1, ae.Message))
@@ -357,12 +399,31 @@ func (h *Handler) batchWaypoints(c *gin.Context) error {
 		if err := service.LockTrip(tx, t.ID); err != nil {
 			return err
 		}
+		// Positions are chosen in memory as sequential single creates would
+		// (service.InsertWaypoint: a seq outside 0..n-1 appends) and written
+		// once at the end, instead of shifting the later rows for every item.
+		var order []int64
+		if err := tx.Model(&model.Waypoint{}).Where("trip_id = ?", t.ID).Order("seq, id").Pluck("id", &order).Error; err != nil {
+			return err
+		}
+		reordered := false
 		var placeIDs []int64
 		for i := range wps {
-			if err := h.saveNewWaypoint(tx, &wps[i], req.Items[i].Seq); err != nil {
+			pos := len(order)
+			if s := req.Items[i].Seq; s != nil && *s >= 0 && *s < pos {
+				pos, reordered = *s, true
+			}
+			wps[i].Seq = pos
+			if err := h.createNewWaypoint(tx, &wps[i]); err != nil {
 				return err
 			}
+			order = slices.Insert(order, pos, wps[i].ID)
 			placeIDs = append(placeIDs, service.PlaceIDs(wps[i].PlaceID)...)
+		}
+		if reordered {
+			if err := applyOrder(tx, t.ID, order); err != nil {
+				return err
+			}
 		}
 		if err := h.svc.RecomputeTrip(tx, t.ID); err != nil {
 			return err
@@ -410,27 +471,85 @@ func (h *Handler) waypointForEdit(c *gin.Context) (*model.Waypoint, *model.Trip,
 	return &wp, t, nil
 }
 
-// saveWaypointChanges persists an edited waypoint, re-linking its place and
-// refreshing trip / place statistics.
-func (h *Handler) saveWaypointChanges(ctx context.Context, wp *model.Waypoint, oldPlace *int64, relink bool) error {
+// lockWaypoint takes the lock of wp's trip and reloads wp, so that changes
+// committed by concurrent requests are seen (404 if it was deleted).
+func lockWaypoint(tx *gorm.DB, wp *model.Waypoint) error {
+	if err := service.LockTrip(tx, wp.TripID); err != nil {
+		return err
+	}
+	var cur model.Waypoint
+	if err := tx.Limit(1).Find(&cur, wp.ID).Error; err != nil {
+		return err
+	}
+	if cur.ID == 0 {
+		return errNotFound("打卡点不存在")
+	}
+	*wp = cur
+	return nil
+}
+
+// changedWaypointColumns lists the columns whose values differ between a and b.
+func changedWaypointColumns(a, b *model.Waypoint) []string {
+	var cols []string
+	add := func(changed bool, col string) {
+		if changed {
+			cols = append(cols, col)
+		}
+	}
+	sameTime := func(x, y *time.Time) bool { return x == nil && y == nil || x != nil && y != nil && x.Equal(*y) }
+	sameID := func(x, y *int64) bool { return x == nil && y == nil || x != nil && y != nil && *x == *y }
+	add(a.Day != b.Day, "day")
+	add(a.Planned != b.Planned, "planned")
+	add(a.Status != b.Status, "status")
+	add(!sameTime(a.PlannedAt, b.PlannedAt), "planned_at")
+	add(!sameTime(a.ArrivedAt, b.ArrivedAt), "arrived_at")
+	add(a.Name != b.Name, "name")
+	add(a.Address != b.Address, "address")
+	add(a.Province != b.Province, "province")
+	add(a.ProvinceCode != b.ProvinceCode, "province_code")
+	add(a.City != b.City, "city")
+	add(a.CityCode != b.CityCode, "city_code")
+	add(a.District != b.District, "district")
+	add(a.Lng != b.Lng, "lng")
+	add(a.Lat != b.Lat, "lat")
+	add(a.Category != b.Category, "category")
+	add(a.Note != b.Note, "note")
+	add(a.Verdict != b.Verdict, "verdict")
+	add(a.Rating != b.Rating, "rating")
+	add(a.Cost != b.Cost, "cost")
+	add(a.AmapID != b.AmapID, "amap_id")
+	add(!sameID(a.PlaceID, b.PlaceID), "place_id")
+	add(a.AutoNamed != b.AutoNamed, "auto_named")
+	return cols
+}
+
+// saveWaypointChanges persists an edited waypoint (orig is how it was
+// loaded), re-linking its place (as seen by actorID, the editing user) and
+// refreshing trip / place statistics. Only the columns this edit changed are
+// written, so that a check-in committed meanwhile (e.g. while the new
+// position was reverse-geocoded) is not undone.
+func (h *Handler) saveWaypointChanges(ctx context.Context, wp, orig *model.Waypoint, relink bool, actorID int64) error {
 	return h.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := service.LockTrip(tx, wp.TripID); err != nil {
+		cur := *wp
+		if err := lockWaypoint(tx, &cur); err != nil {
 			return err
 		}
 		if relink {
-			pid, err := h.svc.ResolvePlace(tx, wp, !wp.AutoNamed)
+			pid, err := h.svc.ResolvePlace(tx, wp, !wp.AutoNamed, actorID)
 			if err != nil {
 				return err
 			}
 			wp.PlaceID = pid
 		}
-		if err := tx.Model(wp).Select("*").Omit("id", "trip_id", "seq", "created_at", "created_by_id").Updates(wp).Error; err != nil {
-			return err
+		if cols := changedWaypointColumns(orig, wp); len(cols) > 0 {
+			if err := tx.Model(&model.Waypoint{ID: wp.ID}).Select(cols).Updates(wp).Error; err != nil {
+				return err
+			}
 		}
 		if err := h.svc.RecomputeTrip(tx, wp.TripID); err != nil {
 			return err
 		}
-		return h.svc.RecomputePlaces(tx, service.PlaceIDs(oldPlace, wp.PlaceID))
+		return h.svc.RecomputePlaces(tx, service.PlaceIDs(orig.PlaceID, cur.PlaceID, wp.PlaceID))
 	})
 }
 
@@ -443,15 +562,17 @@ func (h *Handler) updateWaypoint(c *gin.Context) error {
 	if err := bindJSON(c, &in); err != nil {
 		return err
 	}
-	oldPlace := wp.PlaceID
-	ch, err := h.applyWaypoint(t, wp, &in, false)
+	orig := *wp
+	ch, err := h.applyWaypoint(c, t, wp, &in, false)
 	if err != nil {
 		return err
 	}
 	if ch.coords || in.Name != nil {
 		h.locateWaypoint(c.Request.Context(), wp, ch, &in)
+	} else if ch.relink {
+		h.svc.WarmPOI(c.Request.Context(), wp.AmapID)
 	}
-	if err := h.saveWaypointChanges(c.Request.Context(), wp, oldPlace, ch.relink); err != nil {
+	if err := h.saveWaypointChanges(c.Request.Context(), wp, &orig, ch.relink, currentUserID(c)); err != nil {
 		return err
 	}
 	if in.Seq != nil && *in.Seq != wp.Seq {
@@ -502,7 +623,7 @@ func (h *Handler) deleteWaypoint(c *gin.Context) error {
 		return err
 	}
 	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
-		if err := service.LockTrip(tx, wp.TripID); err != nil {
+		if err := lockWaypoint(tx, wp); err != nil {
 			return err
 		}
 		if err := tx.Model(&model.Photo{}).Where("waypoint_id = ?", wp.ID).Update("waypoint_id", nil).Error; err != nil {

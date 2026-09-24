@@ -17,7 +17,7 @@ func (h *Handler) userByName(c *gin.Context) (*model.User, error) {
 		Limit(1).Find(&u).Error; err != nil {
 		return nil, err
 	}
-	if u.ID == 0 {
+	if u.ID == 0 || u.Status == model.UserDeleted {
 		return nil, errNotFound("用户不存在")
 	}
 	return &u, nil
@@ -60,9 +60,13 @@ func (h *Handler) userProfile(c *gin.Context) error {
 		db.Model(&model.Follow{}).Where("follower_id = ? AND followee_id = ?", viewer.ID, target.ID).Count(&n)
 		isFollowing = n > 0
 	}
-	partnerID, _, err := service.PartnerOf(db, target.ID)
+	partnerID, p, err := service.PartnerOf(db, target.ID)
 	if err != nil {
 		return err
+	}
+	// Others see the relationship only when the couple made it public.
+	if p != nil && !p.Public && (viewer == nil || (viewer.ID != target.ID && viewer.ID != partnerID)) {
+		partnerID = 0
 	}
 	users, err := h.loadUsers(ctx, []int64{partnerID})
 	if err != nil {
@@ -100,8 +104,13 @@ func (h *Handler) userFootprints(c *gin.Context) error {
 		return err
 	}
 	db := h.db.WithContext(c.Request.Context())
-	ids := h.publicMemberTrips(db, target, currentUser(c)).Select("id")
-	fp, err := h.svc.BuildFootprints(db, ids)
+	viewer := currentUser(c)
+	q := h.publicMemberTrips(db, target, viewer)
+	if viewer == nil || viewer.ID != target.ID {
+		// Ongoing trips without live sharing would reveal where the user is now.
+		q = q.Where("(phase <> ? OR live_share)", model.PhaseOngoing)
+	}
+	fp, err := h.svc.BuildFootprints(db, q.Select("id"))
 	if err != nil {
 		return err
 	}

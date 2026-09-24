@@ -29,7 +29,8 @@ const (
 	MaxDimension   = 2560
 	ThumbDimension = 480
 	AvatarSize     = 256
-	maxPixels      = 100_000_000
+	maxPixels      = 52_000_000 // 50 MP sensors produce 8192×6144 = 50.3 MP
+	maxDecodeBytes = 160 << 20  // memory of the fully decoded image, see decodeCost
 	jpegQuality    = 85
 	thumbQuality   = 80
 )
@@ -125,7 +126,34 @@ func flatten(img image.Image) image.Image {
 	return imaging.Overlay(bg, img, image.Pt(0, 0), 1.0)
 }
 
-// probe validates the format and pixel count.
+// decodeCost estimates the bytes the decoder allocates for the full image.
+// A small compressed file (e.g. an all-zero 16-bit PNG) can decode to a huge
+// bitmap, so this, not the file size, bounds memory.
+func decodeCost(data []byte, cfg image.Config, format string) int64 {
+	bpp := int64(4) // RGBA / NRGBA / CMYK / unknown
+	switch cfg.ColorModel {
+	case color.GrayModel:
+		bpp = 1
+	case color.Gray16Model:
+		bpp = 2
+	case color.YCbCrModel, color.NYCbCrAModel: // JPEG / lossy WebP, worst case 4:4:4
+		bpp = 3
+	case color.RGBA64Model, color.NRGBA64Model: // 16-bit PNG
+		bpp = 8
+	}
+	if _, ok := cfg.ColorModel.(color.Palette); ok { // PNG-8 / GIF
+		bpp = 1
+	}
+	if format == "webp" && cfg.ColorModel == color.NRGBAModel { // lossless VP8L: packed + unpacked buffers
+		bpp = 6
+	}
+	if format == "png" && len(data) > 28 && data[28] == 1 { // Adam7 interlace flag in IHDR: per-pass images
+		bpp *= 2
+	}
+	return int64(cfg.Width) * int64(cfg.Height) * bpp
+}
+
+// probe validates the format, pixel count and decoded size.
 func probe(data []byte) (image.Config, string, error) {
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
@@ -136,10 +164,54 @@ func probe(data []byte) (image.Config, string, error) {
 	default:
 		return cfg, "", ErrUnsupported
 	}
-	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width*cfg.Height > maxPixels {
+	px := int64(cfg.Width) * int64(cfg.Height)
+	if cfg.Width <= 0 || cfg.Height <= 0 || px > maxPixels || decodeCost(data, cfg, format) > maxDecodeBytes {
 		return cfg, "", ErrTooLarge
 	}
 	return cfg, format, nil
+}
+
+// jpegOrientation returns the EXIF orientation (1–8) of JPEG data, 1 when absent.
+func jpegOrientation(data []byte) int {
+	if len(data) < 4 || data[0] != 0xFF || data[1] != 0xD8 {
+		return 1
+	}
+	x, err := exif.Decode(bytes.NewReader(data))
+	if err != nil || x == nil {
+		return 1
+	}
+	tag, err := x.Get(exif.Orientation)
+	if err != nil {
+		return 1
+	}
+	o, err := tag.Int(0)
+	if err != nil {
+		return 1
+	}
+	return o
+}
+
+// orient applies an EXIF orientation (same mapping as imaging's
+// AutoOrientation). Callers apply it after downscaling, so rotating never
+// copies the full-size image.
+func orient(img image.Image, o int) image.Image {
+	switch o {
+	case 2:
+		return imaging.FlipH(img)
+	case 3:
+		return imaging.Rotate180(img)
+	case 4:
+		return imaging.FlipV(img)
+	case 5:
+		return imaging.Transpose(img)
+	case 6:
+		return imaging.Rotate270(img)
+	case 7:
+		return imaging.Transverse(img)
+	case 8:
+		return imaging.Rotate90(img)
+	}
+	return img
 }
 
 // SaveImage processes and stores an uploaded image plus its thumbnail.
@@ -166,7 +238,7 @@ func (s *Store) SaveImage(data []byte) (*Saved, error) {
 		out.Path = dir + "/" + name + ".gif"
 		out.Width, out.Height = cfg.Width, cfg.Height
 	} else {
-		img, err = imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
+		img, _, err = image.Decode(bytes.NewReader(data))
 		if err != nil {
 			return nil, ErrUnsupported
 		}
@@ -174,6 +246,7 @@ func (s *Store) SaveImage(data []byte) (*Saved, error) {
 		if b.Dx() > MaxDimension || b.Dy() > MaxDimension {
 			img = imaging.Fit(img, MaxDimension, MaxDimension, imaging.Lanczos)
 		}
+		img = orient(img, jpegOrientation(data)) // Width/Height below are in display orientation
 		if format != "jpeg" {
 			img = flatten(img)
 		}
@@ -210,11 +283,12 @@ func (s *Store) SaveAvatar(data []byte, userID int64) (string, error) {
 	}
 	s.acquire()
 	defer s.release()
-	img, err := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
+	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return "", ErrUnsupported
 	}
-	img = flatten(imaging.Fill(img, AvatarSize, AvatarSize, imaging.Center, imaging.Lanczos))
+	// A centred square crop is the same whether it is oriented before or after.
+	img = flatten(orient(imaging.Fill(img, AvatarSize, AvatarSize, imaging.Center, imaging.Lanczos), jpegOrientation(data)))
 	b, err := encodeJPEG(img, jpegQuality)
 	if err != nil {
 		return "", err

@@ -219,16 +219,27 @@ func clean(s, field string, max int, required bool) (string, error) {
 	return s, nil
 }
 
-// validURL accepts "", site-relative /uploads/ paths and http(s) URLs.
+// validURL accepts "" and site-relative /uploads/ paths, i.e. images uploaded
+// to this site: an external image would bypass upload checks and moderation
+// (and could track viewers).
 func validURL(s, field string) (string, error) {
 	s = strings.TrimSpace(s)
-	if s == "" || strings.HasPrefix(s, "/uploads/") {
+	if s == "" || (strings.HasPrefix(s, "/uploads/") && len(s) <= 500 && !strings.Contains(s, "..") && !strings.ContainsAny(s, " \"'<>\\")) {
 		return s, nil
 	}
-	if (strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "http://")) && len(s) <= 500 && !strings.ContainsAny(s, " \"'<>") {
-		return s, nil
+	return "", errBad(field + " 无效，请使用本站上传的图片")
+}
+
+// screen rejects text that contains one of the admin's sensitive words
+// (屏蔽词, see service.Settings.FindWord). Admins are not screened.
+func (h *Handler) screen(c *gin.Context, texts ...string) error {
+	if currentUser(c).IsAdmin() {
+		return nil
 	}
-	return "", errBad(field + " 无效")
+	if w := h.svc.Settings.FindWord(texts...); w != "" {
+		return errBad("内容包含不允许发布的词语「" + w + "」，请修改后再提交")
+	}
+	return nil
 }
 
 func escapeLike(s string) string {

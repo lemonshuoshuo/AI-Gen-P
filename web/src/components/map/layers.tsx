@@ -114,16 +114,14 @@ export function RouteLines({
 }
 
 /* ---------------- 打卡点标记 ---------------- */
-function markerEl(w: Waypoint, label: string, selected: boolean) {
-  const el = document.createElement('div')
+function markerHtml(w: Waypoint, label: string, selected: boolean) {
   const c = categoryOf(w.category).color
   const todo = w.planned && w.status === 'todo'
   const skipped = w.status === 'skipped'
   const color = skipped ? '#9895a5' : c
-  el.className = 'th-wp-marker'
-  el.style.cursor = 'pointer'
-  el.innerHTML = `
-    <div style="position:relative;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center">
+  // anchor: 'bottom' 已经把元素底边（针尖）放在坐标上，内层不能再上移，否则标记会浮在路线顶点上方
+  return `
+    <div style="position:relative;display:flex;flex-direction:column;align-items:center">
       <div style="
         min-width:${selected ? 34 : 28}px;height:${selected ? 34 : 28}px;padding:0 6px;border-radius:999px;
         display:flex;align-items:center;justify-content:center;
@@ -136,7 +134,14 @@ function markerEl(w: Waypoint, label: string, selected: boolean) {
       ${w.verdict === 'avoid' ? '<div style="position:absolute;top:-6px;right:-8px;font-size:13px">⚠️</div>' : ''}
       <div style="width:2px;height:8px;background:${color};margin-top:-1px;border-radius:1px"></div>
     </div>`
-  return el
+}
+
+interface MarkerEntry {
+  m: Marker
+  el: HTMLDivElement
+  w: Waypoint
+  label: string
+  sel: boolean
 }
 
 export function WaypointMarkers({
@@ -152,26 +157,45 @@ export function WaypointMarkers({
   labels?: Record<number, string>
 }) {
   const map = useMap()
-  const markers = useRef<Marker[]>([])
+  const markers = useRef<MarkerEntry[]>([])
   const onSelectRef = useRef(onSelect)
   onSelectRef.current = onSelect
+  // 选中状态通过 ref 读取：切换选中时只重绘前后两个标记，不必重建全部标记
+  const selRef = useRef(selectedId)
+  selRef.current = selectedId
 
   useEffect(() => {
     if (!map) return
-    markers.current.forEach((m) => m.remove())
     markers.current = waypoints.map((w, i) => {
-      const el = markerEl(w, labels?.[w.id] ?? String(i + 1), w.id === selectedId)
+      const label = labels?.[w.id] ?? String(i + 1)
+      const sel = w.id === selRef.current
+      const el = document.createElement('div')
+      el.className = 'th-wp-marker'
+      el.style.cursor = 'pointer'
+      el.style.zIndex = sel ? '1' : ''
+      el.innerHTML = markerHtml(w, label, sel)
       el.addEventListener('click', (e) => {
         e.stopPropagation()
         onSelectRef.current?.(w)
       })
-      return new Marker({ element: el, anchor: 'bottom' }).setLngLat([w.lng, w.lat]).addTo(map)
+      const m = new Marker({ element: el, anchor: 'bottom' }).setLngLat([w.lng, w.lat]).addTo(map)
+      return { m, el, w, label, sel }
     })
     return () => {
-      markers.current.forEach((m) => m.remove())
+      markers.current.forEach((x) => x.m.remove())
       markers.current = []
     }
-  }, [map, waypoints, selectedId, labels])
+  }, [map, waypoints, labels])
+
+  useEffect(() => {
+    for (const x of markers.current) {
+      const sel = x.w.id === selectedId
+      if (x.sel === sel) continue
+      x.sel = sel
+      x.el.innerHTML = markerHtml(x.w, x.label, sel)
+      x.el.style.zIndex = sel ? '1' : ''
+    }
+  }, [selectedId])
   return null
 }
 

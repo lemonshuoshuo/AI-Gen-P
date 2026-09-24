@@ -5,7 +5,8 @@ import { Search } from 'lucide-react'
 import { api } from '@/api'
 import { PlaceRow } from '@/components/place/PlaceCard'
 import { TripGrid, TripGridSkeleton } from '@/components/trip/TripCard'
-import { Button, Empty, Input } from '@/components/ui'
+import { Button, Empty, Input, LoadError } from '@/components/ui'
+import { flattenPages } from '@/lib/pages'
 
 export default function SearchPage() {
   const [params, setParams] = useSearchParams()
@@ -27,7 +28,7 @@ export default function SearchPage() {
     queryFn: () => api.places.list({ q, sort: 'hot', page_size: 6 }),
     enabled: !!q,
   })
-  const items = trips.data?.pages.flatMap((p) => p.items) ?? []
+  const items = flattenPages(trips.data?.pages)
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
@@ -53,7 +54,7 @@ export default function SearchPage() {
           {!!places.data?.items.length && (
             <section className="mt-6">
               <h2 className="mb-3 font-bold">相关打卡地</h2>
-              <div className="grid gap-2.5 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
                 {places.data.items.map((p) => (
                   <PlaceRow key={p.id} place={p} />
                 ))}
@@ -64,6 +65,8 @@ export default function SearchPage() {
             <h2 className="mb-3 font-bold">相关旅程 {trips.data && <span className="text-sm font-normal text-ink-400">{trips.data.pages[0].total}</span>}</h2>
             {trips.isLoading ? (
               <TripGridSkeleton n={4} />
+            ) : trips.isLoadingError ? (
+              <LoadError error={trips.error} onRetry={() => trips.refetch()} />
             ) : items.length === 0 ? (
               <Empty title="没有找到相关旅程" />
             ) : (

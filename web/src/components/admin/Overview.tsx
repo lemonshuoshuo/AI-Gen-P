@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Camera, Flag, HardDrive, MapPin, MessageSquare, Route, TrendingUp, Users, type LucideIcon } from 'lucide-react'
+import { Camera, Flag, HardDrive, MapPin, MessageSquare, Route, TrendingUp, TriangleAlert, Users, type LucideIcon } from 'lucide-react'
 import { api, errorMessage } from '@/api'
 import { Button, Card, Empty, PageLoader } from '@/components/ui'
 import { fmtBytes, fmtCount } from '@/lib/format'
+import { insecureContext } from '@/lib/geo'
 import { PanelHeader } from './common'
 import { TrendChart } from './TrendChart'
 
@@ -69,6 +70,14 @@ export function Overview() {
           有 <b>{pending.data}</b> 条举报等待处理
           <span className="ml-auto text-xs text-amber-700">去处理 →</span>
         </Link>
+      )}
+      {insecureContext && (
+        <div className="mb-4 flex items-start gap-2 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+          <span>
+            当前通过 HTTP 访问：手机浏览器会禁止定位（我到了打卡、记录 GPS 轨迹、附近推荐），系统分享和屏幕常亮也不可用。邀请用户使用前，请按部署文档「启用 HTTPS」配置域名证书。
+          </span>
+        </div>
       )}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <StatCard icon={Users} label="注册用户" value={fmtCount(data.users)} today={data.today.users} />

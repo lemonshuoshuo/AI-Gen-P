@@ -42,6 +42,14 @@ func (a Access) CanView(t *model.Trip) bool {
 // CanEdit reports whether the viewer may edit trip content.
 func (a Access) CanEdit() bool { return a.Member }
 
+// HideLive reports whether the trip's actual-travel data (GPS track,
+// check-ins, arrival times, photos) must be hidden from the viewer: while a
+// trip is ongoing only members and admins see it, unless the owner turned on
+// live sharing. Share-code visitors are not exempt.
+func (a Access) HideLive(t *model.Trip) bool {
+	return t.Phase == model.PhaseOngoing && !t.LiveShare && !a.Member && !a.Admin
+}
+
 // TripAccess resolves a viewer's relation to a trip. user may be nil (guest).
 func (s *Service) TripAccess(db *gorm.DB, t *model.Trip, user *model.User, shareCode string) (Access, error) {
 	a := Access{}

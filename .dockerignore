@@ -5,3 +5,7 @@ server/triphub
 dist
 .git
 *.log
+deploy/data
+# 本地嵌入的前端产物（镜像内由 web 阶段重新构建），与 .gitignore 一致只保留 .keep
+server/internal/webui/dist/*
+!server/internal/webui/dist/.keep

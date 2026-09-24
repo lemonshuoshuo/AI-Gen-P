@@ -1,12 +1,14 @@
 package handler
 
 import (
+	"bytes"
 	"io"
 	"io/fs"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -107,6 +109,19 @@ func (h *Handler) serveEmbedded(c *gin.Context, name string) bool {
 		c.Header("Cache-Control", "no-cache")
 	default:
 		c.Header("Cache-Control", "public, max-age=3600")
+	}
+	if ctype, ok := compressibleAssets[path.Ext(name)]; ok {
+		c.Header("Content-Type", ctype)
+		addVary(c.Writer.Header(), "Accept-Encoding")
+		// Range requests keep the identity encoding.
+		if c.GetHeader("Range") == "" && acceptsGzip(c.GetHeader("Accept-Encoding")) {
+			if gz := h.gzAsset(name); gz != nil {
+				c.Header("Content-Encoding", "gzip")
+				c.Header("Content-Length", strconv.Itoa(len(gz)))
+				http.ServeContent(c.Writer, c.Request, st.Name(), time.Time{}, bytes.NewReader(gz))
+				return true
+			}
+		}
 	}
 	http.ServeContent(c.Writer, c.Request, st.Name(), time.Time{}, rs)
 	return true

@@ -63,6 +63,8 @@ export interface TripCard {
   title: string
   summary: string
   cover_url: string
+  /** 封面的 480px 缩略图（列表 / 卡片用；外链封面时与 cover_url 相同） */
+  cover_thumb_url: string
   phase: Phase
   visibility: Visibility
   status: TripStatus
@@ -141,6 +143,8 @@ export interface TripDetail extends TripCard {
   favorited: boolean
   can_edit: boolean
   is_owner: boolean
+  /** 当前用户有待接受的共同作者邀请（接受前可预览旅程） */
+  invite_pending: boolean
   waypoints: Waypoint[]
   photos: Photo[]
   has_track: boolean
@@ -167,6 +171,7 @@ export interface Place {
   avg_cost: number
   comment_count: number
   cover_url: string
+  cover_thumb_url: string
   created_at: string
   distance_m?: number
 }
@@ -229,6 +234,7 @@ export interface Footprints {
     start_date: string | null
     end_date: string | null
     cover_url: string
+    cover_thumb_url: string
     distance_km: number
     path: [number, number][]
   }[]
@@ -256,6 +262,8 @@ export interface Notification {
   comment_id: number | null
   content: string
   read: boolean
+  /** trip_invite：邀请仍待当前用户接受 / 拒绝 */
+  invite_pending?: boolean
   created_at: string
 }
 
@@ -436,6 +444,10 @@ export interface WaypointInput {
   cost?: number
   amap_id?: string
   seq?: number
+  /** 创建时的位置提示（如来自 /geo/search）：地址和区县都给了就不必再逆地理；district 优先使用，province / city 仅在坐标不在离线行政区划内时使用 */
+  province?: string
+  city?: string
+  district?: string
 }
 
 export interface TripInput {

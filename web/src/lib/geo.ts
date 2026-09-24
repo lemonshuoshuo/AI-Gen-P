@@ -1,4 +1,9 @@
 // 坐标工具：WGS-84（GPS）与 GCJ-02（高德）互转、距离计算
+
+/** 非 HTTPS 页面（http://localhost 除外）：浏览器一律禁止网页定位，报的却是「权限被拒绝」 */
+export const insecureContext = typeof window !== 'undefined' && window.isSecureContext === false
+export const INSECURE_GEO_MSG = '本站未启用 HTTPS，浏览器禁止网页获取定位，请联系站长开启 HTTPS'
+
 const A = 6378245.0
 const EE = 0.006693421622965943
 
@@ -113,6 +118,10 @@ export function getCurrentPosition(timeout = 10000): Promise<{
   accuracy: number
 }> {
   return new Promise((resolve, reject) => {
+    if (insecureContext) {
+      reject(new Error(INSECURE_GEO_MSG))
+      return
+    }
     if (!('geolocation' in navigator)) {
       reject(new Error('当前浏览器不支持定位'))
       return

@@ -39,8 +39,10 @@ func (l *Limiter) Blocked(key string) (bool, time.Duration) {
 	return false, 0
 }
 
-// Hit records one event for the key.
-func (l *Limiter) Hit(key string) {
+// Acquire atomically records one event for the key if it is within the
+// limit. When the key is over its limit nothing is recorded and the time
+// until the window resets is returned.
+func (l *Limiter) Acquire(key string) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
@@ -49,16 +51,27 @@ func (l *Limiter) Hit(key string) {
 		w = &window{reset: now.Add(l.window)}
 		l.m[key] = w
 	}
+	if w.count >= l.max {
+		return false, w.reset.Sub(now)
+	}
 	w.count++
+	return true, 0
+}
+
+// Release gives back one event recorded by Acquire (e.g. an attempt that
+// turned out not to count, such as a successful login).
+func (l *Limiter) Release(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if w, ok := l.m[key]; ok && w.count > 0 {
+		w.count--
+	}
 }
 
 // Allow records a hit and reports whether it was within the limit.
 func (l *Limiter) Allow(key string) bool {
-	if blocked, _ := l.Blocked(key); blocked {
-		return false
-	}
-	l.Hit(key)
-	return true
+	ok, _ := l.Acquire(key)
+	return ok
 }
 
 // Reset clears the key.

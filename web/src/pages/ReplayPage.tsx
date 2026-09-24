@@ -1,20 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
-import { useQuery } from '@tanstack/react-query'
+import { Link, useLocation, useParams, useSearchParams } from 'react-router'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArcLayer, ColumnLayer, ScatterplotLayer } from '@deck.gl/layers'
 import { TripsLayer } from '@deck.gl/geo-layers'
-import { Heart, Pause, Play, RotateCcw, X } from 'lucide-react'
-import { api, errorMessage, type Footprints, type TripDetail } from '@/api'
+import { Heart, Pause, Play, RotateCcw, Share2, X } from 'lucide-react'
+import { api, isNotFound, type Footprints, type TrackData, type TripDetail } from '@/api'
+import { rememberedShareCode } from '@/api/client'
 import { BaseMap, useMap } from '@/components/map/BaseMap'
 import { RouteLines } from '@/components/map/layers'
 import { hexToRgb, useDeckOverlay } from '@/components/three/deck'
 import { angleLerp, buildRoute, distanceAt, legBounds, pointAt, type PlacedStop, type ReplayStop, type RouteModel } from '@/components/three/replay'
-import { Avatar, Empty, PageLoader, VerdictBadge } from '@/components/ui'
+import { ShareDialog } from '@/components/trip/ShareDialog'
+import { Avatar, Empty, LoadError, PageLoader, VerdictBadge, buttonClass } from '@/components/ui'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
+import { invalidateTripLists } from '@/lib/cache'
 import { cn } from '@/lib/cn'
 import { dateRange, fmtDate } from '@/lib/format'
 import { bearing, formatKm } from '@/lib/geo'
 import { categoryOf } from '@/lib/meta'
-import { plannedPath, trackSegments, visitedInOrder } from '@/lib/trip'
+import { plannedPath, replayTrackParts, visitedInOrder } from '@/lib/trip'
 import { useAuth } from '@/stores/auth'
 
 type LngLat = [number, number]
@@ -37,36 +41,57 @@ const THEMES = {
 function ReplayScene({ model, time, playing, theme, arcs }: SceneProps) {
   const map = useMap()
   const overlay = useDeckOverlay()
-  const cam = useRef({ bearing: 0, zoom: 0, init: false })
+  const cam = useRef({ bearing: 0, zoom: 0, init: false, d: -1, last: 0 })
   const zoomCache = useRef(new Map<string, number>())
 
   const { d, stop } = distanceAt(model, time)
+  // 已到达的打卡点：buildRoute 保证 reach 单调不减，已到达的一定是前缀。
+  // 只在到达新地点时才换一个数组（deck.gl 按引用比较 data，每帧新数组会让图层每帧重建全部属性）
+  let reachedCount = 0
+  while (reachedCount < model.stops.length && model.stops[reachedCount].reach <= d + 1) reachedCount++
+  const reached = useMemo(() => model.stops.slice(0, reachedCount), [model, reachedCount])
 
   // 相机：跟随轨迹前端，按路段长度自适应缩放，停留时缓慢环绕
   useEffect(() => {
-    if (!map || !playing) return
+    if (!map) return
+    const c = cam.current
+    // 暂停时只在进度变化（拖动进度条）时移动镜头；刚按暂停时不动，方便用户自由查看
+    if (!playing && c.init && c.d === d) return
+    c.d = d
+    const now = performance.now()
+    const dt = playing && c.last ? Math.min(0.05, (now - c.last) / 1000) : 0
+    c.last = playing ? now : 0
     const head = pointAt(model, d)
     const ahead = pointAt(model, Math.min(model.total, d + Math.max(60, model.total * 0.01)))
     const behind = pointAt(model, Math.max(0, d - Math.max(30, model.total * 0.005)))
     const moving = stop == null && (ahead[0] !== behind[0] || ahead[1] !== behind[1])
     const b = legBounds(model, d)
-    const key = `${b[0].join()}|${b[1].join()}`
+    const el = map.getContainer()
+    const w = el.clientWidth
+    const h = el.clientHeight
+    // 缓存按画面尺寸区分：旋转屏幕后重新计算
+    const key = `${w}x${h}|${b[0].join()}|${b[1].join()}`
     let targetZoom = zoomCache.current.get(key)
     if (targetZoom == null) {
-      const c = map.cameraForBounds(b, { padding: { top: 120, bottom: 200, left: 60, right: 60 } })
-      targetZoom = Math.min(16.2, Math.max(3.5, (c?.zoom ?? 12) - 0.2))
+      // jumpTo 设置的 bottom=h*0.2 会被 cameraForBounds 再叠加一次：扣掉它，留给路段的高度始终约为 0.42h（不会变成负数）
+      const tp = map.getPadding()
+      const side = Math.min(60, w * 0.1)
+      const fit = map.cameraForBounds(b, {
+        padding: { top: h * 0.14, bottom: Math.max(0, h * 0.44 - (tp.bottom ?? 0)), left: side, right: side },
+      })
+      targetZoom = Math.min(16.2, Math.max(3.5, (fit?.zoom ?? 12) - 0.2))
       zoomCache.current.set(key, targetZoom)
     }
-    const c = cam.current
-    if (!c.init) {
-      c.zoom = targetZoom
-      c.bearing = moving ? bearing(behind, ahead) + CAMERA_SIDE_ANGLE : 0
+    if (!c.init || !playing) {
+      c.zoom = targetZoom // 首帧 / 暂停时拖动进度条：直接到位，不缓动
+      if (!c.init) c.bearing = moving ? bearing(behind, ahead) + CAMERA_SIDE_ANGLE : 0
       c.init = true
+    } else {
+      const k = 1 - 0.96 ** (dt * 60) // 与刷新率无关，60Hz 时等同每帧 0.04
+      c.zoom += (targetZoom - c.zoom) * k
+      // 镜头从侧后方跟随（偏转一定角度），避免轨迹与光柱在画面上重叠
+      c.bearing = moving ? angleLerp(c.bearing, bearing(behind, ahead) + CAMERA_SIDE_ANGLE, k) : c.bearing + 7.2 * dt
     }
-    c.zoom += (targetZoom - c.zoom) * 0.04
-    // 镜头从侧后方跟随（偏转一定角度），避免轨迹与光柱在画面上重叠
-    c.bearing = moving ? angleLerp(c.bearing, bearing(behind, ahead) + CAMERA_SIDE_ANGLE, 0.04) : c.bearing + 0.12
-    const h = map.getContainer().clientHeight
     map.jumpTo({ center: head, zoom: c.zoom, bearing: c.bearing, pitch: 60, padding: { top: 0, bottom: h * 0.2, left: 0, right: 0 } })
   }, [map, model, d, stop, playing])
 
@@ -77,8 +102,8 @@ function ReplayScene({ model, time, playing, theme, arcs }: SceneProps) {
     const t = THEMES[theme]
     const zoom = map.getZoom()
     const radius = Math.max(6, 12 * 2 ** (15 - zoom))
-    const reached = model.stops.filter((s) => s.reach <= d + 1)
-    const trips = [{ path: model.coords, timestamps: model.cum }]
+    // 各段分开画（段与段之间不连线）；引用不变，deck.gl 不必每帧重建路径数据
+    const trips = model.parts
     o.setProps({
       layers: [
         ...(arcs?.length
@@ -163,19 +188,21 @@ function ReplayScene({ model, time, playing, theme, arcs }: SceneProps) {
         }),
       ],
     })
-  }, [overlay, map, model, d, stop, theme, arcs])
+  }, [overlay, map, model, d, stop, theme, arcs, reached])
 
   return null
 }
 
 /* ---------------- 数据 → 回放模型 ---------------- */
-function tripToReplay(trip: TripDetail, segments: LngLat[][], compare: boolean) {
+function tripToReplay(trip: TripDetail, trackData: TrackData | undefined, compare: boolean) {
   const visited = visitedInOrder(trip.waypoints)
   const list = visited.length ? visited : [...trip.waypoints].filter((w) => w.planned).sort((a, b) => a.seq - b.seq)
   const photoBy = new Map<number, string>()
   trip.photos.forEach((p) => p.waypoint_id && !photoBy.has(p.waypoint_id) && photoBy.set(p.waypoint_id, p.thumb_url))
-  const track = segments.flat()
-  const path: LngLat[] = track.length > 1 ? track : list.map((w) => [w.lng, w.lat])
+  // 轨迹按记录分段（两次记录之间、同行成员各自的轨迹不连线）；带上时间，打卡点按到达时间对齐到轨迹
+  const track = replayTrackParts(trackData)
+  const parts = track.length ? track.map((s) => s.path) : [list.map((w) => [w.lng, w.lat] as LngLat)]
+  const times = track.length ? track.map((s) => s.times) : undefined
   const stops: ReplayStop[] = list.map((w) => ({
     key: String(w.id),
     lng: w.lng,
@@ -187,21 +214,23 @@ function tripToReplay(trip: TripDetail, segments: LngLat[][], compare: boolean) 
     photo: photoBy.get(w.id),
     verdict: w.verdict,
     tag: w.day ? `第 ${w.day} 天` : undefined,
+    t: w.arrived_at ? Date.parse(w.arrived_at) : undefined,
   }))
-  return { model: buildRoute(path, stops), planned: compare ? plannedPath(trip.waypoints) : undefined }
+  return { model: buildRoute(parts, stops, { times }), planned: compare ? plannedPath(trip.waypoints) : undefined }
 }
 
 function footprintsToReplay(fp: Footprints) {
   const trips = [...fp.trips].filter((t) => t.path.length).sort((a, b) => (a.start_date ?? '').localeCompare(b.start_date ?? ''))
-  const path: LngLat[] = []
+  // 每段旅程单独成段：旅程之间只画弧线，不在地面上连线，也不计入里程
+  const parts: LngLat[][] = []
   const stops: ReplayStop[] = []
   const arcs: { from: LngLat; to: LngLat }[] = []
   let prevEnd: LngLat | null = null
   for (const t of trips) {
     if (prevEnd) arcs.push({ from: prevEnd, to: t.path[0] })
     const pts = fp.points.filter((p) => p.trip_id === t.id)
+    parts.push(t.path)
     t.path.forEach((c, i) => {
-      path.push(c)
       const pt = pts.find((p) => Math.abs(p.lng - c[0]) < 1e-5 && Math.abs(p.lat - c[1]) < 1e-5)
       stops.push({
         key: `${t.id}-${i}`,
@@ -211,7 +240,7 @@ function footprintsToReplay(fp: Footprints) {
         color: pt ? categoryOf(pt.category).color : '#ff6bb0',
         sub: pt ? [pt.city, fmtDate(pt.date)].filter(Boolean).join(' · ') : undefined,
         tag: t.title,
-        photo: i === 0 ? t.cover_url || undefined : undefined,
+        photo: i === 0 ? t.cover_thumb_url || t.cover_url || undefined : undefined,
         verdict: pt?.verdict,
       })
     })
@@ -221,7 +250,7 @@ function footprintsToReplay(fp: Footprints) {
   const maxStops = 60
   const step = Math.ceil(stops.length / maxStops)
   const sparse = step > 1 ? stops.filter((_, i) => i % step === 0) : stops
-  return { model: buildRoute(path, sparse), arcs }
+  return { model: buildRoute(parts, sparse), arcs }
 }
 
 /* ---------------- 页面 ---------------- */
@@ -229,7 +258,6 @@ export default function ReplayPage() {
   const { id } = useParams()
   const [params] = useSearchParams()
   const loc = useLocation()
-  const nav = useNavigate()
   const me = useAuth((s) => s.user)
   const together = loc.pathname.startsWith('/together')
   const compare = params.get('compare') === '1'
@@ -246,13 +274,17 @@ export default function ReplayPage() {
   const data = useMemo(() => {
     if (together) return fpQ.data ? { ...footprintsToReplay(fpQ.data), planned: undefined } : null
     if (!tripQ.data || (tripQ.data.has_track && !trackQ.data)) return null
-    return { ...tripToReplay(tripQ.data, trackSegments(trackQ.data), compare), arcs: undefined }
+    return { ...tripToReplay(tripQ.data, trackQ.data, compare), arcs: undefined }
   }, [together, fpQ.data, tripQ.data, trackQ.data, compare])
 
   const [time, setTime] = useState(0)
   const [playing, setPlaying] = useState(true)
   const [speed, setSpeed] = useState(1)
+  const [share, setShare] = useState(false)
+  const qc = useQueryClient()
   const last = useRef<number | null>(null)
+  const pageTitle = together ? partnerQ.data?.title || '我们一起走过的地方' : tripQ.data?.title
+  useDocumentTitle(pageTitle && `${pageTitle} · 3D 回放`)
 
   useEffect(() => {
     if (!playing || !data) return
@@ -279,15 +311,37 @@ export default function ReplayPage() {
 
   const loading = together ? fpQ.isLoading : tripQ.isLoading || (tripQ.data?.has_track && trackQ.isLoading)
   if (loading) return <div className="bg-night min-h-dvh"><PageLoader label="正在准备 3D 回放…" /></div>
-  const err = together ? fpQ.error : tripQ.error
-  if (err || !data) return <Empty className="min-h-dvh" title="无法回放" desc={errorMessage(err)} />
+  const err = together ? fpQ.error : (tripQ.error ?? trackQ.error)
+  // 全屏页面没有顶栏和底部导航，直接打开链接时也要能返回（nav(-1) 无处可退）；
+  // 后台刷新失败时继续播放已加载的数据，404 说明旅程已删除或不再可见
+  const backTo = together ? '/together' : `/trips/${id}`
+  if (!data || isNotFound(err))
+    return (
+      <LoadError
+        className="min-h-dvh"
+        error={err}
+        title="无法回放"
+        desc={err ? undefined : '请检查网络连接'}
+        notFoundTitle="旅程不存在或无权查看"
+        onRetry={() => (together ? fpQ.refetch() : tripQ.error ? tripQ.refetch() : trackQ.refetch())}
+        back={
+          <Link to={isNotFound(err) && !together ? '/' : backTo} className={buttonClass({ variant: 'outline' })}>
+            返回
+          </Link>
+        }
+      />
+    )
   if (!data.model.stops.length && data.model.coords.length < 3)
     return (
       <Empty
         className="min-h-dvh"
         title={together ? '还没有一起的足迹' : '这段旅程还没有路线'}
         desc={together ? '创建旅程时选择「和 TA 一起」，打卡后就能回放啦' : '添加打卡点或记录轨迹后再来回放'}
-        action={<button onClick={() => nav(-1)} className="text-brand-600">返回</button>}
+        action={
+          <Link to={backTo} className={buttonClass({ variant: 'outline' })}>
+            返回
+          </Link>
+        }
       />
     )
 
@@ -308,8 +362,9 @@ export default function ReplayPage() {
 
   return (
     <div className="bg-night fixed inset-0 overflow-hidden text-white">
+      {/* 地图版权信息抬到底部控制条上方，不遮住倍速按钮 */}
       <BaseMap
-        className="absolute inset-0"
+        className="absolute inset-0 [&_.maplibregl-ctrl-bottom-right]:bottom-[calc(3.75rem+env(safe-area-inset-bottom))]"
         kind="dark"
         navigation={false}
         center={model.coords[0]}
@@ -353,7 +408,7 @@ export default function ReplayPage() {
       {current && !done && (
         <div
           key={current.key}
-          className="glass-dark animate-slide-up absolute bottom-28 left-1/2 w-[min(92vw,380px)] -translate-x-1/2 overflow-hidden rounded-3xl ring-1 ring-white/10"
+          className="glass-dark animate-slide-up absolute bottom-[calc(7rem+env(safe-area-inset-bottom))] left-1/2 w-[min(92vw,380px)] -translate-x-1/2 overflow-hidden rounded-3xl ring-1 ring-white/10"
         >
           <div className="flex gap-3 p-3">
             {current.photo && <img src={current.photo} alt="" className="size-20 shrink-0 rounded-2xl object-cover" />}
@@ -387,11 +442,21 @@ export default function ReplayPage() {
                 <div className="text-xs text-white/60">里程</div>
               </div>
             </div>
-            <div className="mt-5 flex justify-center gap-3">
+            <div className="mt-5 flex flex-wrap justify-center gap-3">
               <button type="button" onClick={restart} className="flex items-center gap-1.5 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-ink-900">
                 <RotateCcw className="size-4" />
                 再看一次
               </button>
+              {!together && trip && (
+                <button
+                  type="button"
+                  onClick={() => setShare(true)}
+                  className="flex items-center gap-1.5 rounded-full bg-white/15 px-5 py-2.5 text-sm font-semibold"
+                >
+                  <Share2 className="size-4" />
+                  分享
+                </button>
+              )}
               <Link to={together ? '/together' : `/trips/${id}`} className="rounded-full bg-white/15 px-5 py-2.5 text-sm font-semibold">
                 返回
               </Link>
@@ -433,6 +498,19 @@ export default function ReplayPage() {
           </button>
         </div>
       </div>
+
+      {!together && trip && (
+        <ShareDialog
+          trip={trip}
+          shareCode={rememberedShareCode(trip.id)}
+          open={share}
+          onClose={() => setShare(false)}
+          onUpdated={(t) => {
+            qc.setQueryData(['trip', id], t)
+            invalidateTripLists(qc)
+          }}
+        />
+      )}
     </div>
   )
 }

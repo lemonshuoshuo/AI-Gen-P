@@ -8,8 +8,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -24,6 +27,34 @@ const RefreshTTL = 30 * 24 * time.Hour
 // dummyHash is compared against when an account does not exist so that
 // login timing does not reveal whether a username exists.
 var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("triphub-dummy-password"), bcrypt.DefaultCost)
+
+// Password length limits (characters), shared by registration, password
+// changes, admin resets, the seeded admin and `triphub reset-password`.
+const MinPasswordLen, MaxPasswordLen = 8, 64
+
+// weakPasswords are rejected whatever their length: the placeholders of the
+// example deployment configuration and the most common passwords.
+var weakPasswords = map[string]bool{
+	"change-me-admin-password": true, "change-me-to-a-strong-password": true,
+	"12345678": true, "123456789": true, "11111111": true, "88888888": true,
+	"password": true, "iloveyou": true, "woaini1314": true,
+}
+
+// ValidatePassword checks a new password against the password policy. The
+// error message is user-facing.
+func ValidatePassword(pw string) error {
+	n := utf8.RuneCountInString(pw)
+	if n < MinPasswordLen || n > MaxPasswordLen {
+		return fmt.Errorf("密码长度需为 %d–%d 位", MinPasswordLen, MaxPasswordLen)
+	}
+	if len(pw) > 72 { // bcrypt ignores the rest
+		return errors.New("密码过长")
+	}
+	if weakPasswords[strings.ToLower(pw)] {
+		return errors.New("密码过于简单或为示例密码，请换一个")
+	}
+	return nil
+}
 
 // HashPassword hashes a password with bcrypt.
 func HashPassword(pw string) (string, error) {
@@ -54,7 +85,8 @@ var ErrInvalidToken = errors.New("invalid token")
 
 // IssueAccess returns a signed access token for a user. sessionID is the ID
 // of the refresh token issued alongside (carried as the JWT ID) so that
-// "other sessions" can be told apart from the current one.
+// "other sessions" can be told apart from the current one and an access
+// token stops working when its session is revoked.
 func (t *Tokens) IssueAccess(userID, sessionID int64) (string, error) {
 	now := time.Now()
 	claims := jwt.RegisteredClaims{

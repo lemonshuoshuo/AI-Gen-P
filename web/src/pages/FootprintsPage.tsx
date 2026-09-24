@@ -1,16 +1,17 @@
 import { Link } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Footprints as FootprintsIcon, Plus } from 'lucide-react'
-import { api, errorMessage } from '@/api'
-import { FootprintStats, FootprintTimeline, FootprintsView } from '@/components/three/FootprintsView'
-import { Button, Empty, PageLoader } from '@/components/ui'
+import { api } from '@/api'
+import { FootprintStats, FootprintTimeline } from '@/components/three/FootprintStats'
+import { FootprintsView } from '@/components/three/FootprintsView'
+import { Empty, LoadError, PageLoader, buttonClass } from '@/components/ui'
 import { useAuth } from '@/stores/auth'
 
 export default function FootprintsPage() {
   const user = useAuth((s) => s.user)!
-  const { data, isLoading, error } = useQuery({ queryKey: ['my-footprints'], queryFn: api.me.footprints })
+  const { data, isLoading, error, refetch } = useQuery({ queryKey: ['my-footprints'], queryFn: api.me.footprints })
   if (isLoading) return <PageLoader />
-  if (error || !data) return <Empty title="足迹加载失败" desc={errorMessage(error)} />
+  if (!data) return <LoadError title="足迹加载失败" error={error} onRetry={() => refetch()} />
   const empty = data.stats.waypoints === 0
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
@@ -30,8 +31,9 @@ export default function FootprintsPage() {
           title="还没有足迹"
           desc="创建旅程并打卡，或上传带位置的照片，去过的省份和城市就会被点亮"
           action={
-            <Link to="/trips/new">
-              <Button icon={<Plus className="size-4" />}>记录第一段旅程</Button>
+            <Link to="/trips/new" className={buttonClass()}>
+              <Plus className="size-4" />
+              记录第一段旅程
             </Link>
           }
         />

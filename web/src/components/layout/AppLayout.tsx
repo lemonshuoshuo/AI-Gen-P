@@ -15,6 +15,7 @@ import {
   Settings,
   Shield,
   User,
+  X,
 } from 'lucide-react'
 import { api } from '@/api'
 import { Avatar, Button, Menu, MenuItem } from '@/components/ui'
@@ -81,8 +82,14 @@ function UserMenu() {
   const nav = useNavigate()
   return (
     <Menu
-      trigger={(toggle) => (
-        <button type="button" onClick={toggle} className="rounded-full ring-brand-200 transition hover:ring-4">
+      trigger={(toggle, open) => (
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label="账户菜单"
+          aria-expanded={open}
+          className="rounded-full ring-brand-200 transition hover:ring-4"
+        >
           <Avatar user={user} size={34} />
         </button>
       )}
@@ -242,6 +249,57 @@ function MobileTabBar() {
   )
 }
 
+// 旅行中的旅程：顶部一条快捷入口，回到旅行模式只需一步（PWA 从桌面图标启动时总是先到首页）
+const ONGOING_DISMISSED_KEY = 'triphub.ongoing-dismissed'
+
+function OngoingTripBar() {
+  const user = useAuth((s) => s.user)
+  const loc = useLocation()
+  const [dismissed, setDismissed] = useState<number | null>(() => {
+    try {
+      return Number(sessionStorage.getItem(ONGOING_DISMISSED_KEY)) || null
+    } catch {
+      return null
+    }
+  })
+  const { data: trip } = useQuery({
+    queryKey: ['my-trips', 'ongoing', user?.id],
+    queryFn: () => api.me.trips({ phase: 'ongoing', page_size: 1 }),
+    enabled: !!user,
+    staleTime: 0,
+    select: (d) => d.items[0] ?? null,
+  })
+  if (!user || !trip || trip.id === dismissed) return null
+  // 旅程详情 / 编辑页自带「继续旅行」按钮
+  if (loc.pathname === `/trips/${trip.id}` || loc.pathname.startsWith(`/trips/${trip.id}/`)) return null
+  const dismiss = () => {
+    setDismissed(trip.id)
+    try {
+      sessionStorage.setItem(ONGOING_DISMISSED_KEY, String(trip.id))
+    } catch {
+      /* 忽略 */
+    }
+  }
+  return (
+    <div className="bg-emerald-600 text-white">
+      <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 text-sm">
+        <Link to={`/trips/${trip.id}/go`} className="flex min-w-0 flex-1 items-center gap-2 py-2">
+          <span className="relative flex size-2 shrink-0">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" />
+            <span className="relative inline-flex size-2 rounded-full bg-white" />
+          </span>
+          <span className="shrink-0 font-semibold">旅行中</span>
+          <span className="min-w-0 flex-1 truncate text-white/90">{trip.title}</span>
+          <span className="shrink-0 font-semibold">继续旅行 →</span>
+        </Link>
+        <button type="button" onClick={dismiss} className="-mr-2 shrink-0 rounded-full p-1.5 text-white/80 hover:bg-white/15" aria-label="暂时隐藏">
+          <X className="size-4" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function Announcement() {
   const { data } = useSite()
   const [hidden, setHidden] = useState(false)
@@ -260,15 +318,20 @@ function Announcement() {
 
 export function AppLayout({ children }: { children?: ReactNode }) {
   const loc = useLocation()
+  // 路线编辑页在手机上需要尽量多的空间（吸顶地图 + 列表 + 键盘）：不显示底部导航
+  const immersive = /^\/trips\/[^/]+\/edit\/?$/.test(loc.pathname)
   useEffect(() => {
     window.scrollTo(0, 0)
+    // 换页时按需刷新用户信息（对方接受了情侣邀请、经验和存储空间变化等）
+    useAuth.getState().refreshMeIfStale()
   }, [loc.pathname])
   return (
-    <div className="min-h-dvh pb-20 md:pb-0">
+    <div className={cn('min-h-dvh', !immersive && 'pb-20 md:pb-0')}>
       <Header />
       <Announcement />
+      <OngoingTripBar />
       <main>{children ?? <Outlet />}</main>
-      <MobileTabBar />
+      {!immersive && <MobileTabBar />}
     </div>
   )
 }

@@ -1,13 +1,24 @@
-# TripHub 一键部署
+# TripHub 一键部署（用于发布包 triphub-<版本>.tar.gz：同目录下需要有编译好的 triphub-linux-amd64 / triphub-linux-arm64）
 #   1. cp .env.example .env 并修改其中的密码等配置
 #   2. docker compose up -d --build
-#   3. 浏览器访问 http://服务器IP:8080（正式使用请配置 HTTPS，见 DEPLOY.md）
+#   3. 浏览器访问 http://服务器IP:8080（正式使用请配置 HTTPS，见 DEPLOY.md；启用 HTTPS 后在 .env 设置 HTTP_PORT=127.0.0.1:8080）
+# 在源码仓库（git clone）的 deploy/ 目录里部署时，需配合 docker-compose.source.yml，见 DEPLOY.md「从源码构建」
 name: triphub
+
+# 容器日志自动轮转：每个服务最多保留约 50MB，避免日志长期累积占满系统盘
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
 
 services:
   db:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     restart: unless-stopped
+    # PostgreSQL 停止时要先写检查点；Docker 默认 10 秒后强杀，这里放宽
+    stop_grace_period: 1m
+    logging: *default-logging
     environment:
       POSTGRES_USER: triphub
       POSTGRES_PASSWORD: ${DB_PASSWORD:?请在 .env 中设置 DB_PASSWORD}
@@ -24,18 +35,22 @@ services:
   app:
     build:
       context: .
-      args:
-        TARGETARCH: ${ARCH:-amd64}
     image: triphub:${TRIPHUB_VERSION:-latest}
     restart: unless-stopped
+    # 停止/升级时等待进行中的请求（如 AI 规划，默认最长 30 秒）完成后再退出；须大于服务端的优雅退出等待时间
+    stop_grace_period: 45s
+    logging: *default-logging
     depends_on:
       db:
         condition: service_healthy
+    # 使用 Caddy/Nginx 反向代理时设 HTTP_PORT=127.0.0.1:8080（Caddy 走容器内网 app:8080，不需要此端口对公网开放）
     ports:
       - "${HTTP_PORT:-8080}:8080"
     environment:
       TZ: Asia/Shanghai
-      TRIPHUB_DB_DSN: postgres://triphub:${DB_PASSWORD}@db:5432/triphub?sslmode=disable
+      # 密码通过 PGPASSWORD 单独传入（pgx 支持的标准 libpq 变量），避免 / # ? % 空格 等字符破坏连接串
+      TRIPHUB_DB_DSN: postgres://triphub@db:5432/triphub?sslmode=disable
+      PGPASSWORD: ${DB_PASSWORD}
       TRIPHUB_DATA_DIR: /data
       TRIPHUB_ADMIN_USERNAME: ${ADMIN_USERNAME:-}
       TRIPHUB_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
@@ -45,27 +60,53 @@ services:
       TRIPHUB_AI_BASE_URL: ${AI_BASE_URL:-}
       TRIPHUB_AI_API_KEY: ${AI_API_KEY:-}
       TRIPHUB_AI_MODEL: ${AI_MODEL:-}
+      TRIPHUB_AI_TIMEOUT: ${AI_TIMEOUT:-}
       TRIPHUB_MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
       TRIPHUB_CORS_ORIGINS: ${CORS_ORIGINS:-}
+      TRIPHUB_TILES_NORMAL: ${TILES_NORMAL:-}
+      TRIPHUB_TILES_SATELLITE: ${TILES_SATELLITE:-}
+      TRIPHUB_TILES_SATELLITE_LABEL: ${TILES_SATELLITE_LABEL:-}
     volumes:
       - ./data/app:/data
+    # 安全加固：根文件系统只读、去掉 Linux capabilities、禁止提权
+    read_only: true
+    tmpfs:
+      - /tmp  # 上传超过 32MB 时 Go 会把临时文件写到 /tmp
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE  # 兼容 data/app 属于宿主机普通用户的情况（如用普通用户恢复的备份）
+    security_opt:
+      - no-new-privileges:true
     extra_hosts:
       # 让容器能访问宿主机上的本地模型（如 Ollama）
       - "host.docker.internal:host-gateway"
 
   # 可选：自动申请 HTTPS 证书（需要域名解析到本机，国内服务器需已备案）
-  # 启用：在 .env 设置 DOMAIN 后执行 docker compose --profile https up -d
+  # 启用：在 .env 设置 DOMAIN 和 HTTP_PORT=127.0.0.1:8080 后执行 docker compose --profile https up -d
   caddy:
     profiles: ["https"]
     image: ${CADDY_IMAGE:-caddy:2-alpine}
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       - app
     ports:
       - "80:80"
       - "443:443"
+      - "443:443/udp"  # HTTP/3（Caddy 默认启用；安全组未放行 UDP 443 时浏览器会自动改用 TCP）
     environment:
       DOMAIN: ${DOMAIN:-}
+    # 没设置 DOMAIN 时给出明确提示（否则 Caddy 只会报 "unrecognized global option: encode"）
+    command:
+      - sh
+      - -c
+      - |
+        if [ -z "$$DOMAIN" ]; then
+          echo "[TripHub] 未设置 DOMAIN：请在 .env 中填写 DOMAIN=你的域名，然后重新执行 docker compose --profile https up -d" >&2
+          exit 1
+        fi
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/caddy:/data

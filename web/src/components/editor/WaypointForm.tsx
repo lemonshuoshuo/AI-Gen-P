@@ -84,7 +84,14 @@ export function WaypointForm({
           <Segmented<WaypointStatus>
             size="sm"
             value={f.status}
-            onChange={(v) => set('status', v)}
+            // 旅行中标记为已打卡时预填当前时间：到达时间为空会让整条实际路线改按顺序排列
+            onChange={(v) =>
+              setF((x) => ({
+                ...x,
+                status: v,
+                arrived_at: v === 'visited' && !x.arrived_at && phase === 'ongoing' ? dayjs().format('YYYY-MM-DDTHH:mm') : x.arrived_at,
+              }))
+            }
             options={[
               { value: 'todo', label: '待前往' },
               { value: 'visited', label: '已打卡' },
@@ -150,7 +157,8 @@ export function WaypointForm({
           loading={saving}
           onClick={() =>
             onSave({
-              name: f.name,
+              // 只在用户改了名称时提交：原样回传自动生成的名称会被当成用户命名，进而新建地点（清空则恢复自动命名）
+              name: f.name.trim() !== w.name ? f.name.trim() : undefined,
               address: f.address,
               category: f.category,
               day: f.day,

@@ -13,6 +13,13 @@ import (
 // MaxFootprintPoints caps the number of points returned in footprints.
 const MaxFootprintPoints = 5000
 
+// Columns read by BuildFootprints, ActualRoute, RoutePath and pointDate.
+// Heavy text (trip content/summary, waypoint note/address) is deliberately skipped.
+const (
+	footTripCols     = "id, title, cover_url, auto_cover_url, start_date, end_date, distance_km, photo_count, track_point_count, created_at"
+	footWaypointCols = "id, trip_id, seq, day, status, arrived_at, name, province, province_code, city, city_code, lng, lat, category, verdict"
+)
+
 // Footprints is the aggregated "where I have been" view.
 type Footprints struct {
 	Stats     FootStats      `json:"stats"`
@@ -89,7 +96,7 @@ func EmptyFootprints() *Footprints {
 func (s *Service) BuildFootprints(db *gorm.DB, tripIDs *gorm.DB) (*Footprints, error) {
 	out := EmptyFootprints()
 	var trips []model.Trip
-	if err := db.Where("id IN (?)", tripIDs).Find(&trips).Error; err != nil {
+	if err := db.Select(footTripCols).Where("id IN (?)", tripIDs).Find(&trips).Error; err != nil {
 		return nil, err
 	}
 	if len(trips) == 0 {
@@ -100,7 +107,7 @@ func (s *Service) BuildFootprints(db *gorm.DB, tripIDs *gorm.DB) (*Footprints, e
 		ids[i] = t.ID
 	}
 	var wps []model.Waypoint
-	if err := db.Where("trip_id IN ? AND status = ?", ids, model.WPVisited).Order("trip_id, seq, id").Find(&wps).Error; err != nil {
+	if err := db.Select(footWaypointCols).Where("trip_id IN ? AND status = ?", ids, model.WPVisited).Order("trip_id, seq, id").Find(&wps).Error; err != nil {
 		return nil, err
 	}
 	byTrip := map[int64][]model.Waypoint{}

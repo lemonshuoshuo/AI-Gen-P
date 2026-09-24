@@ -19,7 +19,7 @@ func (h *Handler) listPlaces(c *gin.Context) error {
 	q := db.Model(&model.Place{}).Where("checkin_count > 0")
 	if kw := strings.TrimSpace(c.Query("q")); kw != "" {
 		like := escapeLike(kw)
-		q = q.Where("(name ILIKE ? OR address ILIKE ? OR district ILIKE ?)", like, like, like)
+		q = q.Where("(name ILIKE ? OR address ILIKE ? OR district ILIKE ? OR city ILIKE ? OR province ILIKE ?)", like, like, like, like, like)
 	}
 	if city := strings.TrimSpace(c.Query("city")); city != "" {
 		q = q.Where("(city ILIKE ? OR province ILIKE ?)", escapeLike(city), escapeLike(city))
@@ -121,8 +121,10 @@ func (h *Handler) placeReviews(c *gin.Context) error {
 	}
 	ctx := c.Request.Context()
 	db := h.db.WithContext(ctx)
+	// Check-ins of ongoing trips without live sharing stay hidden (see service.Access.HideLive).
 	q := db.Model(&model.Waypoint{}).
-		Joins("JOIN trips t ON t.id = waypoints.trip_id AND t.visibility = ? AND t.status = ?", model.VisPublic, model.TripNormal).
+		Joins("JOIN trips t ON t.id = waypoints.trip_id AND t.visibility = ? AND t.status = ? AND (t.phase <> ? OR t.live_share)",
+			model.VisPublic, model.TripNormal, model.PhaseOngoing).
 		Where("waypoints.place_id = ? AND waypoints.status = ?", p.ID, model.WPVisited)
 	if v := c.Query("verdict"); v != "" {
 		if v != model.VerdictRecommend && v != model.VerdictNeutral && v != model.VerdictAvoid {

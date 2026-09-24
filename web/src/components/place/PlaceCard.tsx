@@ -45,7 +45,7 @@ export function PlaceRow({ place, rank }: { place: Place; rank?: number }) {
       )}
       <div className="relative size-14 shrink-0 overflow-hidden rounded-xl bg-ink-100">
         {place.cover_url ? (
-          <img src={place.cover_url} alt="" loading="lazy" className="size-full object-cover" />
+          <img src={place.cover_thumb_url || place.cover_url} alt="" loading="lazy" decoding="async" className="size-full object-cover" />
         ) : (
           <div className="flex size-full items-center justify-center" style={{ color: categoryOf(place.category).color }}>
             <Icon className="size-6" />
@@ -65,11 +65,13 @@ export function PlaceRow({ place, rank }: { place: Place; rank?: number }) {
             {place.district || place.city}
           </span>
         </div>
-        <div className="mt-1.5 flex items-center gap-2 text-xs">
-          <CategoryChip category={place.category} />
-          <span className="text-ink-500">{place.checkin_count} 人打卡</span>
-          {rate != null && <span className={rate >= 60 ? 'text-emerald-600' : 'text-amber-600'}>推荐率 {rate}%</span>}
-          {place.distance_m != null && <span className="ml-auto text-ink-400">{formatDistance(place.distance_m)}</span>}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          <CategoryChip category={place.category} className="whitespace-nowrap" />
+          <span className="whitespace-nowrap text-ink-500">{place.checkin_count} 人打卡</span>
+          {rate != null && (
+            <span className={cn('whitespace-nowrap', rate >= 60 ? 'text-emerald-600' : 'text-amber-600')}>推荐率 {rate}%</span>
+          )}
+          {place.distance_m != null && <span className="ml-auto whitespace-nowrap text-ink-400">{formatDistance(place.distance_m)}</span>}
         </div>
       </div>
     </Link>

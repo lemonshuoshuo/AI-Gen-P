@@ -125,13 +125,26 @@ func (h *Handler) authenticate() gin.HandlerFunc {
 			writeError(c, err)
 			return
 		}
-		if u.ID == 0 {
+		if u.ID == 0 || u.Status == model.UserDeleted {
 			abortJSON(c, http.StatusUnauthorized, "unauthorized", "账号不存在，请重新登录")
 			return
 		}
 		if u.Status == model.UserBanned {
 			c.Set(ctxBanned, true)
 			c.Next()
+			return
+		}
+		// The token's session must still exist: logging out, or a password
+		// change / reset ending other sessions, revokes its access tokens too.
+		// (Bans also delete sessions, but banned users are handled above.)
+		var alive int64
+		if err := h.db.WithContext(c.Request.Context()).Model(&model.RefreshToken{}).
+			Where("id = ? AND user_id = ?", sid, uid).Count(&alive).Error; err != nil {
+			writeError(c, err)
+			return
+		}
+		if alive == 0 {
+			abortJSON(c, http.StatusUnauthorized, "unauthorized", "登录已失效，请重新登录")
 			return
 		}
 		c.Set(ctxUser, &u)

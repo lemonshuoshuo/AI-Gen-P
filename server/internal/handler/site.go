@@ -32,6 +32,8 @@ func (h *Handler) site(c *gin.Context) error {
 		"name":              st.SiteName,
 		"announcement":      st.Announcement,
 		"registration_open": st.RegistrationOpen,
+		"icp_beian":         st.ICPBeian,
+		"police_beian":      st.PoliceBeian,
 		"amap_search":       h.svc.Amap.Enabled(),
 		"ai_enabled":        h.svc.AI.Enabled(),
 		"map": gin.H{"tiles": gin.H{
@@ -39,8 +41,20 @@ func (h *Handler) site(c *gin.Context) error {
 			"satellite":       h.cfg.TilesSatellite,
 			"satellite_label": h.cfg.TilesSatelliteLabel,
 		}},
-		"levels": service.Levels,
-		"upload": gin.H{"max_photo_mb": h.cfg.MaxUploadMB},
+		"levels":        service.Levels,
+		"exp_daily_cap": service.DailyExpCap,
+		"upload":        gin.H{"max_photo_mb": h.cfg.MaxUploadMB},
 	})
+	return nil
+}
+
+// legal serves the 用户协议 (terms) or 隐私政策 (privacy) as Markdown. The
+// texts are long, so they are not part of GET /site.
+func (h *Handler) legal(c *gin.Context) error {
+	text, ok := h.svc.Settings.Get().LegalText(c.Param("doc"))
+	if !ok {
+		return errNotFound("页面不存在")
+	}
+	c.JSON(http.StatusOK, gin.H{"content": text})
 	return nil
 }

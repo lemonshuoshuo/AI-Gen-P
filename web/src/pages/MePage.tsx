@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -72,6 +72,10 @@ export default function MePage() {
     select: (d) => d.count,
   })
   const invites = useQuery({ queryKey: ['me', 'invites'], queryFn: api.me.invites })
+  // 等级经验、情侣绑定以服务端为准：每次打开都刷新
+  useEffect(() => {
+    void useAuth.getState().refreshMe()
+  }, [])
 
   const cur = site?.levels.find((l) => l.level === user.level)
   const nextExp = user.next_level_exp ?? null

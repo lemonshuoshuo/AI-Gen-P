@@ -65,7 +65,7 @@ export function PhotoViewer({
           </button>
         )}
       </div>
-      <div className="pb-safe p-4 text-center text-sm" onClick={(e) => e.stopPropagation()}>
+      <div className="px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-center text-sm" onClick={(e) => e.stopPropagation()}>
         {p.caption && <p className="mb-1">{p.caption}</p>}
         <p className="text-white/50">
           {where && (

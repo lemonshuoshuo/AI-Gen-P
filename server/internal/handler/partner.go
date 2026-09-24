@@ -35,7 +35,7 @@ func (h *Handler) partnerState(c *gin.Context) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := gin.H{"partner": nil, "since": nil, "title": "", "bound_at": nil,
+	res := gin.H{"partner": nil, "since": nil, "title": "", "bound_at": nil, "public": false,
 		"invites": gin.H{"incoming": in, "outgoing": out}}
 	if p != nil {
 		users, err := h.loadUsers(ctx, []int64{partnerID})
@@ -46,6 +46,7 @@ func (h *Handler) partnerState(c *gin.Context) (gin.H, error) {
 		res["since"] = service.FormatDate(p.Since)
 		res["title"] = p.Title
 		res["bound_at"] = h.ts(p.BoundAt)
+		res["public"] = p.Public
 	}
 	return res, nil
 }
@@ -61,8 +62,9 @@ func (h *Handler) getPartner(c *gin.Context) error {
 
 func (h *Handler) updatePartner(c *gin.Context) error {
 	var req struct {
-		Since Opt[string] `json:"since"`
-		Title *string     `json:"title"`
+		Since  Opt[string] `json:"since"`
+		Title  *string     `json:"title"`
+		Public *bool       `json:"public"` // show the relationship on both profiles
 	}
 	if err := bindJSON(c, &req); err != nil {
 		return err
@@ -81,7 +83,8 @@ func (h *Handler) updatePartner(c *gin.Context) error {
 		if err != nil {
 			return err
 		}
-		if d != nil && d.After(time.Now()) {
+		// parseDate gives UTC midnight: compare with today's date in Beijing time.
+		if d != nil && d.After(service.DateOnly(time.Now(), h.loc)) {
 			return errBad("纪念日不能晚于今天")
 		}
 		upd["since"] = d
@@ -91,7 +94,13 @@ func (h *Handler) updatePartner(c *gin.Context) error {
 		if err != nil {
 			return err
 		}
+		if err := h.screen(c, t); err != nil {
+			return err
+		}
 		upd["title"] = t
+	}
+	if req.Public != nil {
+		upd["public"] = *req.Public
 	}
 	if len(upd) > 0 {
 		if err := db.Model(p).Updates(upd).Error; err != nil {
@@ -101,8 +110,13 @@ func (h *Handler) updatePartner(c *gin.Context) error {
 	return h.getPartner(c)
 }
 
+// unbindPartner ends the couple binding. Shared trips are kept, and with
+// ?remove_shared_access=true each one also stops being a co-author (or
+// invitee) of the trips the other owns; otherwise both keep full access to
+// them until removed in the trip's members.
 func (h *Handler) unbindPartner(c *gin.Context) error {
 	u := currentUser(c)
+	removeShared := queryBool(c, "remove_shared_access")
 	err := h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
 		partnerID, p, err := service.PartnerOf(tx, u.ID)
 		if err != nil {
@@ -114,8 +128,32 @@ func (h *Handler) unbindPartner(c *gin.Context) error {
 		if err := tx.Delete(p).Error; err != nil {
 			return err
 		}
-		return h.svc.Notify(tx, service.Notice{UserID: partnerID, Type: "system", ActorID: u.ID,
-			Content: userBrief(u).Nickname + " 解除了情侣绑定"})
+		// Memberships of one in trips the other owns.
+		coAuthor := func(owner, member int64) *gorm.DB {
+			return tx.Model(&model.TripMember{}).Where("user_id = ? AND role <> ? AND trip_id IN (?)", member, model.MemberOwner,
+				tx.Model(&model.Trip{}).Select("id").Where("owner_id = ?", owner))
+		}
+		var shared int64
+		for _, om := range [][2]int64{{u.ID, partnerID}, {partnerID, u.ID}} {
+			var n int64
+			if err := coAuthor(om[0], om[1]).Count(&n).Error; err != nil {
+				return err
+			}
+			shared += n
+			if removeShared && n > 0 {
+				if err := coAuthor(om[0], om[1]).Delete(&model.TripMember{}).Error; err != nil {
+					return err
+				}
+			}
+		}
+		content := userBrief(u).Nickname + " 解除了情侣绑定"
+		switch {
+		case shared > 0 && removeShared:
+			content += "，并结束了你们在彼此旅程中的共同作者关系"
+		case shared > 0:
+			content += "（你们仍是共同旅程的共同作者，可在旅程「成员」中移除）"
+		}
+		return h.svc.Notify(tx, service.Notice{UserID: partnerID, Type: "system", ActorID: u.ID, Content: content})
 	})
 	if err != nil {
 		return err
@@ -136,6 +174,9 @@ func (h *Handler) createPartnerInvite(c *gin.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := h.screen(c, msg); err != nil {
+		return err
+	}
 	name := strings.TrimPrefix(strings.TrimSpace(req.Username), "@")
 	if name == "" {
 		return errBad("请输入对方的用户名")
@@ -147,7 +188,7 @@ func (h *Handler) createPartnerInvite(c *gin.Context) error {
 		if err := tx.Where("lower(username) = lower(?)", name).Limit(1).Find(&target).Error; err != nil {
 			return err
 		}
-		if target.ID == 0 {
+		if target.ID == 0 || target.Status == model.UserDeleted {
 			return errNotFound("用户不存在")
 		}
 		if target.ID == u.ID {
@@ -248,8 +289,14 @@ func (h *Handler) acceptPartnerInvite(c *gin.Context) error {
 		if err := tx.Create(&model.Partnership{UserA: a, UserB: b, BoundAt: time.Now()}).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(inv).Update("status", model.InviteAccepted).Error; err != nil {
-			return err
+		// Only a still-pending invite: it may have been withdrawn or declined
+		// after findInvite read it (the rollback also drops the partnership).
+		res := tx.Model(inv).Where("status = ?", model.InvitePending).Update("status", model.InviteAccepted)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return errNotFound("邀请不存在或已处理")
 		}
 		if err := tx.Model(&model.PartnerInvite{}).
 			Where("status = ? AND id <> ? AND (from_id IN (?, ?) OR to_id IN (?, ?))", model.InvitePending, inv.ID, a, b, a, b).
@@ -271,8 +318,13 @@ func (h *Handler) setInviteStatus(c *gin.Context, incoming bool, status string) 
 	if err != nil {
 		return err
 	}
-	if err := db.Model(inv).Update("status", status).Error; err != nil {
-		return err
+	// Conditional, so it cannot overwrite an invite accepted meanwhile.
+	res := db.Model(inv).Where("status = ?", model.InvitePending).Update("status", status)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return errNotFound("邀请不存在或已处理")
 	}
 	c.JSON(http.StatusOK, gin.H{})
 	return nil

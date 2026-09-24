@@ -7,6 +7,11 @@ import { loadAtlas } from '@/lib/atlas'
 
 export type LitTheme = 'sunset' | 'love'
 
+/** 去过的省份拔高：基础高度 + 按打卡数占比增加的高度（米）。城市光柱等 deck.gl 图层要立在省份顶面上，共用这组数 */
+export const PROV_BASE_H = 40000
+export const PROV_SPAN_H = 160000
+export const provinceHeight = (count: number, max: number) => (count > 0 ? PROV_BASE_H + PROV_SPAN_H * (count / max) : 0)
+
 const themes: Record<LitTheme, { low: string; high: string; line: string }> = {
   sunset: { low: '#ff9a44', high: '#ff3d6e', line: '#ffd2b8' },
   love: { low: '#ff8ec7', high: '#9b5cff', line: '#ffd1ec' },
@@ -39,12 +44,10 @@ export function LitProvinces({
     const P = idPrefix
     upsertSource(map, `${P}-prov`, { type: 'FeatureCollection', features })
     const t = themes[theme]
-    const color: ExpressionSpecification = [
-      'case',
-      ['>', ['get', 'count'], 0],
-      ['interpolate', ['linear'], ['get', 'count'], 1, t.low, max, t.high],
-      'rgba(120,130,170,0.18)',
-    ]
+    // interpolate 的输入值必须严格递增：max 为 1（每个省都只打卡过一次）时整个图层会被拒绝，直接用最亮的颜色
+    const lit: ExpressionSpecification | string =
+      max > 1 ? ['interpolate', ['linear'], ['get', 'count'], 1, t.low, max, t.high] : t.high
+    const color: ExpressionSpecification = ['case', ['>', ['get', 'count'], 0], lit, 'rgba(120,130,170,0.18)']
     if (!map.getLayer(`${P}-fill`)) {
       map.addLayer({
         id: `${P}-fill`,
@@ -58,6 +61,10 @@ export function LitProvinces({
           'fill-extrusion-height-transition': { duration: 1200, delay: 0 },
         },
       })
+    } else {
+      map.setPaintProperty(`${P}-fill`, 'fill-extrusion-color', color)
+    }
+    if (!map.getLayer(`${P}-line`)) {
       map.addLayer({
         id: `${P}-line`,
         type: 'line',
@@ -67,8 +74,6 @@ export function LitProvinces({
           'line-width': ['case', ['>', ['get', 'count'], 0], 1.2, 0.6],
         },
       })
-    } else {
-      map.setPaintProperty(`${P}-fill`, 'fill-extrusion-color', color)
     }
     // 下一帧再设置高度，触发升起动画
     const h = requestAnimationFrame(() => {
@@ -77,7 +82,7 @@ export function LitProvinces({
         `${P}-fill`,
         'fill-extrusion-height',
         extrude
-          ? ['case', ['>', ['get', 'count'], 0], ['+', 40000, ['*', 160000, ['/', ['get', 'count'], max]]], 0]
+          ? ['case', ['>', ['get', 'count'], 0], ['+', PROV_BASE_H, ['*', PROV_SPAN_H, ['/', ['get', 'count'], max]]], 0]
           : 0,
       )
     })

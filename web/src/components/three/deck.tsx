@@ -10,6 +10,8 @@ export function useDeckOverlay() {
   const overlay = useRef<MapboxOverlay | null>(null)
   useEffect(() => {
     if (!map) return
+    // 不能用 interleaved: true：@deck.gl/mapbox 9.4 读取 map.transform，MapLibre 6 已没有这个属性，每帧报错、所有图层都不显示。
+    // 独立画布不与地图共享深度：要和立体省份对齐的图层自己抬高（见 FootprintsView）
     const o = new MapboxOverlay({ interleaved: false, layers: [] })
     map.addControl(o as unknown as IControl)
     overlay.current = o

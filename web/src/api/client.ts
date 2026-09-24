@@ -18,8 +18,11 @@ interface Tokens {
   refresh: string
 }
 
+/** external 为 true 表示 token 来自其他标签页（登录 / 刷新 / 退出 / 切换账号） */
+type TokensListener = (t: Tokens | null, external: boolean) => void
+
 let tokens: Tokens | null = loadTokens()
-const listeners = new Set<(t: Tokens | null) => void>()
+const listeners = new Set<TokensListener>()
 
 function loadTokens(): Tokens | null {
   try {
@@ -42,10 +45,22 @@ export function setTokens(t: Tokens | null) {
   } catch {
     /* 隐私模式下可能不可用 */
   }
-  listeners.forEach((l) => l(t))
+  listeners.forEach((l) => l(t, false))
 }
 
-export function onTokensChange(fn: (t: Tokens | null) => void) {
+/** 采用其他标签页写入的 token（只更新内存，不回写 localStorage） */
+function adoptTokens(t: Tokens | null) {
+  if (t?.access === tokens?.access && t?.refresh === tokens?.refresh) return
+  tokens = t
+  listeners.forEach((l) => l(t, true))
+}
+
+// 多个标签页共用同一份登录：其他标签页换新 token、登录或退出时同步到本页（storage 事件不会在写入的标签页触发）
+window.addEventListener('storage', (e) => {
+  if (e.key === STORAGE_KEY || e.key === null) adoptTokens(loadTokens())
+})
+
+export function onTokensChange(fn: TokensListener) {
   listeners.add(fn)
   return () => listeners.delete(fn)
 }
@@ -73,6 +88,11 @@ export function rememberShareCode(tripId: number, code: string) {
   } catch {
     /* 忽略 */
   }
+}
+
+/** 本会话中通过分享链接记住的分享码（非成员再次分享「链接可见」旅程时使用） */
+export function rememberedShareCode(tripId: number): string | undefined {
+  return shareCodes[String(tripId)]
 }
 
 function shareHeader(path: string): Record<string, string> {
@@ -103,30 +123,68 @@ function buildUrl(path: string, query?: Query) {
 
 let refreshing: Promise<boolean> | null = null
 
-async function refreshTokens(): Promise<boolean> {
-  if (!tokens?.refresh) return false
+/**
+ * 用 refresh token 换新 token。refresh token 只能用一次，而多个标签页共用同一份 token：
+ * 用 Web Locks 让各标签页依次刷新，刷新前后都先看 localStorage 里是否已被其他标签页换新，
+ * 避免用旧 token 刷新失败后把其他标签页刚换到的有效 token 清掉。
+ */
+function refreshTokens(): Promise<boolean> {
+  const stale = tokens?.refresh
+  if (!stale) return Promise.resolve(false)
   if (!refreshing) {
-    const refresh = tokens.refresh
-    refreshing = fetch(API_BASE + '/auth/refresh', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refresh }),
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          // 仅当 refresh token 仍是当前值时才清除（避免并发登录被误清）
-          if (tokens?.refresh === refresh) setTokens(null)
-          return false
-        }
-        applyAuthResult((await res.json()) as AuthResult)
-        return true
-      })
-      .catch(() => false)
+    const run = () => doRefresh(stale)
+    // navigator.locks 仅在 HTTPS / localhost 下可用
+    refreshing = ('locks' in navigator ? navigator.locks.request('triphub.refresh', run) : run())
+      .catch(() => false) // 网络错误：保留 token，稍后再试
       .finally(() => {
         refreshing = null
       })
   }
   return refreshing
+}
+
+/** localStorage 里的 token 已被其他标签页换新时直接采用 */
+function adoptIfRotated(stale: string): boolean {
+  const s = loadTokens()
+  if (!s || s.refresh === stale) return false
+  adoptTokens(s)
+  return true
+}
+
+async function doRefresh(stale: string): Promise<boolean> {
+  if (adoptIfRotated(stale)) return true
+  if (tokens?.refresh !== stale) return false // 本页已退出或换了账号
+  const res = await fetch(API_BASE + '/auth/refresh', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: stale }),
+  })
+  if (res.ok) {
+    const r = (await res.json()) as AuthResult
+    if (tokens?.refresh !== stale) {
+      // 刷新途中退出了登录或换了账号：作废刚拿到的 token，不写回
+      fetch(API_BASE + '/auth/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: r.refresh_token }),
+      }).catch(() => {})
+      return false
+    }
+    applyAuthResult(r)
+    return true
+  }
+  // 5xx / 网关错误 / 限流：refresh token 可能仍然有效，保留登录
+  if (res.status !== 400 && res.status !== 401 && res.status !== 403) return false
+  // 可能是其他标签页先用掉了这个 refresh token
+  if (adoptIfRotated(stale)) return true
+  if (res.status === 401) {
+    // 没有 Web Locks 时，其他标签页的刷新结果可能还在路上，稍等再看一次
+    await new Promise((r) => setTimeout(r, 1500))
+    if (adoptIfRotated(stale)) return true
+  }
+  // 仅当 refresh token 仍是当前值时才清除（避免并发登录被误清）
+  if (tokens?.refresh === stale) setTokens(null)
+  return false
 }
 
 async function parseError(res: Response): Promise<ApiError> {
@@ -181,7 +239,8 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
   }
 
   const headers: Record<string, string> = { ...shareHeader(path) }
-  if (tokens?.access) headers.Authorization = `Bearer ${tokens.access}`
+  const sentAccess = tokens?.access
+  if (sentAccess) headers.Authorization = `Bearer ${sentAccess}`
   let body: BodyInit | undefined
   if (opts.form) body = opts.form
   else if (opts.body !== undefined) {
@@ -197,8 +256,12 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
     throw new ApiError(0, 'network', '网络连接失败，请检查网络')
   }
 
-  if (res.status === 401 && retry && tokens?.refresh && !path.startsWith('/auth/')) {
+  if (res.status === 401 && retry && sentAccess && !path.startsWith('/auth/')) {
+    // 请求途中 token 已被其他请求或标签页换新：直接用新 token 重试，不再刷新一次
+    if (tokens?.access && tokens.access !== sentAccess) return request<T>(method, path, opts, false)
     if (await refreshTokens()) return request<T>(method, path, opts, false)
+    // refresh 失败且 token 已被清除：🔓 接口按 API.md 约定以游客身份重试一次（写操作都需要登录，只重试 GET）
+    if (!tokens && method === 'GET') return request<T>(method, path, opts, false)
   }
   if (!res.ok) throw await parseError(res)
   if (res.status === 204) return {} as T
@@ -221,3 +284,6 @@ export function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
   return '出错了，请稍后再试'
 }
+
+/** 资源不存在或无权查看（服务端对不可见的资源统一返回 404） */
+export const isNotFound = (e: unknown) => e instanceof ApiError && e.status === 404

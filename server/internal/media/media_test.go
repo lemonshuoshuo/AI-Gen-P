@@ -2,6 +2,9 @@ package media
 
 import (
 	"bytes"
+	"compress/zlib"
+	"encoding/binary"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/gif"
@@ -95,5 +98,116 @@ func TestURLHelpers(t *testing.T) {
 	loc, _ := time.LoadLocation("Asia/Shanghai")
 	if ex := ReadExif(encode(t, "jpeg", 10, 10), loc); ex.Lng != nil || ex.TakenAt != nil {
 		t.Fatal("no EXIF expected")
+	}
+}
+
+// pngChunk appends a PNG chunk (length, type, data, CRC).
+func pngChunk(buf *bytes.Buffer, typ string, data []byte) {
+	_ = binary.Write(buf, binary.BigEndian, uint32(len(data)))
+	crc := crc32.NewIEEE()
+	crc.Write([]byte(typ))
+	crc.Write(data)
+	buf.WriteString(typ)
+	buf.Write(data)
+	_ = binary.Write(buf, binary.BigEndian, crc.Sum32())
+}
+
+// zeroPNG builds an all-zero RGBA PNG (colour type 6) of the given bit depth.
+// With rows=false only the header is written, which is all probe reads.
+func zeroPNG(w, h int, depth byte, interlace byte, rows bool) []byte {
+	var buf bytes.Buffer
+	buf.WriteString("\x89PNG\r\n\x1a\n")
+	ihdr := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdr[0:], uint32(w))
+	binary.BigEndian.PutUint32(ihdr[4:], uint32(h))
+	ihdr[8], ihdr[9], ihdr[12] = depth, 6, interlace
+	pngChunk(&buf, "IHDR", ihdr)
+	if rows {
+		// Stream the filtered scanlines through zlib; the bitmap is never built.
+		var z bytes.Buffer
+		zw, _ := zlib.NewWriterLevel(&z, zlib.BestSpeed)
+		row := make([]byte, 1+w*4*int(depth/8))
+		for y := 0; y < h; y++ {
+			_, _ = zw.Write(row)
+		}
+		_ = zw.Close()
+		pngChunk(&buf, "IDAT", z.Bytes())
+	}
+	pngChunk(&buf, "IEND", nil)
+	return buf.Bytes()
+}
+
+func TestDecompressionBomb(t *testing.T) {
+	s := NewStore(t.TempDir(), 1)
+	// ~1 MB on disk, 800 MB as a decoded 16-bit bitmap.
+	bomb := zeroPNG(10000, 10000, 16, 0, true)
+	if len(bomb) > 2<<20 {
+		t.Fatalf("bomb is %d bytes", len(bomb))
+	}
+	if _, err := s.SaveImage(bomb); err != ErrTooLarge {
+		t.Fatalf("SaveImage(bomb) = %v, want ErrTooLarge", err)
+	}
+	if _, err := s.SaveAvatar(bomb, 1); err != ErrTooLarge {
+		t.Fatalf("SaveAvatar(bomb) = %v, want ErrTooLarge", err)
+	}
+	for _, tc := range []struct {
+		name  string
+		data  []byte
+		large bool
+	}{
+		{"49 MP 16-bit", zeroPNG(7000, 7000, 16, 0, false), true}, // under the pixel limit, 392 MB decoded
+		{"21 MP 8-bit", zeroPNG(4600, 4600, 8, 0, false), false},
+		{"21 MP 8-bit interlaced", zeroPNG(4600, 4600, 8, 1, false), true}, // Adam7 decodes per pass
+		{"8 MP 16-bit", zeroPNG(2000, 2000, 16, 0, false), false},
+	} {
+		_, _, err := probe(tc.data)
+		if (err == ErrTooLarge) != tc.large {
+			t.Errorf("%s: probe = %v, want too large = %v", tc.name, err, tc.large)
+		}
+	}
+	// A normal 16-bit PNG is still accepted.
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewNRGBA64(image.Rect(0, 0, 1000, 1000))); err != nil {
+		t.Fatal(err)
+	}
+	if saved, err := s.SaveImage(buf.Bytes()); err != nil || saved.Width != 1000 || saved.Height != 1000 {
+		t.Fatalf("16-bit PNG: %+v %v", saved, err)
+	}
+}
+
+// withOrientation inserts an EXIF APP1 segment with the given orientation
+// right after the JPEG SOI marker.
+func withOrientation(jpg []byte, o uint16) []byte {
+	tiff := []byte{'M', 'M', 0, 42, 0, 0, 0, 8, // big-endian header, IFD0 at offset 8
+		0, 1, // one entry
+		0x01, 0x12, 0, 3, 0, 0, 0, 1, byte(o >> 8), byte(o), 0, 0, // Orientation, SHORT, count 1
+		0, 0, 0, 0} // no next IFD
+	payload := append([]byte("Exif\x00\x00"), tiff...)
+	seg := []byte{0xFF, 0xE1, byte((len(payload) + 2) >> 8), byte(len(payload) + 2)}
+	out := append([]byte{}, jpg[:2]...)
+	out = append(out, seg...)
+	out = append(out, payload...)
+	return append(out, jpg[2:]...)
+}
+
+func TestSaveImageOrientation(t *testing.T) {
+	s := NewStore(t.TempDir(), 1)
+	img := withOrientation(encode(t, "jpeg", 300, 200), 6) // stored landscape, displayed portrait
+	if o := jpegOrientation(img); o != 6 {
+		t.Fatalf("orientation %d", o)
+	}
+	saved, err := s.SaveImage(img)
+	if err != nil || saved.Width != 200 || saved.Height != 300 {
+		t.Fatalf("oriented image: %+v %v", saved, err)
+	}
+	big, err := s.SaveImage(withOrientation(encode(t, "jpeg", 4000, 3000), 6))
+	if err != nil || big.Width != 1920 || big.Height != 2560 {
+		t.Fatalf("downscaled oriented image: %+v %v", big, err)
+	}
+	if _, err := s.SaveAvatar(img, 1); err != nil {
+		t.Fatalf("avatar: %v", err)
+	}
+	if o := jpegOrientation(encode(t, "png", 10, 10)); o != 1 {
+		t.Fatalf("png orientation %d", o)
 	}
 }

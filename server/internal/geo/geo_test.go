@@ -35,6 +35,66 @@ func TestOutOfChinaPassthrough(t *testing.T) {
 	}
 }
 
+// Neighbouring countries inside the OutOfChina box use WGS-84 on 高德 / Apple
+// maps too: no offset either way.
+func TestGCJForeignPassthrough(t *testing.T) {
+	cases := map[string]Point{
+		"首尔": {126.978, 37.5665}, "釜山": {129.0756, 35.1796}, "大阪": {135.5023, 34.6937}, "福冈": {130.4017, 33.5902},
+		"那霸": {127.6809, 26.2124}, "河内": {105.8342, 21.0278}, "胡志明市": {106.6297, 10.8231}, "曼谷": {100.5018, 13.7563},
+		"新加坡": {103.8198, 1.3521}, "吉隆坡": {101.6869, 3.139}, "马尼拉": {120.9842, 14.5995}, "乌兰巴托": {106.9057, 47.8864},
+		"符拉迪沃斯托克": {131.8869, 43.1155}, "加德满都": {85.324, 27.7172}, "阿拉木图": {76.8512, 43.222},
+	}
+	for name, c := range cases {
+		if lng, lat := WGS84ToGCJ02(c.Lng, c.Lat); lng != c.Lng || lat != c.Lat {
+			t.Errorf("%s %v should pass through, got %v,%v", name, c, lng, lat)
+		}
+		if lng, lat := GCJ02ToWGS84(c.Lng, c.Lat); lng != c.Lng || lat != c.Lat {
+			t.Errorf("%s %v should pass through inverse, got %v,%v", name, c, lng, lat)
+		}
+	}
+}
+
+// Chinese border towns and islands next to the excluded areas keep the offset.
+func TestGCJBorderAndIslands(t *testing.T) {
+	cases := map[string]Point{
+		"丹东": {124.3545, 40.0}, "珲春": {130.3659, 42.8624}, "黑河": {127.499, 50.245}, "漠河": {122.5361, 52.9721},
+		"满洲里": {117.4432, 49.5978}, "二连浩特": {111.9771, 43.6532}, "喀什": {75.9897, 39.4677}, "樟木": {85.98, 27.99},
+		"瑞丽": {97.8519, 24.0129}, "磨憨": {101.5566, 21.1827}, "河口": {103.9392, 22.5293}, "东兴": {107.97, 21.54},
+		"三亚": {109.5119, 18.2528}, "永兴岛": {112.3364, 16.8339}, "香港": {114.1694, 22.3193}, "澳门": {113.5439, 22.1987},
+		"台北": {121.5654, 25.033}, "钓鱼岛": {123.4760, 25.7440}, "赤尾屿": {124.5570, 25.9230}, "黄岩岛": {117.7500, 15.1500},
+		"曾母暗沙": {112.2830, 3.9700},
+	}
+	for name, c := range cases {
+		gLng, gLat := WGS84ToGCJ02(c.Lng, c.Lat)
+		if d := Haversine(c.Lng, c.Lat, gLng, gLat); d < 50 || d > 1000 {
+			t.Errorf("%s %v: GCJ offset %.1fm looks wrong", name, c, d)
+		}
+		wLng, wLat := GCJ02ToWGS84(gLng, gLat)
+		if d := Haversine(c.Lng, c.Lat, wLng, wLat); d > 1 {
+			t.Errorf("%s %v: round trip error %.3fm >= 1m", name, c, d)
+		}
+	}
+}
+
+// No excluded area reaches Chinese territory (Lookup also snaps points up to
+// 12 km outside the simplified borders).
+func TestGCJExcludeAvoidsChina(t *testing.T) {
+	a, err := DefaultAtlas()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const step = 0.05
+	for _, b := range gcjExclude {
+		for x := b[0]; x <= b[2]+1e-9; x += step {
+			for y := b[1]; y <= b[3]+1e-9; y += step {
+				if loc, ok := a.Lookup(x, y); ok {
+					t.Fatalf("excluded area %v covers (%.3f, %.3f) in %s%s", b, x, y, loc.Province, loc.City)
+				}
+			}
+		}
+	}
+}
+
 func TestHaversine(t *testing.T) {
 	// Beijing Tiananmen → Shanghai People's Square ≈ 1067 km.
 	d := Haversine(116.3975, 39.9087, 121.4737, 31.2304)

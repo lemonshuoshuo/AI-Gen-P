@@ -7,14 +7,14 @@ import { Select, UserName, confirmDialog } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { fmtCount, fromNow } from '@/lib/format'
 import { phases, visibilities } from '@/lib/meta'
-import { ActionButton, ADMIN_PAGE_SIZE, FilterBar, FilterSlot, PanelHeader, Pill, SearchInput, useFilters } from './common'
+import { ActionButton, ADMIN_PAGE_SIZE, FilterBar, FilterSlot, PanelHeader, Pill, SearchInput, useFilters, usePageGuard } from './common'
 import { DataTable, type Column } from './DataTable'
 
 function Thumb({ trip }: { trip: TripCard }) {
   return (
     <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-brand-gradient">
       {trip.cover_url ? (
-        <img src={trip.cover_url} alt="" loading="lazy" className="size-full object-cover" />
+        <img src={trip.cover_thumb_url || trip.cover_url} alt="" loading="lazy" className="size-full object-cover" />
       ) : (
         <Route className="size-5 text-white" />
       )}
@@ -30,6 +30,7 @@ export function TripsPanel() {
     queryFn: () => api.admin.trips({ ...f, page_size: ADMIN_PAGE_SIZE }),
     placeholderData: keepPreviousData,
   })
+  usePageGuard(data, setPage)
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['admin', 'trips'] })

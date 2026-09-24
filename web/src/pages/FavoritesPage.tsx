@@ -1,9 +1,10 @@
 import { Link } from 'react-router'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { Bookmark, Compass } from 'lucide-react'
-import { api, errorMessage } from '@/api'
+import { api } from '@/api'
 import { TripGrid, TripGridSkeleton } from '@/components/trip/TripCard'
-import { Button, Empty } from '@/components/ui'
+import { Button, Empty, LoadError, buttonClass } from '@/components/ui'
+import { flattenPages } from '@/lib/pages'
 
 export default function FavoritesPage() {
   const q = useInfiniteQuery({
@@ -12,7 +13,7 @@ export default function FavoritesPage() {
     initialPageParam: 1,
     getNextPageParam: (last) => (last.page * last.page_size < last.total ? last.page + 1 : undefined),
   })
-  const trips = q.data?.pages.flatMap((p) => p.items) ?? []
+  const trips = flattenPages(q.data?.pages)
   const total = q.data?.pages[0]?.total
 
   return (
@@ -23,16 +24,17 @@ export default function FavoritesPage() {
       <div className="mt-5">
         {q.isLoading ? (
           <TripGridSkeleton />
-        ) : q.isError ? (
-          <Empty title="加载失败" desc={errorMessage(q.error)} action={<Button onClick={() => q.refetch()}>重试</Button>} />
+        ) : q.isLoadingError ? (
+          <LoadError error={q.error} onRetry={() => q.refetch()} />
         ) : trips.length === 0 ? (
           <Empty
             icon={<Bookmark className="size-12" />}
             title="还没有收藏"
             desc="在旅程详情页点击「收藏」，就能在这里找到它"
             action={
-              <Link to="/">
-                <Button icon={<Compass className="size-4" />}>去发现</Button>
+              <Link to="/" className={buttonClass()}>
+                <Compass className="size-4" />
+                去发现
               </Link>
             }
           />

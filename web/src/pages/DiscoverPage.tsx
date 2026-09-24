@@ -5,8 +5,9 @@ import { ArrowRight, Compass, Footprints, Heart, Route, Sparkles, TriangleAlert 
 import { api, type Phase } from '@/api'
 import { PlaceRow } from '@/components/place/PlaceCard'
 import { TripGrid, TripGridSkeleton } from '@/components/trip/TripCard'
-import { Button, Empty, Segmented, TabBar } from '@/components/ui'
+import { Button, Empty, LoadError, Segmented, TabBar, buttonClass } from '@/components/ui'
 import { useSite } from '@/hooks/useSite'
+import { flattenPages } from '@/lib/pages'
 import { useAuth } from '@/stores/auth'
 
 type Tab = 'featured' | 'latest' | 'hot' | 'following'
@@ -96,7 +97,7 @@ function SidePlaces() {
     )
   if (!hot.data?.items.length && !avoid.data?.items.length) return null
   return (
-    <aside className="space-y-8">
+    <aside className="min-w-0 space-y-8">
       {block('热门打卡地', <Compass className="size-4 text-brand-500" />, hot.data, '/places?sort=hot')}
       {block('避雷榜', <TriangleAlert className="size-4 text-red-500" />, avoid.data, '/places?sort=avoid')}
     </aside>
@@ -114,7 +115,7 @@ export default function DiscoverPage() {
     getNextPageParam: (last) => (last.page * last.page_size < last.total ? last.page + 1 : undefined),
     enabled: tab !== 'following' || !!user,
   })
-  const trips = q.data?.pages.flatMap((p) => p.items) ?? []
+  const trips = flattenPages(q.data?.pages)
 
   return (
     <>
@@ -147,9 +148,18 @@ export default function DiscoverPage() {
           </div>
           <div className="mt-4">
             {tab === 'following' && !user ? (
-              <Empty title="登录后查看关注的人的旅程" action={<Link to="/login"><Button>去登录</Button></Link>} />
+              <Empty
+                title="登录后查看关注的人的旅程"
+                action={
+                  <Link to="/login" className={buttonClass()}>
+                    去登录
+                  </Link>
+                }
+              />
             ) : q.isLoading ? (
               <TripGridSkeleton />
+            ) : q.isLoadingError ? (
+              <LoadError error={q.error} onRetry={() => q.refetch()} />
             ) : trips.length === 0 ? (
               <Empty
                 icon={<Compass className="size-12" />}
@@ -157,8 +167,8 @@ export default function DiscoverPage() {
                 desc="成为第一个分享旅程的人吧"
                 action={
                   user && (
-                    <Link to="/trips/new">
-                      <Button>创建旅程</Button>
+                    <Link to="/trips/new" className={buttonClass()}>
+                      创建旅程
                     </Link>
                   )
                 }
