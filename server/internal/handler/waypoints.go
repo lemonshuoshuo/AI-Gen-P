@@ -47,10 +47,9 @@ type waypointInput struct {
 
 // wpChange records what an input changed, for follow-up work.
 type wpChange struct {
-	coords     bool // position changed → re-locate
-	relink     bool // name / amap_id / position changed → re-resolve Place
-	wantDetail bool // district/address should come from reverse geocoding
-	nameGiven  bool // user supplied a non-empty name
+	coords       bool // position changed → re-locate
+	relink       bool // name / amap_id / position changed → re-resolve Place
+	wantDetail   bool // district/address should come from reverse geocoding
 	addressGiven bool // user supplied a non-empty address
 }
 
@@ -62,7 +61,7 @@ func (h *Handler) applyWaypoint(t *model.Trip, wp *model.Waypoint, in *waypointI
 		if err != nil {
 			return ch, err
 		}
-		wp.Name, ch.relink, ch.nameGiven = s, true, s != ""
+		wp.Name, ch.relink = s, true
 		wp.AutoNamed = s == ""
 	} else if creating {
 		wp.AutoNamed = true
@@ -98,8 +97,8 @@ func (h *Handler) applyWaypoint(t *model.Trip, wp *model.Waypoint, in *waypointI
 			return ch, err
 		}
 		wp.District = s
-	} else if ch.coords {
-		wp.District = ""
+	} else if ch.coords && !creating && h.svc.Amap.Enabled() {
+		wp.District = "" // moved: refresh from reverse geocoding
 	}
 	ch.addressGiven = addressGiven
 	if ch.coords && (wp.Address == "" || wp.District == "") {

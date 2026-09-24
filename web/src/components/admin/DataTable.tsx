@@ -24,6 +24,7 @@ export function DataTable<T>({
   columns,
   rowKey,
   actions,
+  compactActions,
   loading,
   fetching,
   emptyText = '暂无数据',
@@ -36,6 +37,8 @@ export function DataTable<T>({
   columns: Column<T>[]
   rowKey: (row: T) => string | number
   actions?: (row: T) => ReactNode
+  /** 操作只有一个图标（如「更多」菜单）时，移动端放在卡片右上角 */
+  compactActions?: boolean
   loading?: boolean
   /** 翻页 / 筛选时的后台刷新 */
   fetching?: boolean
@@ -69,24 +72,24 @@ export function DataTable<T>({
           <thead>
             <tr className="border-b border-ink-100 text-left text-xs text-ink-400">
               {columns.map((c) => (
-                <th key={c.key} className={cn('px-4 py-3 font-medium whitespace-nowrap', c.className)}>
+                <th key={c.key} className={cn('px-3 py-3 font-medium whitespace-nowrap first:pl-4', c.className)}>
                   {c.header}
                 </th>
               ))}
-              {actions && <th className="px-4 py-3 text-right font-medium">操作</th>}
+              {actions && <th className="py-3 pr-4 pl-3 text-right font-medium">操作</th>}
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={rowKey(r)} className="border-b border-ink-100 align-middle last:border-none hover:bg-ink-50/60">
                 {columns.map((c) => (
-                  <td key={c.key} className={cn('px-4 py-3', c.className)}>
+                  <td key={c.key} className={cn('px-3 py-3 first:pl-4', c.className)}>
                     {c.cell(r)}
                   </td>
                 ))}
                 {actions && (
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1">{actions(r)}</div>
+                  <td className="py-3 pr-4 pl-3">
+                    <div className="flex items-center justify-end gap-0.5">{actions(r)}</div>
                   </td>
                 )}
               </tr>
@@ -98,12 +101,13 @@ export function DataTable<T>({
       {/* 移动端卡片 */}
       <div className="space-y-3 lg:hidden">
         {rows.map((r) => (
-          <Card key={rowKey(r)} className="p-4">
+          <Card key={rowKey(r)} className="relative p-4">
             {primary.map((c) => (
-              <div key={c.key} className="min-w-0">
+              <div key={c.key} className={cn('min-w-0', compactActions && 'pr-9')}>
                 {c.cell(r)}
               </div>
             ))}
+            {actions && compactActions && <div className="absolute top-3 right-3">{actions(r)}</div>}
             {rest.length > 0 && (
               <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 text-sm">
                 {rest.map((c) => (
@@ -114,7 +118,7 @@ export function DataTable<T>({
                 ))}
               </dl>
             )}
-            {actions && (
+            {actions && !compactActions && (
               <div className="mt-3 flex flex-wrap items-center justify-end gap-1 border-t border-ink-100 pt-3">{actions(r)}</div>
             )}
           </Card>

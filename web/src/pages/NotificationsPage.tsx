@@ -118,7 +118,7 @@ function NoticeAvatar({ n }: { n: Notification }) {
       </span>
     )
   return (
-    <span className="relative shrink-0">
+    <span className="relative size-10 shrink-0">
       <Avatar user={n.actor} size={40} />
       <span
         className={cn(

@@ -410,6 +410,7 @@ func (h *Handler) tripDetail(ctx context.Context, t *model.Trip, a service.Acces
 	}
 	d := &TripDetail{TripCard: card, Content: t.Content, CanEdit: a.CanEdit(), IsOwner: a.Owner,
 		InvitePending: a.Pending, HasTrack: t.TrackPointCount > 0}
+	d.Summary = t.Summary // the raw summary (cards derive one from content when empty)
 	if a.Member {
 		code := t.ShareCode
 		d.ShareCode = &code

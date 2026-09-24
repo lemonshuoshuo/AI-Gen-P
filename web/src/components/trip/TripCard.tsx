@@ -85,7 +85,7 @@ export function TripCard({ trip, showAuthor = true }: { trip: Trip; showAuthor?:
           {showAuthor && (
             <>
               <Avatar user={trip.author} size={22} />
-              <UserName user={trip.author} className="max-w-[45%] text-xs" />
+              <UserName user={trip.author} className="max-w-[45%] text-xs" link={false} />
             </>
           )}
           <span className="ml-auto flex items-center gap-2.5">

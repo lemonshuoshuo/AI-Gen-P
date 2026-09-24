@@ -1,0 +1,11 @@
+# runtime data (uploads, jwt_secret)
+/data/
+# binaries
+/triphub
+/bin/
+*.exe
+*.test
+*.out
+# built web frontend is copied here at build time
+/internal/webui/dist/*
+!/internal/webui/dist/.keep

@@ -3,11 +3,11 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { Eye, EyeOff, Heart, MessageCircle, Route, Star, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type TripCard } from '@/api'
-import { Button, Select, UserName, confirmDialog } from '@/components/ui'
+import { Select, UserName, confirmDialog } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { fmtCount, fromNow } from '@/lib/format'
 import { phases, visibilities } from '@/lib/meta'
-import { ADMIN_PAGE_SIZE, FilterBar, FilterSlot, PanelHeader, Pill, SearchInput, useFilters } from './common'
+import { ActionButton, ADMIN_PAGE_SIZE, FilterBar, FilterSlot, PanelHeader, Pill, SearchInput, useFilters } from './common'
 import { DataTable, type Column } from './DataTable'
 
 function Thumb({ trip }: { trip: TripCard }) {
@@ -88,7 +88,6 @@ export function TripsPanel() {
       key: 'trip',
       header: '旅程',
       primary: true,
-      className: 'max-w-72',
       cell: (t) => (
         <Link to={`/trips/${t.id}`} className="group flex min-w-0 items-center gap-3">
           <Thumb trip={t} />
@@ -153,28 +152,20 @@ export function TripsPanel() {
 
   const actions = (t: TripCard) => (
     <>
-      <Button
-        size="xs"
-        variant="ghost"
+      <ActionButton
+        label={t.featured ? '取消精选' : '设为精选'}
         className={cn(t.featured && 'text-amber-600')}
         icon={<Star className={cn('size-3.5', t.featured && 'fill-amber-400 text-amber-400')} />}
         onClick={() =>
           update.mutate({ id: t.id, body: { featured: !t.featured }, ok: t.featured ? '已取消精选' : '已设为精选' })
         }
-      >
-        {t.featured ? '取消精选' : '精选'}
-      </Button>
-      <Button
-        size="xs"
-        variant="ghost"
+      />
+      <ActionButton
+        label={t.status === 'hidden' ? '恢复显示' : '隐藏'}
         icon={t.status === 'hidden' ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
         onClick={() => toggleHidden(t)}
-      >
-        {t.status === 'hidden' ? '恢复' : '隐藏'}
-      </Button>
-      <Button size="xs" variant="ghost" className="text-red-600 hover:bg-red-50" icon={<Trash2 className="size-3.5" />} onClick={() => del(t)}>
-        删除
-      </Button>
+      />
+      <ActionButton label="删除" danger icon={<Trash2 className="size-3.5" />} onClick={() => del(t)} />
     </>
   )
 

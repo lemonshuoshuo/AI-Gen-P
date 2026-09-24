@@ -3,9 +3,9 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { MapPin, Route, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type Comment } from '@/api'
-import { Avatar, Button, UserName, confirmDialog } from '@/components/ui'
+import { Avatar, UserName, confirmDialog } from '@/components/ui'
 import { fromNow } from '@/lib/format'
-import { ADMIN_PAGE_SIZE, FilterBar, PanelHeader, Pill, SearchInput, useFilters } from './common'
+import { ActionButton, ADMIN_PAGE_SIZE, FilterBar, PanelHeader, Pill, SearchInput, useFilters } from './common'
 import { DataTable, type Column } from './DataTable'
 
 export function CommentWhere({ c }: { c: Pick<Comment, 'trip' | 'place' | 'trip_id' | 'place_id'> }) {
@@ -110,16 +110,7 @@ export function CommentsPanel() {
         columns={columns}
         rowKey={(c) => c.id}
         actions={(c) => (
-          <Button
-            size="xs"
-            variant="ghost"
-            className="text-red-600 hover:bg-red-50"
-            icon={<Trash2 className="size-3.5" />}
-            disabled={c.deleted}
-            onClick={() => del(c)}
-          >
-            删除
-          </Button>
+          <ActionButton label="删除" danger icon={<Trash2 className="size-3.5" />} disabled={c.deleted} onClick={() => del(c)} />
         )}
         loading={isLoading}
         fetching={isFetching}

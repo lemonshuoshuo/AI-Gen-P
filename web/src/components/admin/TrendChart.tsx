@@ -42,7 +42,7 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
         <Segmented<Metric> size="sm" value={metric} onChange={setMetric} options={metrics} />
       </div>
 
-      <div className="mt-5 flex gap-2">
+      <div className="mt-8 flex gap-2">
         {/* Y 轴刻度 */}
         <div className="relative h-44 w-7 shrink-0 text-right text-[10px] text-ink-400 tabular-nums">
           {ticks.map((t) => (
@@ -67,7 +67,6 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
                 const v = d[metric]
                 // 两端的提示框向内对齐，避免超出卡片
                 const align = i < 2 ? 'left-0' : i > trend.length - 3 ? 'right-0' : 'left-1/2 -translate-x-1/2'
-
                 return (
                   <div
                     key={d.date}
@@ -95,12 +94,16 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
           </div>
           {/* X 轴 */}
           <div className="mt-1.5 flex gap-0.5 text-center text-[10px] text-ink-400 sm:gap-1.5">
-            {trend.map((d, i) => (
-              <span
-                key={d.date}
-                className={cn('flex-1 truncate', (trend.length - 1 - i) % 2 === 1 && 'invisible sm:visible')}
-              >
-                {d.date === today ? '今天' : dayjs(d.date).format('MM-DD')}
+            {trend.map((d) => (
+              <span key={d.date} className="min-w-0 flex-1 whitespace-nowrap">
+                {d.date === today ? (
+                  '今天'
+                ) : (
+                  <>
+                    <span className="sm:hidden">{dayjs(d.date).date()}</span>
+                    <span className="hidden sm:inline">{dayjs(d.date).format('MM-DD')}</span>
+                  </>
+                )}
               </span>
             ))}
           </div>

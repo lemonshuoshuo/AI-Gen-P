@@ -30,9 +30,11 @@ export interface Me extends UserBrief {
   bio: string
   exp: number
   level_name: string
-  next_level_exp: number
+  /** 满级时为 null */
+  next_level_exp: number | null
   status: 'active' | 'banned'
   storage_used: number
+  /** 0 表示不限（管理员） */
   storage_quota: number
   partner: UserBrief | null
   created_at: string

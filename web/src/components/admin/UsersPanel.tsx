@@ -252,6 +252,7 @@ export function UsersPanel() {
         columns={columns}
         rowKey={(u) => u.id}
         actions={actions}
+        compactActions
         loading={isLoading}
         fetching={isFetching}
         emptyText="没有符合条件的用户"

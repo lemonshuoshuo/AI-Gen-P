@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useState, type ReactNode } from 'react'
 import { Search, X } from 'lucide-react'
-import { Input } from '@/components/ui'
+import { Button, Input } from '@/components/ui'
 import { cn } from '@/lib/cn'
 
 export const ADMIN_PAGE_SIZE = 20
@@ -95,5 +95,37 @@ export function Pill({ tone = 'gray', icon, children }: { tone?: Tone; icon?: Re
       {icon}
       {children}
     </span>
+  )
+}
+
+/** 行操作按钮：表格中只显示图标（悬停提示），卡片中显示文字 */
+export function ActionButton({
+  icon,
+  label,
+  onClick,
+  danger,
+  disabled,
+  className,
+}: {
+  icon: ReactNode
+  label: string
+  onClick: () => void
+  danger?: boolean
+  disabled?: boolean
+  className?: string
+}) {
+  return (
+    <Button
+      size="xs"
+      variant="ghost"
+      title={label}
+      aria-label={label}
+      icon={icon}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(danger && 'text-red-600 hover:bg-red-50', className)}
+    >
+      <span className="lg:hidden">{label}</span>
+    </Button>
   )
 }

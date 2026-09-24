@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -428,7 +429,7 @@ func (h *Handler) reportDTOs(ctx context.Context, rs []model.Report) ([]reportDT
 		return nil, err
 	}
 	preview := map[string]string{}
-	key := func(t string, id int64) string { return t + ":" + service.ExpKey("", id) }
+	key := func(t string, id int64) string { return fmt.Sprintf("%s:%d", t, id) }
 	if ids := byType["trip"]; len(ids) > 0 {
 		var ts []model.Trip
 		db.Select("id", "title").Where("id IN ?", uniq(ids)).Find(&ts)
@@ -459,7 +460,7 @@ func (h *Handler) reportDTOs(ctx context.Context, rs []model.Report) ([]reportDT
 		pv := preview[key(r.TargetType, r.TargetID)]
 		if r.TargetType == "user" {
 			if u := users[r.TargetID]; u != nil {
-				pv = userBrief(u).Nickname + " (@" + u.Username + ")"
+				pv = "@" + u.Username + " · 昵称：" + userBrief(u).Nickname
 			}
 		}
 		if pv == "" {
