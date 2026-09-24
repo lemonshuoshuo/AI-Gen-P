@@ -26,6 +26,7 @@ type Handler struct {
 	loginIP      *auth.Limiter // failed logins per IP
 	register     *auth.Limiter // registrations per IP
 	aiLimit      *auth.Limiter // AI calls per user
+	commentLimit *auth.Limiter // comments per user
 	views        *auth.Limiter // view-count de-duplication
 
 	webui fs.FS
@@ -47,6 +48,7 @@ func New(svc *service.Service, webui fs.FS) *Handler {
 		loginIP:      auth.NewLimiter(30, 15*time.Minute),
 		register:     auth.NewLimiter(10, time.Hour),
 		aiLimit:      auth.NewLimiter(30, time.Hour),
+		commentLimit: auth.NewLimiter(30, 10*time.Minute),
 		views:        auth.NewLimiter(1, 30*time.Minute),
 		webui:        webui,
 	}
@@ -54,7 +56,7 @@ func New(svc *service.Service, webui fs.FS) *Handler {
 
 // Cleanup purges expired limiter state and refresh tokens; call periodically.
 func (h *Handler) Cleanup() {
-	for _, l := range []*auth.Limiter{h.loginAccount, h.loginIP, h.register, h.aiLimit, h.views} {
+	for _, l := range []*auth.Limiter{h.loginAccount, h.loginIP, h.register, h.aiLimit, h.commentLimit, h.views} {
 		l.Cleanup()
 	}
 	h.db.Exec("DELETE FROM refresh_tokens WHERE expires_at < now()")
