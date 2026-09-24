@@ -171,7 +171,13 @@ export function UsersPanel() {
       key: 'status',
       header: '状态',
       cell: (u) =>
-        u.status === 'banned' ? <Pill tone="red">已封禁</Pill> : <Pill tone="green">正常</Pill>,
+        u.status === 'banned' ? (
+          <Pill tone="red">已封禁</Pill>
+        ) : u.status === 'deleted' ? (
+          <Pill>已注销</Pill>
+        ) : (
+          <Pill tone="green">正常</Pill>
+        ),
     },
     {
       key: 'login',

@@ -11,7 +11,8 @@ export const defaultTiles: SiteConfig['map']['tiles'] = {
   satellite_label: sub('https://webst0{s}.is.autonavi.com/appmaptile?style=8&x={x}&y={y}&z={z}'),
 }
 
-const ATTR = '© 高德地图'
+/** 站点配置没有给出 map.attribution 时的底图版权；换了瓦片源或要显示审图号时由服务端配置 */
+export const defaultAttribution = '© 高德地图'
 
 // 用亮度反转 + 色相旋转把标准底图变成夜间风格，适合 3D 轨迹展示
 const darkPaint = {
@@ -29,12 +30,16 @@ const normalPaint = {
   'raster-contrast': 0,
 }
 
-export function buildStyle(tiles: SiteConfig['map']['tiles'], kind: BaseKind): StyleSpecification {
+export function buildStyle(
+  tiles: SiteConfig['map']['tiles'],
+  kind: BaseKind,
+  attribution: string = defaultAttribution,
+): StyleSpecification {
   return {
     version: 8,
     sources: {
-      'th-normal': { type: 'raster', tiles: tiles.normal, tileSize: 256, maxzoom: 18, attribution: ATTR },
-      'th-sat': { type: 'raster', tiles: tiles.satellite, tileSize: 256, maxzoom: 18, attribution: ATTR },
+      'th-normal': { type: 'raster', tiles: tiles.normal, tileSize: 256, maxzoom: 18, attribution },
+      'th-sat': { type: 'raster', tiles: tiles.satellite, tileSize: 256, maxzoom: 18, attribution },
       'th-sat-label': { type: 'raster', tiles: tiles.satellite_label, tileSize: 256, maxzoom: 18 },
     },
     layers: [

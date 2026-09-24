@@ -13,7 +13,8 @@ import (
 // Every editable waypoint column must be written when an edit changes it
 // (saveWaypointChanges only writes the columns changedWaypointColumns lists).
 func TestChangedWaypointColumns(t *testing.T) {
-	notEditable := map[string]bool{"ID": true, "TripID": true, "Seq": true, "CreatedByID": true, "CreatedAt": true, "UpdatedAt": true}
+	// ClientID is only set by check-ins (the idempotency key), never by an edit.
+	notEditable := map[string]bool{"ID": true, "TripID": true, "Seq": true, "CreatedByID": true, "ClientID": true, "CreatedAt": true, "UpdatedAt": true}
 	naming := schema.NamingStrategy{}
 	typ := reflect.TypeOf(model.Waypoint{})
 	for i := 0; i < typ.NumField(); i++ {

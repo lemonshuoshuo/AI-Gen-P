@@ -220,6 +220,7 @@ type PlaceDTO struct {
 	AvgCost        float64 `json:"avg_cost"`
 	CommentCount   int     `json:"comment_count"`
 	CoverURL       string  `json:"cover_url"`
+	CoverThumbURL  string  `json:"cover_thumb_url"` // for list rows; see media.ThumbURL
 	CreatedAt      string  `json:"created_at"`
 	DistanceM      *int    `json:"distance_m,omitempty"`
 }
@@ -230,7 +231,8 @@ func (h *Handler) placeDTO(p *model.Place) PlaceDTO {
 		District: p.District, Lng: geo.Round(p.Lng, 6), Lat: geo.Round(p.Lat, 6), Category: p.Category, Tel: p.Tel,
 		CheckinCount: p.CheckinCount, RatingAvg: p.RatingAvg, RatingCount: p.RatingCount,
 		RecommendCount: p.RecommendCount, NeutralCount: p.NeutralCount, AvoidCount: p.AvoidCount,
-		AvgCost: p.AvgCost, CommentCount: p.CommentCount, CoverURL: p.CoverURL, CreatedAt: h.ts(p.CreatedAt),
+		AvgCost: p.AvgCost, CommentCount: p.CommentCount, CoverURL: p.CoverURL, CoverThumbURL: media.ThumbURL(p.CoverURL),
+		CreatedAt: h.ts(p.CreatedAt),
 	}
 }
 
@@ -272,6 +274,7 @@ type TripCard struct {
 	Title         string       `json:"title"`
 	Summary       string       `json:"summary"`
 	CoverURL      string       `json:"cover_url"`
+	CoverThumbURL string       `json:"cover_thumb_url"` // 480px thumbnail for cards (cover_url when there is none)
 	Phase         string       `json:"phase"`
 	Visibility    string       `json:"visibility"`
 	Status        string       `json:"status"`
@@ -385,7 +388,7 @@ func (h *Handler) cardFrom(t *model.Trip, author *model.User, members []*UserBri
 		members = []*UserBrief{}
 	}
 	return TripCard{
-		ID: t.ID, Title: t.Title, Summary: summarize(t.Summary, t.Content), CoverURL: cover,
+		ID: t.ID, Title: t.Title, Summary: summarize(t.Summary, t.Content), CoverURL: cover, CoverThumbURL: media.ThumbURL(cover),
 		Phase: t.Phase, Visibility: t.Visibility, Status: t.Status,
 		StartDate: service.FormatDate(t.StartDate), EndDate: service.FormatDate(t.EndDate), Days: t.Days,
 		DistanceKm: geo.Round(t.DistanceKm, 1), Cities: nonNil(t.Cities), Provinces: nonNil(t.Provinces), Tags: nonNil(t.Tags),
@@ -518,7 +521,7 @@ func (h *Handler) tripDetail(ctx context.Context, t *model.Trip, a service.Acces
 		wps = redactLive(wps)
 		d.WaypointCount, d.VisitedCount, d.PhotoCount = len(wps), 0, 0
 		if t.CoverURL == "" {
-			d.CoverURL = "" // the automatic cover is one of the trip's photos
+			d.CoverURL, d.CoverThumbURL = "", "" // the automatic cover is one of the trip's photos
 		}
 	}
 	d.Waypoints = h.waypointDTOs(wps)

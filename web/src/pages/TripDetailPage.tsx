@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -25,6 +25,7 @@ import { toast } from 'sonner'
 import { api, ApiError, errorMessage, isNotFound, type Photo, type TripDetail, type Waypoint } from '@/api'
 import { rememberShareCode, rememberedShareCode } from '@/api/client'
 import { CommentSection } from '@/components/comments/CommentSection'
+import { Markdown } from '@/components/Markdown'
 import { BaseMap, useMap } from '@/components/map/BaseMap'
 import { FitOnce, RouteLines, WaypointMarkers } from '@/components/map/layers'
 import { ReportDialog } from '@/components/report/ReportDialog'
@@ -42,9 +43,6 @@ import { formatKm } from '@/lib/geo'
 import { phases, verdicts } from '@/lib/meta'
 import { AMAP_MAX_STOPS, amapMultiRoute } from '@/lib/nav'
 import { actualPath, allPoints, bySeq, groupByDay, photosByWaypoint, plannedPath, trackSegments } from '@/lib/trip'
-
-// 游记的 Markdown 渲染库较大：只有写了游记的旅程才加载，且不阻塞地图和行程
-const Markdown = lazy(() => import('react-markdown'))
 
 /** refit：FitOnce 重新缩放（如轨迹加载完）后再飞一次，选中的地点不会被全程视野盖掉 */
 function FlyToSelected({ w, refit }: { w: Waypoint | null; refit?: string }) {
@@ -569,9 +567,8 @@ function TripDetailView() {
           <>
             <h2 className="mt-10 mb-3 text-lg font-bold">游记</h2>
             <div className="prose-trip text-[15px] text-ink-700">
-              <Suspense fallback={<p className="whitespace-pre-wrap">{trip.content}</p>}>
-                <Markdown>{trip.content}</Markdown>
-              </Suspense>
+              {/* Markdown 渲染库只有写了游记的旅程才加载，且不阻塞地图和行程 */}
+              <Markdown fallback={<p className="whitespace-pre-wrap">{trip.content}</p>}>{trip.content}</Markdown>
             </div>
           </>
         )}

@@ -41,8 +41,16 @@ function AddToTripModal({ place, open, onClose }: { place: Place; open: boolean;
   const qc = useQueryClient()
   const nav = useNavigate()
   const [adding, setAdding] = useState<number | null>(null)
-  const q = useQuery({ queryKey: ['my-trips', 'addable'], queryFn: () => api.me.trips({ page_size: 50 }), enabled: open })
-  const trips = (q.data?.items ?? []).filter((t) => t.phase !== 'finished')
+  // 按阶段分别查询、进行中的在前：旅程很多时，较早的「规划中」旅程不会因为只取最近 50 条而漏掉
+  const q = useQuery({
+    queryKey: ['my-trips', 'addable'],
+    queryFn: () =>
+      Promise.all([api.me.trips({ phase: 'ongoing', page_size: 50 }), api.me.trips({ phase: 'planning', page_size: 50 })]).then(
+        ([ongoing, planning]) => [...ongoing.items, ...planning.items],
+      ),
+    enabled: open,
+  })
+  const trips = q.data ?? []
   const add = async (t: TripCard) => {
     setAdding(t.id)
     try {
@@ -234,6 +242,10 @@ export default function PlacePage() {
               </div>
             </div>
           )}
+          {/* 评论不计入统计：说明数字从哪来，避免以为在下面评论就算一票 */}
+          <p className="mt-2 text-xs text-ink-400">
+            推荐率与踩雷数统计自公开旅程中的打卡评价：在你的旅程里打卡这里并选择 推荐 / 一般 / 踩雷，旅程公开后即计入
+          </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <NavigateMenu target={{ lng: place.lng, lat: place.lat, name: place.name, address: place.address }} size="md" variant="primary" label="导航过去" />
             <Button variant="outline" icon={<Plus className="size-4" />} onClick={() => requireAuth(() => setAddOpen(true))}>
@@ -269,7 +281,9 @@ export default function PlacePage() {
       </div>
       <div className="mt-4 space-y-3">
         {reviews.isLoadingError && <LoadError className="py-8" error={reviews.error} onRetry={() => reviews.refetch()} />}
-        {!reviews.isLoading && !reviews.isLoadingError && items.length === 0 && <Empty title="暂无公开的打卡评价" className="py-8" />}
+        {!reviews.isLoading && !reviews.isLoadingError && items.length === 0 && (
+          <Empty title="暂无公开的打卡评价" desc="在旅程中打卡这里并给出评价，旅程公开后会显示在这里" className="py-8" />
+        )}
         {items.map((r) => (
           <div key={r.waypoint.id} className="rounded-2xl bg-white p-4 shadow-card">
             <div className="flex items-center gap-2.5">

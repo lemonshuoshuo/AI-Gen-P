@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"triphub/internal/geo"
+	"triphub/internal/media"
 	"triphub/internal/model"
 )
 
@@ -80,6 +81,7 @@ type FootTrip struct {
 	StartDate  *string      `json:"start_date"`
 	EndDate    *string      `json:"end_date"`
 	CoverURL   string       `json:"cover_url"`
+	CoverThumb string       `json:"cover_thumb_url"` // see media.ThumbURL
 	DistanceKm float64      `json:"distance_km"`
 	Path       [][2]float64 `json:"path"`
 
@@ -177,7 +179,7 @@ func (s *Service) BuildFootprints(db *gorm.DB, tripIDs *gorm.DB) (*Footprints, e
 		}
 		out.Trips = append(out.Trips, FootTrip{
 			ID: t.ID, Title: t.Title, StartDate: FormatDate(t.StartDate), EndDate: FormatDate(t.EndDate),
-			CoverURL: cover, DistanceKm: t.DistanceKm, Path: RoutePath(route), sortKey: tripFirst,
+			CoverURL: cover, CoverThumb: media.ThumbURL(cover), DistanceKm: t.DistanceKm, Path: RoutePath(route), sortKey: tripFirst,
 		})
 
 		for _, w := range route {

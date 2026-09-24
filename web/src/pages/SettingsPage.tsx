@@ -264,7 +264,7 @@ function PasswordSection() {
   })
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    if (form.next.length < 6 || form.next.length > 64) return toast.error('新密码需为 6–64 位')
+    if (form.next.length < 8 || form.next.length > 64) return toast.error('新密码需为 8–64 位')
     if (form.next !== form.confirm) return toast.error('两次输入的新密码不一致')
     if (form.next === form.old) return toast.error('新密码不能与当前密码相同')
     m.mutate()
@@ -280,7 +280,7 @@ function PasswordSection() {
             autoComplete="current-password"
           />
         </Field>
-        <Field label="新密码" hint="6–64 位">
+        <Field label="新密码" hint="8–64 位">
           <Input
             type="password"
             value={form.next}

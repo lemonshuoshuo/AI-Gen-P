@@ -34,6 +34,9 @@ type Config struct {
 	TilesNormal         []string
 	TilesSatellite      []string
 	TilesSatelliteLabel []string
+	// TilesAttribution is the basemap copyright / 审图号 shown in the corner
+	// of the map (HTML allowed); set it when using other tiles.
+	TilesAttribution string
 
 	AIBaseURL string
 	AIAPIKey  string
@@ -89,6 +92,7 @@ func Load() (*Config, error) {
 		TilesNormal:         list(os.Getenv("TRIPHUB_TILES_NORMAL")),
 		TilesSatellite:      list(os.Getenv("TRIPHUB_TILES_SATELLITE")),
 		TilesSatelliteLabel: list(os.Getenv("TRIPHUB_TILES_SATELLITE_LABEL")),
+		TilesAttribution:    env("TRIPHUB_TILES_ATTRIBUTION", "© 高德地图"),
 
 		AIBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("TRIPHUB_AI_BASE_URL")), "/"),
 		AIAPIKey:  strings.TrimSpace(os.Getenv("TRIPHUB_AI_API_KEY")),

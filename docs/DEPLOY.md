@@ -199,6 +199,7 @@ export TRIPHUB_ADMIN_USERNAME=admin TRIPHUB_ADMIN_PASSWORD=你的密码
 | `TRIPHUB_MAX_UPLOAD_MB` | `20` | 单张照片最大 MB |
 | `TRIPHUB_SITE_NAME` | `TripHub` | 站点名称初始值（后台「站点设置」保存过之后以后台为准） |
 | `TRIPHUB_TILES_NORMAL` / `TRIPHUB_TILES_SATELLITE` / `TRIPHUB_TILES_SATELLITE_LABEL` | 高德瓦片 | 自定义底图瓦片 URL 模板，逗号分隔，必须是 GCJ-02 坐标系 |
+| `TRIPHUB_TILES_ATTRIBUTION` | `© 高德地图` | 地图右下角显示的底图版权 / 审图号（可含 HTML），换用其他瓦片时填写对应的版权与审图号 |
 | `TRIPHUB_AI_BASE_URL` / `TRIPHUB_AI_API_KEY` / `TRIPHUB_AI_MODEL` | – | OpenAI 兼容接口（见第五节），填了地址和模型才启用 AI |
 | `TRIPHUB_AI_TIMEOUT` | `30s` | AI 请求超时（`90s`、`5m` 这样的时长或秒数） |
 

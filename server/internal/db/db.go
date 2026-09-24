@@ -126,6 +126,10 @@ func Migrate(gdb *gorm.DB) error {
 		// (not partial: cached generic plans could not use a partial index there).
 		`CREATE INDEX IF NOT EXISTS idx_notif_user_id ON notifications (user_id, id)`,
 		`CREATE INDEX IF NOT EXISTS idx_notif_user_actor ON notifications (user_id, actor_id)`,
+		// Idempotency keys of check-ins and photo uploads (client_id), so a request re-sent
+		// by an offline queue after a lost response is answered with the first result.
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_waypoints_client_id ON waypoints (trip_id, client_id) WHERE client_id <> ''`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_photos_client_id ON photos (trip_id, client_id) WHERE client_id <> ''`,
 	}
 	for _, s := range stmts {
 		if err := gdb.Exec(s).Error; err != nil {

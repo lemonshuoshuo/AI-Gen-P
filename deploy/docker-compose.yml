@@ -66,6 +66,7 @@ services:
       TRIPHUB_TILES_NORMAL: ${TILES_NORMAL:-}
       TRIPHUB_TILES_SATELLITE: ${TILES_SATELLITE:-}
       TRIPHUB_TILES_SATELLITE_LABEL: ${TILES_SATELLITE_LABEL:-}
+      TRIPHUB_TILES_ATTRIBUTION: ${TILES_ATTRIBUTION:-}
     volumes:
       - ./data/app:/data
     # 安全加固：根文件系统只读、去掉 Linux capabilities、禁止提权

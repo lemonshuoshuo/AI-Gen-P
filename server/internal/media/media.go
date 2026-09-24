@@ -16,6 +16,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -73,6 +74,20 @@ func URL(rel string) string {
 		return ""
 	}
 	return "/uploads/" + rel
+}
+
+// savedImageURL matches the URL of an image stored by SaveImage (see there
+// for the naming), capturing the part its thumbnail shares.
+var savedImageURL = regexp.MustCompile(`^(/uploads/\d{4}/\d{2}/[0-9a-f]{24})\.(?:jpg|gif)$`)
+
+// ThumbURL returns the URL of the thumbnail stored with the image at URL u
+// (for list cards), or u itself when u is not an image stored by SaveImage
+// (an avatar, a thumbnail, an empty URL).
+func ThumbURL(u string) string {
+	if m := savedImageURL.FindStringSubmatch(u); m != nil {
+		return m[1] + "_t.jpg"
+	}
+	return u
 }
 
 // RelFromURL returns the relative path of an /uploads/ URL.

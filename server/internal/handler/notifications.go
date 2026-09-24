@@ -17,7 +17,10 @@ type notificationDTO struct {
 	CommentID *int64     `json:"comment_id"`
 	Content   string     `json:"content"`
 	Read      bool       `json:"read"`
-	CreatedAt string     `json:"created_at"`
+	// InvitePending: a trip_invite whose invitation still awaits the
+	// recipient's answer (clients show accept / decline).
+	InvitePending bool   `json:"invite_pending"`
+	CreatedAt     string `json:"created_at"`
 }
 
 func (h *Handler) listNotifications(c *gin.Context) error {
@@ -52,19 +55,23 @@ func (h *Handler) listNotifications(c *gin.Context) error {
 	}
 	// Only reveal trips the recipient can still see.
 	trips := map[int64]TripRef{}
+	invitePending := map[int64]bool{} // trips the recipient is invited to and has not answered
 	if len(tripIDs) > 0 {
 		var ts []model.Trip
 		if err := db.Select("id", "title", "owner_id", "visibility", "status").Where("id IN ?", uniq(tripIDs)).Find(&ts).Error; err != nil {
 			return err
 		}
-		var memberOf []int64
-		if err := db.Model(&model.TripMember{}).Where("user_id = ? AND trip_id IN ?", u.ID, uniq(tripIDs)).
-			Pluck("trip_id", &memberOf).Error; err != nil {
+		var memberOf []model.TripMember
+		if err := db.Select("trip_id", "status").Where("user_id = ? AND trip_id IN ?", u.ID, uniq(tripIDs)).
+			Find(&memberOf).Error; err != nil {
 			return err
 		}
 		isMember := map[int64]bool{}
-		for _, id := range memberOf {
-			isMember[id] = true
+		for _, m := range memberOf {
+			isMember[m.TripID] = true
+			if m.Status == model.MemberPending {
+				invitePending[m.TripID] = true
+			}
 		}
 		for _, t := range ts {
 			if u.IsAdmin() || isMember[t.ID] || (t.Visibility == model.VisPublic && t.Status == model.TripNormal) {
@@ -91,6 +98,7 @@ func (h *Handler) listNotifications(c *gin.Context) error {
 		if n.TripID != nil {
 			if t, ok := trips[*n.TripID]; ok {
 				d.Trip = &t
+				d.InvitePending = n.Type == "trip_invite" && invitePending[t.ID]
 			} else {
 				d.CommentID = nil // the trip is no longer visible to the recipient
 				if n.Type == "comment" || n.Type == "reply" {

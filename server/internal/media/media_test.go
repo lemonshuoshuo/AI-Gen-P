@@ -60,6 +60,9 @@ func TestSaveImage(t *testing.T) {
 		if saved.Width != tc.wantW || saved.Height != tc.wantH || filepath.Ext(saved.Path) != tc.ext {
 			t.Fatalf("%s: %+v", tc.format, saved)
 		}
+		if got := ThumbURL(URL(saved.Path)); got != URL(saved.ThumbPath) {
+			t.Fatalf("%s: ThumbURL(%s) = %s, want %s", tc.format, URL(saved.Path), got, URL(saved.ThumbPath))
+		}
 		st1, err1 := os.Stat(filepath.Join(dir, saved.Path))
 		st2, err2 := os.Stat(filepath.Join(dir, saved.ThumbPath))
 		if err1 != nil || err2 != nil || st1.Size()+st2.Size() != saved.Size {
@@ -94,6 +97,13 @@ func TestURLHelpers(t *testing.T) {
 	}
 	if _, ok := RelFromURL("/uploads/../etc/passwd"); ok {
 		t.Fatal("path traversal accepted")
+	}
+	// Anything but an image stored by SaveImage has no separate thumbnail.
+	for _, u := range []string{"", "/uploads/avatars/7_0123456789ab.jpg", "/uploads/2026/09/0123456789abcdef01234567_t.jpg",
+		"/uploads/2026/09/0123456789abcdef01234567.png", "https://example.com/2026/09/0123456789abcdef01234567.jpg"} {
+		if got := ThumbURL(u); got != u {
+			t.Fatalf("ThumbURL(%q) = %q", u, got)
+		}
 	}
 	loc, _ := time.LoadLocation("Asia/Shanghai")
 	if ex := ReadExif(encode(t, "jpeg", 10, 10), loc); ex.Lng != nil || ex.TakenAt != nil {

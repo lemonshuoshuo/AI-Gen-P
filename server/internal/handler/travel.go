@@ -102,6 +102,29 @@ func checkinTarget(wps []model.Waypoint, lng, lat float64, at time.Time, name, a
 	return todo, false
 }
 
+// clientID validates the optional idempotency key (client_id) of a check-in
+// or photo upload: printable ASCII, at most 64 characters.
+func clientID(v string) (string, error) {
+	v = strings.TrimSpace(v)
+	if len(v) > 64 || strings.ContainsFunc(v, func(r rune) bool { return r < '!' || r > '~' }) {
+		return "", errBad("client_id 无效")
+	}
+	return v, nil
+}
+
+// byClientID returns the waypoint recorded with idempotency key cid, if any.
+func byClientID(wps []model.Waypoint, cid string) *model.Waypoint {
+	if cid == "" {
+		return nil
+	}
+	for i := range wps {
+		if wps[i].ClientID == cid {
+			return &wps[i]
+		}
+	}
+	return nil
+}
+
 // markVisited sets a waypoint visited at the given time (keeping an existing arrival time).
 func markVisited(tx *gorm.DB, wp *model.Waypoint, at time.Time, override bool) error {
 	if wp.Status == model.WPVisited && wp.ArrivedAt != nil && !override {
@@ -128,8 +151,13 @@ func (h *Handler) tripCheckin(c *gin.Context) error {
 		Note       string   `json:"note"`
 		WaypointID *int64   `json:"waypoint_id"`
 		ArrivedAt  string   `json:"arrived_at"`
+		ClientID   string   `json:"client_id"`
 	}
 	if err := bindJSON(c, &req); err != nil {
+		return err
+	}
+	cid, err := clientID(req.ClientID)
+	if err != nil {
 		return err
 	}
 	at, override := time.Now(), false
@@ -200,7 +228,7 @@ func (h *Handler) tripCheckin(c *gin.Context) error {
 	}
 	planned := false
 	in.Planned = &planned
-	extra := model.Waypoint{TripID: t.ID, CreatedByID: currentUserID(c)}
+	extra := model.Waypoint{TripID: t.ID, CreatedByID: currentUserID(c), ClientID: cid}
 	ch, err := h.applyWaypoint(c, t, &extra, &in, true)
 	if err != nil {
 		return err
@@ -213,7 +241,7 @@ func (h *Handler) tripCheckin(c *gin.Context) error {
 	}
 	name, amapID := strings.TrimSpace(req.Name), strings.TrimSpace(req.AmapID)
 	located := false
-	if w, _ := checkinTarget(existing, lng, lat, at, name, amapID); w == nil {
+	if w, _ := checkinTarget(existing, lng, lat, at, name, amapID); w == nil && byClientID(existing, cid) == nil {
 		h.locateWaypoint(ctx, &extra, ch, &in)
 		located = true
 	}
@@ -226,6 +254,12 @@ func (h *Handler) tripCheckin(c *gin.Context) error {
 		if err := tx.Where("trip_id = ?", t.ID).Order("seq, id").Find(&wps).Error; err != nil {
 			return err
 		}
+		// The same check-in re-sent (an offline queue after a lost response,
+		// or two tabs sending it): answer with what the first one did.
+		if prev := byClientID(wps, cid); prev != nil {
+			result, matched, duplicate = *prev, prev.Planned, true
+			return nil
+		}
 		m, dup := checkinTarget(wps, lng, lat, at, name, amapID)
 		if dup { // repeats a visit: return it unchanged
 			result, matched, duplicate = *m, m.Planned, true
@@ -235,6 +269,12 @@ func (h *Handler) tripCheckin(c *gin.Context) error {
 			result, matched = *m, true
 			if err := markVisited(tx, &result, at, true); err != nil {
 				return err
+			}
+			if cid != "" {
+				if err := tx.Model(&model.Waypoint{}).Where("id = ?", result.ID).UpdateColumn("client_id", cid).Error; err != nil {
+					return err
+				}
+				result.ClientID = cid
 			}
 			return h.afterStatusChange(tx, t, &result)
 		}

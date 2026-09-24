@@ -41,9 +41,12 @@ type PageQuery = { page?: number; page_size?: number }
 
 export const api = {
   site: () => http.get<SiteConfig>('/site'),
+  /** 用户协议（terms）/ 隐私政策（privacy），Markdown */
+  legal: (doc: 'terms' | 'privacy') => http.get<{ content: string }>(`/site/legal/${doc}`),
 
   auth: {
-    register: (b: { username: string; password: string; email?: string; nickname?: string }) =>
+    /** agree_terms：已阅读并同意用户协议和隐私政策（服务端要求为 true） */
+    register: (b: { username: string; password: string; email?: string; nickname?: string; agree_terms: boolean }) =>
       http.post<AuthResult>('/auth/register', b),
     login: (b: { account: string; password: string }) => http.post<AuthResult>('/auth/login', b),
     logout: (refresh_token: string) => http.post<unknown>('/auth/logout', { refresh_token }),

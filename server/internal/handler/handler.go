@@ -178,6 +178,7 @@ func (h *Handler) Router() *gin.Engine {
 	// Search / regeo spend the operator's AMap quota: users only, rate-limited.
 	api.GET("/geo/search", user, w(h.geoSearch))
 	api.GET("/geo/regeo", user, w(h.geoRegeo))
+	api.GET("/geo/around", user, w(h.geoAround))
 	api.GET("/geo/atlas", h.geoAtlas)
 
 	api.GET("/partner", user, w(h.getPartner))

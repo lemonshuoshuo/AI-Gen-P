@@ -82,12 +82,24 @@ func (h *Handler) uploadPhoto(c *gin.Context) error {
 	if err != nil {
 		return err
 	}
-	u := currentUser(c)
-	if err := checkQuota(u, int64(len(data))); err != nil {
+	cid, err := clientID(c.PostForm("client_id"))
+	if err != nil {
 		return err
 	}
 	ctx := c.Request.Context()
 	db := h.db.WithContext(ctx)
+	// The same upload re-sent (an offline queue after a lost response): answer
+	// with the photo stored the first time (also when the quota is now used up).
+	if prev, err := photoByClientID(db, t.ID, cid); err != nil || prev != nil {
+		if err != nil {
+			return err
+		}
+		return h.respondPhoto(c, prev, false, true)
+	}
+	u := currentUser(c)
+	if err := checkQuota(u, int64(len(data))); err != nil {
+		return err
+	}
 
 	caption, err := clean(c.PostForm("caption"), "说明", 500, false)
 	if err != nil {
@@ -162,11 +174,18 @@ func (h *Handler) uploadPhoto(c *gin.Context) error {
 		return mediaError(err)
 	}
 	photo := model.Photo{TripID: t.ID, UserID: u.ID, Path: saved.Path, ThumbPath: saved.ThumbPath,
-		Width: saved.Width, Height: saved.Height, Size: saved.Size, TakenAt: takenAt, Lng: lng, Lat: lat, Caption: caption}
+		Width: saved.Width, Height: saved.Height, Size: saved.Size, TakenAt: takenAt, Lng: lng, Lat: lat, Caption: caption,
+		ClientID: cid}
 	var resultWP *model.Waypoint
+	var dup *model.Photo
 	created := false
 	err = db.Transaction(func(tx *gorm.DB) error {
 		if err := service.LockTrip(tx, t.ID); err != nil {
+			return err
+		}
+		// Sent twice at once (e.g. by two tabs): the first one stored it.
+		if prev, err := photoByClientID(tx, t.ID, cid); err != nil || prev != nil {
+			dup = prev
 			return err
 		}
 		if err := chargeStorage(tx, u, saved.Size); err != nil {
@@ -195,20 +214,43 @@ func (h *Handler) uploadPhoto(c *gin.Context) error {
 		}
 		return nil
 	})
-	if err != nil {
+	if err != nil || dup != nil {
 		h.svc.Media.Remove(saved.Path, saved.ThumbPath)
-		return err
-	}
-	var wpDTO *WaypointDTO
-	if resultWP != nil {
-		var fresh model.Waypoint
-		if err := db.First(&fresh, resultWP.ID).Error; err != nil {
+		if err != nil {
 			return err
 		}
-		d := h.waypointDTO(&fresh)
-		wpDTO = &d
+		return h.respondPhoto(c, dup, false, true)
 	}
-	c.JSON(http.StatusOK, gin.H{"photo": h.photoDTO(&photo), "waypoint": wpDTO, "waypoint_created": created})
+	return h.respondPhoto(c, &photo, created, false)
+}
+
+// photoByClientID returns the photo of trip tripID uploaded with idempotency
+// key cid (nil when cid is empty or unknown).
+func photoByClientID(db *gorm.DB, tripID int64, cid string) (*model.Photo, error) {
+	if cid == "" {
+		return nil, nil
+	}
+	var p model.Photo
+	if err := db.Where("trip_id = ? AND client_id = ?", tripID, cid).Limit(1).Find(&p).Error; err != nil || p.ID == 0 {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// respondPhoto answers an upload with the photo and the waypoint it is linked to.
+func (h *Handler) respondPhoto(c *gin.Context, p *model.Photo, created, duplicate bool) error {
+	var wpDTO *WaypointDTO
+	if p.WaypointID != nil {
+		var fresh model.Waypoint
+		if err := h.db.WithContext(c.Request.Context()).Limit(1).Find(&fresh, *p.WaypointID).Error; err != nil {
+			return err
+		}
+		if fresh.ID != 0 {
+			d := h.waypointDTO(&fresh)
+			wpDTO = &d
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"photo": h.photoDTO(p), "waypoint": wpDTO, "waypoint_created": created, "duplicate": duplicate})
 	return nil
 }
 

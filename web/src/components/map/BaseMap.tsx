@@ -7,7 +7,7 @@ import { useSite } from '@/hooks/useSite'
 import { loadAtlas } from '@/lib/atlas'
 import { cn } from '@/lib/cn'
 import { CHINA_CENTER, getCurrentPosition } from '@/lib/geo'
-import { buildStyle, defaultTiles, setBaseKind, type BaseKind } from './style'
+import { buildStyle, defaultAttribution, defaultTiles, setBaseKind, type BaseKind } from './style'
 import './maplibre.css'
 
 setWorkerUrl(workerUrl)
@@ -91,6 +91,8 @@ export function BaseMap({
   kindRef.current = baseKind
   const { data: site, isPending } = useSite()
   const tiles = site?.map.tiles ?? defaultTiles
+  // 底图版权 / 审图号由服务端配置：换了瓦片源时跟着换，不再固定显示「© 高德地图」
+  const attribution = site?.map.attribution || defaultAttribution
   const onReadyRef = useRef(onReady)
   onReadyRef.current = onReady
 
@@ -99,7 +101,7 @@ export function BaseMap({
     if (!ref.current || isPending) return
     const m = new MLMap({
       container: ref.current,
-      style: buildStyle(tiles, kind),
+      style: buildStyle(tiles, kind, attribution),
       center: center ?? CHINA_CENTER,
       zoom: zoom ?? (center ? 12 : 3.2),
       pitch,

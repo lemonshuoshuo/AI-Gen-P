@@ -36,11 +36,14 @@ func (h *Handler) site(c *gin.Context) error {
 		"police_beian":      st.PoliceBeian,
 		"amap_search":       h.svc.Amap.Enabled(),
 		"ai_enabled":        h.svc.AI.Enabled(),
-		"map": gin.H{"tiles": gin.H{
-			"normal":          h.cfg.TilesNormal,
-			"satellite":       h.cfg.TilesSatellite,
-			"satellite_label": h.cfg.TilesSatelliteLabel,
-		}},
+		"map": gin.H{
+			"attribution": h.cfg.TilesAttribution,
+			"tiles": gin.H{
+				"normal":          h.cfg.TilesNormal,
+				"satellite":       h.cfg.TilesSatellite,
+				"satellite_label": h.cfg.TilesSatelliteLabel,
+			},
+		},
 		"levels":        service.Levels,
 		"exp_daily_cap": service.DailyExpCap,
 		"upload":        gin.H{"max_photo_mb": h.cfg.MaxUploadMB},

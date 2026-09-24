@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api } from '@/api'
+import { toast } from 'sonner'
+import { api, errorMessage } from '@/api'
 import type { TrackPointIn } from '@/api/types'
 import { INSECURE_GEO_MSG, haversine, insecureContext, wgs84ToGcj02 } from '@/lib/geo'
+import { isRetryable } from '@/lib/outbox'
 
 export interface GeoFix {
   wgs: [number, number]
@@ -74,8 +76,13 @@ export function useGeoTracker(tripId: number) {
         for (let i = 0; i < pts.length; i += 1000) await api.trips.appendTrack(tripId, pts.slice(i, i + 1000), seg)
       }
       bufferRef.current = bufferRef.current.slice(batch.length)
-    } catch {
-      /* 网络不好时保留在缓冲区，稍后重试（服务端按 trip/user/segment/时间去重，重发安全） */
+    } catch (e) {
+      // 网络不好、服务器暂时不可用时保留在缓冲区，稍后重试（服务端按 trip/user/segment/时间去重，重发安全）；
+      // 服务端明确拒绝（旅程轨迹点已达上限 413、已不是旅程成员、旅程已删除等）时重发也不会成功，丢弃这批点，免得一直卡在缓冲区
+      if (!isRetryable(e)) {
+        bufferRef.current = bufferRef.current.slice(batch.length)
+        toast.error(`${batch.length} 个轨迹点未能保存：${errorMessage(e)}`, { id: 'track-upload' })
+      }
     }
     persist()
   }

@@ -72,7 +72,7 @@ UserBrief +
 ### TripCard（列表项）
 ```json
 {
-  "id": 1, "title": "杭州三日", "summary": "…（最多120字）", "cover_url": "/uploads/..",
+  "id": 1, "title": "杭州三日", "summary": "…（最多120字）", "cover_url": "/uploads/..", "cover_thumb_url": "/uploads/.._t.jpg",
   "phase": "finished", "visibility": "public", "status": "normal",
   "start_date": "2026-05-01", "end_date": "2026-05-03", "days": 3,
   "distance_km": 42.5, "cities": ["杭州市"], "provinces": ["浙江省"], "tags": ["美食", "情侣"],
@@ -88,6 +88,7 @@ UserBrief +
 - `visibility`: `private`（仅成员） | `unlisted`（持分享链接可看，不出现在广场） | `public`（公开）
 - `status`: `normal` | `hidden`（被管理员隐藏，仅成员和管理员可见） | `pending`（开启「公开旅程需审核」后，非管理员公开的旅程等待管理员审核，通过前仅成员和管理员可见，见「内容安全」）
 - `members`: 除作者外已接受邀请的共同作者
+- `cover_thumb_url`：封面的 480px 缩略图，列表 / 卡片中使用；封面没有单独的缩略图（如使用头像地址）时与 `cover_url` 相同，没有封面时为空字符串。Place 与 Footprints 的 `trips[]` 中的同名字段含义相同
 - `together`: 作者与其情侣都是该旅程成员时为 true
 
 ### TripDetail
@@ -148,7 +149,7 @@ TripCard +
   "lng": 120.14, "lat": 30.25, "category": "food", "tel": "",
   "checkin_count": 12, "rating_avg": 4.2, "rating_count": 10,
   "recommend_count": 8, "neutral_count": 2, "avoid_count": 1, "avg_cost": 135,
-  "comment_count": 3, "cover_url": "/uploads/..",
+  "comment_count": 3, "cover_url": "/uploads/..", "cover_thumb_url": "/uploads/.._t.jpg",
   "created_at": "..."
 }
 ```
@@ -186,7 +187,7 @@ TripCard +
                "category": "food", "verdict": "recommend", "trip_id": 1, "trip_title": "…", "date": "2026-05-01" }],
   "provinces": [{ "code": "330000", "name": "浙江省", "count": 20 }],
   "cities": [{ "code": "330100", "name": "杭州市", "province": "浙江省", "count": 15, "lng": 120.1, "lat": 30.2 }],
-  "trips": [{ "id": 1, "title": "…", "start_date": "…", "end_date": "…", "cover_url": "…",
+  "trips": [{ "id": 1, "title": "…", "start_date": "…", "end_date": "…", "cover_url": "…", "cover_thumb_url": "…",
               "distance_km": 42.5, "path": [[120.1, 30.2], [120.2, 30.3]] }]
 }
 ```
@@ -198,10 +199,11 @@ TripCard +
 {
   "id": 1, "type": "comment", "actor": UserBrief | null,
   "trip": { "id": 1, "title": "…" } | null, "place": { "id": 8, "name": "…" } | null,
-  "comment_id": 5 | null, "content": "摘要", "read": false, "created_at": "..."
+  "comment_id": 5 | null, "content": "摘要", "read": false, "invite_pending": false, "created_at": "..."
 }
 ```
 `type`: `comment` `reply` `like` `favorite` `fork` `follow` `trip_invite` `partner_invite` `partner_accept` `featured` `system`
+`invite_pending`：`trip_invite` 通知对应的共同作者邀请仍待接收者接受 / 拒绝时为 true（客户端据此显示「接受 / 拒绝」），邀请已处理或其它类型为 false
 
 ---
 
@@ -221,6 +223,7 @@ TripCard +
   "icp_beian": "京ICP备12345678号-1", "police_beian": "",
   "amap_search": true, "ai_enabled": true,
   "map": {
+    "attribution": "© 高德地图",
     "tiles": {
       "normal": ["https://webrd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}", "..."],
       "satellite": ["https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}", "..."],
@@ -233,6 +236,7 @@ TripCard +
 }
 ```
 `amap_search`：服务端是否配置了高德 Web 服务 Key（未配置时地点搜索退化为城市级离线搜索）。
+`map.attribution`：底图版权 / 审图号（可含 HTML，由部署配置 `TRIPHUB_TILES_ATTRIBUTION` 决定，缺省 `© 高德地图`），客户端显示在地图角落。
 `ai_enabled`：服务端是否配置了 AI 模型（OpenAI 兼容接口）。
 `exp_daily_cap`：每人每天最多可获得的经验值（见「用户等级」）。
 `icp_beian` / `police_beian`：管理员填写的 ICP 备案号、公安联网备案号（未填为空字符串），客户端应显示在页脚并分别链接到 `https://beian.miit.gov.cn/`、`https://beian.mps.gov.cn/`。
@@ -364,7 +368,8 @@ AuthResult：
 `POST /trips/:id/checkin` 请求：
 ```json
 { "lng": 120.1, "lat": 30.2, "coord_type": "wgs84",
-  "name": "", "address": "", "amap_id": "", "category": "", "note": "", "waypoint_id": null }
+  "name": "", "address": "", "amap_id": "", "category": "", "note": "", "waypoint_id": null,
+  "arrived_at": "…", "client_id": "…" }
 ```
 - 指定 `waypoint_id`：标记该计划点已到达
 - 否则：200 米内存在 `todo` 计划点 → 标记已到达（取距离最近的；与最近距离相差 20 米以内视为同一位置，取 seq 最小的）；否则新建计划外打卡点（`planned=false,status=visited`），插入在实际路线中最后一个已到达点之后（所有已到达点都有 `arrived_at` 时按到达时间排序，否则按 `seq`）；未给名称时用逆地理结果命名
@@ -373,6 +378,7 @@ AuthResult：
 响应：`{ "waypoint": Waypoint, "matched_plan": true, "duplicate": false }`
 - 重复打卡：未指定 `waypoint_id` 时，若 50 米内有打卡点在 5 分钟内（以 `arrived_at` 或当前时间计）已到达，且没有更近的 `todo` 计划点（请求带 `amap_id` / `name` 时还须为同一地点），视为重复打卡（连点两次、请求重试、同行的人也点了「我到了」）：原样返回该点、不做修改，`duplicate=true`；指定 `waypoint_id` 且该点已到达时 `duplicate` 也为 true
 - 客户端应只用 30 秒内、精度约 100 米以内的定位调用「我到了」；定位过旧或精度差时应先重新定位，或让用户在行程清单里选择到达的地点并传 `waypoint_id`
+- `client_id`（可选，幂等键，≤64 个可见 ASCII 字符，如 UUID）：离线保存后补发的打卡应带上，并同时传点击时刻的 `arrived_at`。未指定 `waypoint_id` 时，同一旅程中已有用该 `client_id` 完成的打卡（新建或标记到达的点）则原样返回该点、`duplicate=true`，不会重复打卡（响应丢失后重发、多个标签页同时补发）
 
 `GET /trips/:id/recommend?lng=&lat=&coord_type=wgs84&ai=true` 响应：
 ```json
@@ -453,13 +459,14 @@ AuthResult：
 - `taken_at`：RFC3339
 - `caption`, `waypoint_id`
 - `auto_waypoint`：`true` 时，若照片带位置且未指定 waypoint_id：300 米内已有打卡点则关联，否则自动新建打卡点（名称用区县/街道，`arrived_at` = 拍摄时间，按时间插入到合适位置）
+- `client_id`（可选，幂等键，≤64 个可见 ASCII 字符）：同一旅程中已有用该 `client_id` 上传的照片时不再保存，直接返回那张照片及其关联的打卡点（`duplicate=true`，`waypoint_created=false`），供离线补传安全重试
 
 客户端未提供位置/时间时，服务端尝试从 JPEG EXIF 读取。大于 2560px 的图片会被缩放，并生成 480px 缩略图。占用计入存储配额。
 单张图片最多约 5200 万像素，16 位或隔行 PNG 上限更低；超出返回 400「图片分辨率过大」。App 等客户端应先把长边压缩到 2560px 再上传。
 
 响应：
 ```json
-{ "photo": Photo, "waypoint": Waypoint | null, "waypoint_created": false }
+{ "photo": Photo, "waypoint": Waypoint | null, "waypoint_created": false, "duplicate": false }
 ```
 
 ### 实时轨迹
@@ -518,6 +525,7 @@ AuthResult：
 |---|---|---|---|
 | GET | `/geo/search` | 🔐 | `?keyword=&city=&lng=&lat=` 地点搜索 |
 | GET | `/geo/regeo` | 🔐 | `?lng=&lat=&coord_type=` 逆地理编码 |
+| GET | `/geo/around` | 🔐 | `?lng=&lat=&coord_type=&radius=300&keyword=` 周边地点（打卡时选所在的店铺 / 景点），见下 |
 | GET | `/geo/atlas` | 🔓 | 中国省/市边界 TopoJSON（对象 `provinces` / `prefectures` / `nation`，属性 `id`=区划码、`地名`） |
 
 `/geo/search` 响应：
@@ -530,6 +538,8 @@ AuthResult：
 `place`：该高德 POI 对应地点的社区统计（同 Place 中的同名字段，便于规划时提示「踩雷」），该 POI 还没有公开打卡时为 `null`；`source=local` 时总为 `null`。
 `source` 为 `local` 时仅能搜索省/市名称（返回行政区中心）：服务端未配置高德 Key，或高德暂时不可用（网络故障、Key 无效、当日调用额度用尽等；服务端会暂停调用一段时间后自动恢复）。
 `/geo/search` 与 `/geo/regeo` 会消耗站点的高德调用额度，因此需要登录，且每人 10 分钟最多 120 次（两者合计），超出返回 429。
+
+`/geo/around` 响应：`{ "source": "amap", "items": [...] }`，`items` 字段同 `/geo/search`（含 `place`），另加 `distance_m`（距请求坐标的米数），按距离由近到远，最多 20 个。`radius` 取值 50–5000（缺省 300 米），`keyword` 可选（≤50 字，如店名）。服务端未配置高德 Key 时返回 `{"source": "none", "items": []}`；高德暂时不可用时返回 `500 internal`（message 可直接展示）。与 `/geo/search`、`/geo/regeo` 共用每人 10 分钟 120 次的限额。
 
 `/geo/regeo` 响应：
 ```json
@@ -607,7 +617,7 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 - 所有成功的删除 / 无返回体操作返回 `{}`；创建类接口统一返回 `200`。
 - 时间字段统一输出为东八区 RFC3339（如 `2026-09-24T10:00:00+08:00`）；请求中也接受不带时区的 `YYYY-MM-DDTHH:mm[:ss]`（按东八区解释）。
 - `coord_type` 缺省为 `gcj02`（包括 `/trips/:id/checkin`、`/trips/:id/recommend`、`/trips/:id/track` 等）；只有 `POST /trips/:id/photos` 缺省为 `wgs84`。
-- 频率限制：同一 IP+账号 15 分钟内失败登录 5 次、同一 IP 失败 30 次后返回 429；同一 IP 每小时最多注册 10 个账号；每人 10 分钟最多 30 条评论；AI 接口每人每小时 30 次；地点搜索 / 逆地理每人 10 分钟最多 120 次（超出返回 429）。并发请求同样受限（请求在校验密码前即计入，登录成功后退回）。
+- 频率限制：同一 IP+账号 15 分钟内失败登录 5 次、同一 IP 失败 30 次后返回 429；同一 IP 每小时最多注册 10 个账号；每人 10 分钟最多 30 条评论；AI 接口每人每小时 30 次；地点搜索 / 逆地理 / 周边地点每人 10 分钟最多 120 次（超出返回 429）。并发请求同样受限（请求在校验密码前即计入，登录成功后退回）。
 - 请求带 `Accept-Encoding: gzip` 时，JSON 响应与网页静态资源以 gzip 压缩返回。
 - 常用长度限制：标题 ≤100、简介 ≤500、正文 ≤50000、标签 ≤10 个且每个 ≤20 字（自动去重、去掉 `#`）、昵称 ≤20、个人简介 ≤200、打卡点名称 ≤100 / 备注 ≤5000、批量打卡点 ≤200 个、共同作者 ≤20 人、照片说明 ≤500。
 

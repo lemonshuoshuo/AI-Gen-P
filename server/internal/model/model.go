@@ -167,8 +167,11 @@ type Waypoint struct {
 	PlaceID      *int64  `gorm:"index"`
 	AutoNamed    bool    `gorm:"not null"`
 	CreatedByID  int64   `gorm:"not null;default:0"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// ClientID is the idempotency key of the check-in that created or reached
+	// this waypoint (unique per trip when set; see db.Migrate).
+	ClientID  string `gorm:"size:64;not null;default:''"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Photo is an uploaded image belonging to a trip.
@@ -186,7 +189,9 @@ type Photo struct {
 	Lng        *float64 `gorm:"type:double precision"`
 	Lat        *float64 `gorm:"type:double precision"`
 	Caption    string   `gorm:"size:1000;not null;default:''"`
-	CreatedAt  time.Time
+	// ClientID is the idempotency key of the upload (unique per trip when set; see db.Migrate).
+	ClientID  string `gorm:"size:64;not null;default:''"`
+	CreatedAt time.Time
 }
 
 // TrackPoint is a raw GPS sample (stored in GCJ-02).

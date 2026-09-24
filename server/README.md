@@ -47,6 +47,7 @@ The binary embeds CA roots and zoneinfo, so it runs in a `FROM scratch` image.
 | `TRIPHUB_MAX_UPLOAD_MB` | `20` | Max size of one uploaded image |
 | `TRIPHUB_SITE_NAME` | `TripHub` | Initial site name (admin settings override it) |
 | `TRIPHUB_TILES_NORMAL` / `TRIPHUB_TILES_SATELLITE` / `TRIPHUB_TILES_SATELLITE_LABEL` | 高德 raster tiles | Comma-separated tile URL templates returned by `GET /site` |
+| `TRIPHUB_TILES_ATTRIBUTION` | `© 高德地图` | Basemap copyright / 审图号 shown in the map corner (`GET /site` `map.attribution`, HTML allowed); set it when using other tiles |
 | `TRIPHUB_AI_BASE_URL` | – | OpenAI-compatible endpoint, e.g. `https://api.deepseek.com/v1`, `http://localhost:11434/v1` (Ollama) |
 | `TRIPHUB_AI_API_KEY` | – | API key (optional for local models) |
 | `TRIPHUB_AI_MODEL` | – | Model name, e.g. `deepseek-chat`, `qwen2.5:7b`. AI is enabled when base URL and model are set |

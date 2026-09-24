@@ -1,12 +1,40 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
+import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Footprints, Heart, Route, Sparkles } from 'lucide-react'
 import { api, errorMessage } from '@/api'
 import { Logo } from '@/components/layout/AppLayout'
-import { Button, Field, Input } from '@/components/ui'
+import { Markdown } from '@/components/Markdown'
+import { Button, Field, Input, LoadError, Modal, Spinner } from '@/components/ui'
 import { useSite } from '@/hooks/useSite'
 import { useAuth } from '@/stores/auth'
+
+type LegalDoc = 'terms' | 'privacy'
+const legalTitle: Record<LegalDoc, string> = { terms: '用户协议', privacy: '隐私政策' }
+
+/** 注册前查看用户协议 / 隐私政策（管理员在后台填写，未填写时为服务端内置模板） */
+function LegalModal({ doc, onClose }: { doc: LegalDoc | null; onClose: () => void }) {
+  const q = useQuery({ queryKey: ['legal', doc], queryFn: () => api.legal(doc!), enabled: !!doc, staleTime: 10 * 60_000 })
+  const spinner = (
+    <div className="flex justify-center py-10">
+      <Spinner />
+    </div>
+  )
+  return (
+    <Modal open={!!doc} onClose={onClose} title={doc ? legalTitle[doc] : ''} wide>
+      {q.isLoading ? (
+        spinner
+      ) : q.isError ? (
+        <LoadError className="py-8" error={q.error} onRetry={() => q.refetch()} />
+      ) : (
+        <div className="prose-trip text-sm text-ink-700">
+          <Markdown fallback={spinner}>{q.data?.content ?? ''}</Markdown>
+        </div>
+      )}
+    </Modal>
+  )
+}
 
 const highlights = [
   { icon: Route, title: '计划 vs 实际', desc: '规划路线，按图出行，结束后对比' },
@@ -24,14 +52,17 @@ export default function LoginPage() {
   const { data: site } = useSite()
   const [form, setForm] = useState({ account: '', username: '', email: '', password: '', password2: '', nickname: '' })
   const [loading, setLoading] = useState(false)
+  const [agree, setAgree] = useState(false)
+  const [legal, setLegal] = useState<LegalDoc | null>(null)
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isRegister) {
       if (!/^[A-Za-z0-9_]{3,20}$/.test(form.username)) return toast.error('用户名需为 3-20 位字母、数字或下划线')
-      if (form.password.length < 6) return toast.error('密码至少 6 位')
+      if (form.password.length < 8 || form.password.length > 64) return toast.error('密码需为 8–64 位')
       if (form.password !== form.password2) return toast.error('两次输入的密码不一致')
+      if (!agree) return toast.error('请先阅读并同意用户协议和隐私政策')
     }
     setLoading(true)
     try {
@@ -41,6 +72,7 @@ export default function LoginPage() {
             password: form.password,
             email: form.email || undefined,
             nickname: form.nickname || undefined,
+            agree_terms: true,
           })
         : await api.auth.login({ account: form.account, password: form.password })
       loginWith(r)
@@ -110,12 +142,31 @@ export default function LoginPage() {
                   <Field label="邮箱（可选）" hint="可用邮箱登录">
                     <Input type="email" value={form.email} onChange={set('email')} autoComplete="email" />
                   </Field>
-                  <Field label="密码">
+                  <Field label="密码" hint="8–64 位，不要用过于简单的密码">
                     <Input type="password" value={form.password} onChange={set('password')} autoComplete="new-password" required />
                   </Field>
                   <Field label="确认密码">
                     <Input type="password" value={form.password2} onChange={set('password2')} autoComplete="new-password" required />
                   </Field>
+                  <div className="flex items-start gap-2 text-sm text-ink-600">
+                    <input
+                      id="agree-terms"
+                      type="checkbox"
+                      checked={agree}
+                      onChange={(e) => setAgree(e.target.checked)}
+                      className="mt-0.5 size-4 shrink-0 accent-brand-500"
+                    />
+                    <span>
+                      <label htmlFor="agree-terms">我已阅读并同意</label>
+                      <button type="button" onClick={() => setLegal('terms')} className="text-brand-600 hover:underline">
+                        《用户协议》
+                      </button>
+                      和
+                      <button type="button" onClick={() => setLegal('privacy')} className="text-brand-600 hover:underline">
+                        《隐私政策》
+                      </button>
+                    </span>
+                  </div>
                 </>
               ) : (
                 <>
@@ -149,6 +200,7 @@ export default function LoginPage() {
           </p>
         </div>
       </main>
+      <LegalModal doc={legal} onClose={() => setLegal(null)} />
     </div>
   )
 }

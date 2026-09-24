@@ -32,7 +32,8 @@ export interface Me extends UserBrief {
   level_name: string
   /** 满级时为 null */
   next_level_exp: number | null
-  status: 'active' | 'banned'
+  /** deleted：已注销（只会出现在管理后台的用户列表中） */
+  status: 'active' | 'banned' | 'deleted'
   storage_used: number
   /** 0 表示不限（管理员） */
   storage_quota: number
@@ -296,7 +297,11 @@ export interface SiteConfig {
   registration_open: boolean
   amap_search: boolean
   ai_enabled: boolean
-  map: { tiles: { normal: string[]; satellite: string[]; satellite_label: string[] } }
+  map: {
+    /** 底图版权 / 审图号（可含 HTML），显示在地图角落；未返回时用默认的「© 高德地图」 */
+    attribution?: string
+    tiles: { normal: string[]; satellite: string[]; satellite_label: string[] }
+  }
   levels: { level: number; name: string; min_exp: number; quota_mb: number }[]
   upload: { max_photo_mb: number }
 }
