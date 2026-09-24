@@ -96,12 +96,14 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 	if err != nil {
 		// Network failure: back off for a while so requests fail fast.
 		c.failUntil.Store(time.Now().Add(60 * time.Second).UnixNano())
-		slog.Warn("amap request failed, disabling for 60s", "path", path, "err", err)
-		return fmt.Errorf("%w: %v", ErrUnavailable, err)
+		msg := strings.ReplaceAll(err.Error(), c.key, "***") // never log the key
+		slog.Warn("amap request failed, disabling for 60s", "path", path, "err", msg)
+		return fmt.Errorf("%w: %s", ErrUnavailable, msg)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		c.failUntil.Store(time.Now().Add(30 * time.Second).UnixNano())
+		slog.Warn("amap returned an error status, disabling for 30s", "path", path, "status", resp.StatusCode)
 		return fmt.Errorf("%w: http %d", ErrUnavailable, resp.StatusCode)
 	}
 	raw := json.RawMessage{}

@@ -655,8 +655,9 @@ export default function TripEditPage() {
             <div className="space-y-3">
               <PlaceSearch onPick={onPick} city={trip.cities[0]} near={near} />
               <div className="flex items-center gap-2 text-xs text-ink-500">
-                添加到
-                <Select value={addDay} onChange={(e) => setAddDay(Number(e.target.value))} className="h-8 w-28 rounded-lg text-xs">
+                <span className="shrink-0">添加到</span>
+                <div className="w-28 shrink-0">
+                <Select value={addDay} onChange={(e) => setAddDay(Number(e.target.value))} className="h-8 rounded-lg text-xs">
                   <option value={0}>不分天</option>
                   {Array.from({ length: maxDay + 1 }, (_, i) => i + 1).map((d) => (
                     <option key={d} value={d}>
@@ -664,7 +665,8 @@ export default function TripEditPage() {
                     </option>
                   ))}
                 </Select>
-                <span className="ml-auto">{trip.phase === 'planning' ? '新加的点会作为计划路线' : '新加的点记为计划外打卡'}</span>
+                </div>
+                <span className="ml-auto text-right">{trip.phase === 'planning' ? '新加的点会作为计划路线' : '新加的点记为计划外打卡'}</span>
               </div>
               {order.length === 0 ? (
                 <Empty

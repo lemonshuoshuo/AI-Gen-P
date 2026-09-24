@@ -390,7 +390,7 @@ type ForkedFrom struct {
 type TripDetail struct {
 	TripCard
 	Content       string        `json:"content"`
-	ShareCode     *string       `json:"share_code"`
+	ShareCode     *string       `json:"share_code,omitempty"`
 	ForkedFrom    *ForkedFrom   `json:"forked_from"`
 	Liked         bool          `json:"liked"`
 	Favorited     bool          `json:"favorited"`

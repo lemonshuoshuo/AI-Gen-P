@@ -113,7 +113,12 @@ func (h *Handler) changePassword(c *gin.Context) error {
 		if err := tx.Model(u).Update("password_hash", hash).Error; err != nil {
 			return err
 		}
+		// Revoke every other session: keep the one this access token was
+		// issued with (and/or the refresh token passed explicitly).
 		q := tx.Where("user_id = ?", u.ID)
+		if sid := c.GetInt64(ctxSession); sid != 0 {
+			q = q.Where("id <> ?", sid)
+		}
 		if req.RefreshToken != "" {
 			q = q.Where("token_hash <> ?", auth.HashToken(req.RefreshToken))
 		}

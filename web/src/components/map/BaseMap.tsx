@@ -36,14 +36,19 @@ export interface BaseMapProps {
 }
 
 /** 底图瓦片加载失败时，用内置省界数据画一个兜底轮廓 */
-async function addAtlasFallback(map: MLMap) {
+async function addAtlasFallback(map: MLMap, kind: () => BaseKind) {
   if (map.getSource('th-atlas')) return
   try {
     const atlas = await loadAtlas()
     if (!map.getStyle() || map.getSource('th-atlas')) return
     map.addSource('th-atlas', { type: 'geojson', data: atlas.provinces })
     map.addLayer(
-      { id: 'th-atlas-fill', type: 'fill', source: 'th-atlas', paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.9 } },
+      {
+        id: 'th-atlas-fill',
+        type: 'fill',
+        source: 'th-atlas',
+        paint: { 'fill-color': kind() === 'dark' ? '#161a33' : '#ffffff', 'fill-opacity': 0.9 },
+      },
       'th-normal',
     )
     map.addLayer(
@@ -51,7 +56,7 @@ async function addAtlasFallback(map: MLMap) {
         id: 'th-atlas-line',
         type: 'line',
         source: 'th-atlas',
-        paint: { 'line-color': '#c9c6d3', 'line-width': 0.8 },
+        paint: { 'line-color': kind() === 'dark' ? '#323a6b' : '#c9c6d3', 'line-width': 0.8 },
       },
       'th-normal',
     )
@@ -81,6 +86,8 @@ export function BaseMap({
   const ref = useRef<HTMLDivElement>(null)
   const [map, setMap] = useState<MLMap | null>(null)
   const [baseKind, setKind] = useState<BaseKind>(kind)
+  const kindRef = useRef(baseKind)
+  kindRef.current = baseKind
   const { data: site, isPending } = useSite()
   const tiles = site?.map.tiles ?? defaultTiles
   const onReadyRef = useRef(onReady)
@@ -104,19 +111,26 @@ export function BaseMap({
       fadeDuration: 150,
       ...options,
     })
+    if (import.meta.env.DEV) (window as unknown as { __map: MLMap }).__map = m
     m.addControl(new AttributionControl({ compact: true }), 'bottom-right')
     if (navigation && interactive) m.addControl(new NavigationControl({ visualizePitch: true }), 'bottom-right')
 
     let tileErrors = 0
     m.on('error', (e) => {
       const src = (e as unknown as { sourceId?: string }).sourceId
-      if (src?.startsWith('th-') && ++tileErrors === 4) addAtlasFallback(m)
+      if (src?.startsWith('th-') && ++tileErrors === 4) addAtlasFallback(m, () => kindRef.current)
     })
-    m.on('load', () => {
+    // 样式就绪即可叠加业务图层，不必等所有瓦片加载完（弱网下 load 事件会很慢）
+    let ready = false
+    const onStyleReady = () => {
+      if (ready) return
+      ready = true
       if (globe) m.setProjection({ type: 'globe' })
       setMap(m)
       onReadyRef.current?.(m)
-    })
+    }
+    m.once('style.load', onStyleReady)
+    m.once('load', onStyleReady)
     return () => {
       setMap(null)
       m.remove()
@@ -147,7 +161,7 @@ export function BaseMap({
   }
 
   return (
-    <div className={cn('relative overflow-hidden', className)}>
+    <div className={cn(!/\b(absolute|fixed)\b/.test(className ?? '') && 'relative', 'overflow-hidden', className)}>
       <div ref={ref} className="absolute inset-0" />
       <MapCtx.Provider value={map}>{map && children}</MapCtx.Provider>
       {(kindSwitcher || locate) && (

@@ -67,6 +67,9 @@ func (h *Handler) Router() *gin.Engine {
 	r := gin.New()
 	r.RedirectTrailingSlash = false
 	r.HandleMethodNotAllowed = false
+	// Honour X-Forwarded-For only from loopback / private networks (reverse
+	// proxies, docker), so clients cannot spoof their IP for rate limits.
+	_ = r.SetTrustedProxies([]string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "::1/128", "fc00::/7"})
 	r.Use(recovery(), requestLogger(), h.cors())
 
 	api := r.Group("/api/v1", h.bodyLimit(), h.authenticate())

@@ -57,14 +57,13 @@ type authResult struct {
 
 // issueTokens creates an access token and a stored refresh token.
 func (h *Handler) issueTokens(c *gin.Context, u *model.User) error {
-	access, err := h.tokens.IssueAccess(u.ID)
-	if err != nil {
+	plain, hash := auth.NewRefreshToken()
+	rt := model.RefreshToken{UserID: u.ID, TokenHash: hash, ExpiresAt: time.Now().Add(auth.RefreshTTL)}
+	if err := h.db.WithContext(c.Request.Context()).Create(&rt).Error; err != nil {
 		return err
 	}
-	plain, hash := auth.NewRefreshToken()
-	if err := h.db.WithContext(c.Request.Context()).Create(&model.RefreshToken{
-		UserID: u.ID, TokenHash: hash, ExpiresAt: time.Now().Add(auth.RefreshTTL),
-	}).Error; err != nil {
+	access, err := h.tokens.IssueAccess(u.ID, rt.ID)
+	if err != nil {
 		return err
 	}
 	me, err := h.meDTO(c.Request.Context(), u)

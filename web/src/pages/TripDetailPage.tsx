@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type Photo, type TripDetail, type Waypoint } from '@/api'
+import { rememberShareCode } from '@/api/client'
 import { CommentSection } from '@/components/comments/CommentSection'
 import { BaseMap, useMap } from '@/components/map/BaseMap'
 import { FitOnce, RouteLines, WaypointMarkers } from '@/components/map/layers'
@@ -130,7 +131,12 @@ export default function TripDetailPage() {
   const key = ['trip', id ?? `s:${code}`]
   const { data: trip, isLoading, error } = useQuery({
     queryKey: key,
-    queryFn: () => (code ? api.trips.byShare(code) : api.trips.get(id!)),
+    queryFn: async () => {
+      if (!code) return api.trips.get(id!)
+      const t = await api.trips.byShare(code)
+      rememberShareCode(t.id, code)
+      return t
+    },
   })
   const { data: track } = useQuery({
     queryKey: ['track', trip?.id],

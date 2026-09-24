@@ -98,6 +98,10 @@ export function setBaseKind(map: MLMap, kind: BaseKind) {
   const paint = kind === 'dark' ? darkPaint : normalPaint
   for (const [k, v] of Object.entries(paint)) map.setPaintProperty('th-normal', k as 'raster-contrast', v)
   map.setPaintProperty('th-bg', 'background-color', kind === 'dark' ? '#0b0d1a' : '#eef0f3')
+  if (map.getLayer('th-atlas-fill')) {
+    map.setPaintProperty('th-atlas-fill', 'fill-color', kind === 'dark' ? '#161a33' : '#ffffff')
+    map.setPaintProperty('th-atlas-line', 'line-color', kind === 'dark' ? '#323a6b' : '#c9c6d3')
+  }
   map.setSky(skyFor(kind))
 }
 

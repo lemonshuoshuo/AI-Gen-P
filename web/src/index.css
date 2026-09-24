@@ -1,5 +1,5 @@
 @import 'tailwindcss';
-@import 'maplibre-gl/dist/maplibre-gl.css';
+@import 'maplibre-gl/dist/maplibre-gl.css' layer(base);
 
 @theme {
   --font-sans: 'Inter', system-ui, -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;

@@ -52,31 +52,35 @@ func NewTokens(secret string) *Tokens { return &Tokens{secret: []byte(secret)} }
 // ErrInvalidToken is returned for malformed or expired tokens.
 var ErrInvalidToken = errors.New("invalid token")
 
-// IssueAccess returns a signed access token for a user.
-func (t *Tokens) IssueAccess(userID int64) (string, error) {
+// IssueAccess returns a signed access token for a user. sessionID is the ID
+// of the refresh token issued alongside (carried as the JWT ID) so that
+// "other sessions" can be told apart from the current one.
+func (t *Tokens) IssueAccess(userID, sessionID int64) (string, error) {
 	now := time.Now()
 	claims := jwt.RegisteredClaims{
 		Issuer:    "triphub",
 		Subject:   strconv.FormatInt(userID, 10),
+		ID:        strconv.FormatInt(sessionID, 10),
 		IssuedAt:  jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(now.Add(AccessTTL)),
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(t.secret)
 }
 
-// ParseAccess validates an access token and returns the user ID.
-func (t *Tokens) ParseAccess(token string) (int64, error) {
+// ParseAccess validates an access token and returns the user and session IDs.
+func (t *Tokens) ParseAccess(token string) (userID, sessionID int64, err error) {
 	var claims jwt.RegisteredClaims
-	_, err := jwt.ParseWithClaims(token, &claims, func(*jwt.Token) (any, error) { return t.secret, nil },
+	_, err = jwt.ParseWithClaims(token, &claims, func(*jwt.Token) (any, error) { return t.secret, nil },
 		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithIssuer("triphub"), jwt.WithExpirationRequired())
 	if err != nil {
-		return 0, ErrInvalidToken
+		return 0, 0, ErrInvalidToken
 	}
-	id, err := strconv.ParseInt(claims.Subject, 10, 64)
-	if err != nil || id <= 0 {
-		return 0, ErrInvalidToken
+	userID, err = strconv.ParseInt(claims.Subject, 10, 64)
+	if err != nil || userID <= 0 {
+		return 0, 0, ErrInvalidToken
 	}
-	return id, nil
+	sessionID, _ = strconv.ParseInt(claims.ID, 10, 64)
+	return userID, sessionID, nil
 }
 
 // NewRefreshToken returns a random opaque token and its SHA-256 hash.

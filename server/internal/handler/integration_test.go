@@ -582,7 +582,13 @@ func TestIntegration(t *testing.T) {
 	}
 	// Members management.
 	e.must(409, "POST", fmt.Sprintf("/trips/%d/members", id(couple)), alice, map[string]any{"username": "bob_1"})
-	e.register("carol")
+	carol, carolRefresh, _ := e.register("carol")
+	second := e.must(200, "POST", "/auth/login", "", map[string]any{"account": "carol", "password": "secret123"}).obj(t)
+	e.must(400, "POST", "/me/password", carol, map[string]any{"old_password": "nope", "new_password": "newsecret1"})
+	e.must(200, "POST", "/me/password", carol, map[string]any{"old_password": "secret123", "new_password": "newsecret1"})
+	e.must(200, "POST", "/auth/refresh", "", map[string]any{"refresh_token": carolRefresh})            // current session kept
+	e.must(401, "POST", "/auth/refresh", "", map[string]any{"refresh_token": second["refresh_token"]}) // other sessions revoked
+	e.must(200, "POST", "/auth/login", "", map[string]any{"account": "carol", "password": "newsecret1"})
 	e.must(200, "POST", fmt.Sprintf("/trips/%d/members", id(couple)), alice, map[string]any{"username": "carol"})
 	mem := e.must(200, "GET", fmt.Sprintf("/trips/%d/members", id(couple)), bob, nil).arr(t)
 	if len(mem) != 3 || mem[0].(map[string]any)["role"] != "owner" || mem[2].(map[string]any)["status"] != "pending" {

@@ -536,3 +536,59 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 | Lv6 | 传奇旅人 | 4000 | 20 GB |
 
 管理员无存储限制。游客可浏览公开内容；登录用户可创建、互动；管理员可管理用户与内容。
+
+---
+
+## 服务端实现说明（补充约定）
+
+以下为后端实现时对上文未尽之处的约定，均为**新增或澄清**，不改变已有字段。
+
+### 通用
+- 请求头携带了**无效/过期**的 access token 时，即使是 🔓 接口也返回 `401`（客户端应 refresh 后重试，refresh 失败则清除 token 以游客身份访问）。被封禁用户的 token 在 🔓 接口上按游客处理，在 🔐 接口上返回 `403 账号已被封禁`。
+- 所有成功的删除 / 无返回体操作返回 `{}`；创建类接口统一返回 `200`。
+- 时间字段统一输出为东八区 RFC3339（如 `2026-09-24T10:00:00+08:00`）；请求中也接受不带时区的 `YYYY-MM-DDTHH:mm[:ss]`（按东八区解释）。
+- `coord_type` 缺省为 `gcj02`（包括 `/trips/:id/checkin`、`/trips/:id/recommend`、`/trips/:id/track` 等）；只有 `POST /trips/:id/photos` 缺省为 `wgs84`。
+- 频率限制：同一 IP+账号 15 分钟内失败登录 5 次、同一 IP 失败 30 次后返回 429；同一 IP 每小时最多注册 10 个账号；每人 10 分钟最多 30 条评论；AI 接口每人每小时 30 次。
+- 常用长度限制：标题 ≤100、简介 ≤500、正文 ≤50000、标签 ≤10 个且每个 ≤20 字（自动去重、去掉 `#`）、昵称 ≤20、个人简介 ≤200、打卡点名称 ≤100 / 备注 ≤5000、批量打卡点 ≤200 个、共同作者 ≤20 人、照片说明 ≤500。
+
+### 用户
+- `Me.next_level_exp` 在满级时为 `null`；管理员的 `storage_quota` 为 `0`（表示不限）。
+- `POST /me/password` 会吊销**除当前会话外**的全部 refresh token（当前会话由 access token 识别；也可额外传 `refresh_token` 指定保留）。
+- `GET /users/:username/trips` 返回该用户作为作者或共同作者参与的旅程；`stats.likes` 为其公开旅程获赞总数。
+
+### 旅程
+- **分享码访问子资源**：`unlisted` 旅程按 ID 访问时仅成员/管理员可见。通过分享链接浏览的访客，在请求 `GET /trips/:id`、`/trips/:id/track`、`/trips/:id/comments`、`/trips/:id/compare`、点赞 / 评论等旅程子接口时，可附带查询参数 `?share_code=xxx`（或请求头 `X-Share-Code`）获得与公开旅程相同的访问权限。
+- `TripDetail.share_code` 仅成员可见，非成员时**不返回该字段**。`TripDetail` 额外返回 `invite_pending`（当前用户有待接受的共同作者邀请时为 true；被邀请人在接受前可预览旅程）。
+- `TripCard.summary` 为空时由正文自动截取（最多 120 字）；`TripDetail.summary` 返回原始简介。`cover_url` 未设置时使用第一张照片。
+- `cities` / `provinces` / `distance_km` 按实际路线（`status=visited`）计算，尚无已到达点时退回计划路线。`days`：设置了起止日期时按日期，否则取打卡点最大 `day`，否则按到达时间跨度。
+- `GET /me/favorites` 只列出当前仍可见（公开且正常，或本人为成员）的旅程。
+- `POST /trips/:id/members` 返回更新后的成员列表（同 `GET /trips/:id/members`）；`POST /trips/:id/members/accept` 返回 `TripDetail`。成员列表管理员也可查看。
+- 引用路线（fork）复制原旅程中除 `skipped` 以外的全部打卡点，并复制标签与简介；自己引用自己的旅程不计 `fork_count`。
+- `GET /admin/trips` 额外支持 `?featured=true`。
+
+### 打卡点 / 按路线出行
+- 创建打卡点可额外传 `province` / `city` / `district`（如来自 `/geo/search` 结果）：`district` 优先使用客户端值；`province` / `city` 始终以离线行政区划为准，仅当坐标不在国内时才使用客户端值。
+- 计划外且未给 `arrived_at` 的打卡点默认 `arrived_at` = 当前时间；例外：在 `phase=finished` 的旅程中补录时保持为空。
+- 实际路线排序：全部已到达点都有 `arrived_at` 时按时间，否则按 `seq`。
+- `POST /trips/:id/checkin` 可选传 `arrived_at`；新建的计划外点若设置了旅程开始日期则自动计算 `day`。`POST /waypoints/:id/checkin` 对已到达的点仅在显式传入 `arrived_at` 时更新时间。「我到了」打卡（`/trips/:id/checkin`、`/waypoints/:id/checkin`）与上传轨迹会把 `planning` 旅程自动切换为 `ongoing`。
+- 自动建点的照片若落在某个 `todo` 计划点 300 米内，且旅程不处于 `planning`、照片带拍摄时间，则该计划点被标记为已到达（`arrived_at` = 拍摄时间）。
+- `suggestions[]` 中 `source=plan` 的项额外带 `waypoint_id`（可直接调用 `/waypoints/:id/checkin`）。`ai` 参数缺省为 false。
+- `POST /ai/plan`：`days` 1–15（缺省 3），`preferences` ≤300 字；AI 调用失败或超时返回 `500 internal`（message 可直接展示）。
+
+### 照片 / 存储
+- 除照片外，`POST /uploads/image` 的通用图片也计入存储配额（删除旅程/照片时释放对应照片占用）；头像不计入。
+- 单张照片的占用 = 处理后原图 + 缩略图的字节数。
+
+### 地点
+- `GET /places/:id`：有公开打卡或带 `amap_id` 的地点对所有人可见；其余地点仅对引用了它的旅程成员可见（避免泄露私密旅程）。
+- `GET /places` 缺省 `sort=hot`；`rating` 只含有评分的地点，`avoid` 只含有踩雷记录的地点。`/places/nearby` 的 `radius` 取值 50–50000，`limit` ≤100，另支持 `category`。
+
+### 评论 / 通知
+- 顶层评论按时间倒序、回复按时间正序。直接回复顶层评论时 `reply_to` 为 null；回复某条回复时挂到同一顶层评论下并设置 `reply_to`。已删除的回复不返回。
+- 旅程评论（含回复）通知旅程作者（`comment`），回复另通知被回复者（`reply`，同一人只收一条）；地点评论只在被回复时通知。
+- 通知中的 `trip` 仅在接收者当前仍可查看该旅程时返回。点赞 / 收藏 / 关注通知对同一对象只发送一次。升级时会收到 `system` 通知。
+- `POST /notifications/read` 返回 `{updated: n}`。
+
+### 管理后台
+- `GET /admin/reports` 的 `target_preview`：用户为 `@username · 昵称：xxx`，旅程为标题，评论为内容摘要，地点为名称；对象已删除时为 `（已删除）`。
+- 管理员不能取消自己的管理员权限或封禁自己；封禁会吊销该用户全部 refresh token。

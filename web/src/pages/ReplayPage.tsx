@@ -27,6 +27,8 @@ interface SceneProps {
   arcs?: { from: LngLat; to: LngLat }[]
 }
 
+const CAMERA_SIDE_ANGLE = 22
+
 const THEMES = {
   sunset: { trail: [255, 110, 90] as const, head: [255, 236, 170] as const },
   love: { trail: [255, 110, 180] as const, head: [255, 220, 245] as const },
@@ -58,12 +60,14 @@ function ReplayScene({ model, time, playing, theme, arcs }: SceneProps) {
     const c = cam.current
     if (!c.init) {
       c.zoom = targetZoom
-      c.bearing = moving ? bearing(behind, ahead) : 0
+      c.bearing = moving ? bearing(behind, ahead) + CAMERA_SIDE_ANGLE : 0
       c.init = true
     }
     c.zoom += (targetZoom - c.zoom) * 0.04
-    c.bearing = moving ? angleLerp(c.bearing, bearing(behind, ahead), 0.04) : c.bearing + 0.12
-    map.jumpTo({ center: head, zoom: c.zoom, bearing: c.bearing, pitch: 62 })
+    // 镜头从侧后方跟随（偏转一定角度），避免轨迹与光柱在画面上重叠
+    c.bearing = moving ? angleLerp(c.bearing, bearing(behind, ahead) + CAMERA_SIDE_ANGLE, 0.04) : c.bearing + 0.12
+    const h = map.getContainer().clientHeight
+    map.jumpTo({ center: head, zoom: c.zoom, bearing: c.bearing, pitch: 60, padding: { top: 0, bottom: h * 0.2, left: 0, right: 0 } })
   }, [map, model, d, stop, playing])
 
   // deck.gl 图层
@@ -72,7 +76,7 @@ function ReplayScene({ model, time, playing, theme, arcs }: SceneProps) {
     if (!o || !map) return
     const t = THEMES[theme]
     const zoom = map.getZoom()
-    const radius = Math.max(15, 30 * 2 ** (15 - zoom))
+    const radius = Math.max(6, 12 * 2 ** (15 - zoom))
     const reached = model.stops.filter((s) => s.reach <= d + 1)
     const trips = [{ path: model.coords, timestamps: model.cum }]
     o.setProps({
@@ -152,7 +156,7 @@ function ReplayScene({ model, time, playing, theme, arcs }: SceneProps) {
           getFillColor: (s) => hexToRgb(s.color, 235),
           getElevation: (s) => {
             const k = Math.min(1, (d - s.reach) / Math.max(1, model.total * 0.02) + (stop != null && s.index <= stop ? 1 : 0))
-            return radius * 9 * (0.15 + 0.85 * Math.min(1, k))
+            return radius * 7 * (0.15 + 0.85 * Math.min(1, k))
           },
           material: { ambient: 0.6, diffuse: 0.6, shininess: 40 },
           updateTriggers: { getElevation: [d, stop, radius] },

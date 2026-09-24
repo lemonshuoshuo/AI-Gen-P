@@ -56,6 +56,31 @@ export function applyAuthResult(r: AuthResult) {
 
 type Query = Record<string, string | number | boolean | null | undefined>
 
+// 通过分享链接访问「链接可见」的旅程时，后续请求需要携带分享码
+const SHARE_KEY = 'triphub.share-codes'
+const shareCodes: Record<string, string> = (() => {
+  try {
+    return JSON.parse(sessionStorage.getItem(SHARE_KEY) ?? '{}')
+  } catch {
+    return {}
+  }
+})()
+
+export function rememberShareCode(tripId: number, code: string) {
+  shareCodes[String(tripId)] = code
+  try {
+    sessionStorage.setItem(SHARE_KEY, JSON.stringify(shareCodes))
+  } catch {
+    /* 忽略 */
+  }
+}
+
+function shareHeader(path: string): Record<string, string> {
+  const m = path.match(/^\/trips\/(\d+)/)
+  const code = m && shareCodes[m[1]]
+  return code ? { 'X-Share-Code': code } : {}
+}
+
 export interface RequestOptions {
   query?: Query
   body?: unknown
@@ -126,6 +151,7 @@ function xhrUpload<T>(method: string, url: string, form: FormData, opts: Request
     const xhr = new XMLHttpRequest()
     xhr.open(method, url)
     if (tokens?.access) xhr.setRequestHeader('Authorization', `Bearer ${tokens.access}`)
+    for (const [k, v] of Object.entries(shareHeader(url.replace(API_BASE, '')))) xhr.setRequestHeader(k, v)
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) opts.onProgress?.(e.loaded / e.total)
     }
@@ -154,7 +180,7 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
     }
   }
 
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { ...shareHeader(path) }
   if (tokens?.access) headers.Authorization = `Bearer ${tokens.access}`
   let body: BodyInit | undefined
   if (opts.form) body = opts.form

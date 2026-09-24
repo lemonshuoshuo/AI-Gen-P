@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	ctxUser   = "triphub.user"
-	ctxBanned = "triphub.banned"
+	ctxUser    = "triphub.user"
+	ctxBanned  = "triphub.banned"
+	ctxSession = "triphub.session"
 )
 
 func recovery() gin.HandlerFunc {
@@ -114,7 +115,7 @@ func (h *Handler) authenticate() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		uid, err := h.tokens.ParseAccess(token)
+		uid, sid, err := h.tokens.ParseAccess(token)
 		if err != nil {
 			abortJSON(c, http.StatusUnauthorized, "unauthorized", "登录已过期，请重新登录")
 			return
@@ -134,6 +135,7 @@ func (h *Handler) authenticate() gin.HandlerFunc {
 			return
 		}
 		c.Set(ctxUser, &u)
+		c.Set(ctxSession, sid)
 		c.Next()
 	}
 }
