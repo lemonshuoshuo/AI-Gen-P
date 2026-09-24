@@ -1,0 +1,280 @@
+// Package media stores uploaded images: it normalises orientation, downsizes
+// large images, re-encodes to JPEG (GIFs are kept as-is), writes 480px
+// thumbnails and extracts EXIF GPS / capture time.
+package media
+
+import (
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"image"
+	"image/color"
+	_ "image/gif" // register decoder
+	_ "image/png" // register decoder
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/disintegration/imaging"
+	"github.com/rwcarlsen/goexif/exif"
+	_ "golang.org/x/image/webp" // register decoder
+)
+
+// Limits for processed images.
+const (
+	MaxDimension   = 2560
+	ThumbDimension = 480
+	AvatarSize     = 256
+	maxPixels      = 100_000_000
+	jpegQuality    = 85
+	thumbQuality   = 80
+)
+
+// Errors returned by SaveImage.
+var (
+	ErrUnsupported = errors.New("unsupported image format")
+	ErrTooLarge    = errors.New("image dimensions too large")
+)
+
+// Store writes files under a root directory (DATA_DIR/uploads).
+type Store struct {
+	root string
+	sem  chan struct{}
+}
+
+// NewStore creates a store; concurrency bounds simultaneous decodes to limit memory.
+func NewStore(root string, concurrency int) *Store {
+	if concurrency <= 0 {
+		concurrency = 2
+	}
+	return &Store{root: root, sem: make(chan struct{}, concurrency)}
+}
+
+// Root returns the storage directory.
+func (s *Store) Root() string { return s.root }
+
+// Saved describes a stored image. Paths are relative to the root, using '/'.
+type Saved struct {
+	Path      string
+	ThumbPath string
+	Width     int
+	Height    int
+	Size      int64 // bytes on disk including the thumbnail
+}
+
+// URL returns the public URL for a relative path.
+func URL(rel string) string {
+	if rel == "" {
+		return ""
+	}
+	return "/uploads/" + rel
+}
+
+// RelFromURL returns the relative path of an /uploads/ URL.
+func RelFromURL(u string) (string, bool) {
+	if !strings.HasPrefix(u, "/uploads/") {
+		return "", false
+	}
+	rel := path.Clean(strings.TrimPrefix(u, "/uploads/"))
+	if rel == "." || strings.HasPrefix(rel, "..") || strings.HasPrefix(rel, "/") {
+		return "", false
+	}
+	return rel, true
+}
+
+func randomName() string {
+	b := make([]byte, 12)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
+}
+
+func (s *Store) acquire()              { s.sem <- struct{}{} }
+func (s *Store) release()              { <-s.sem }
+func (s *Store) abs(rel string) string { return filepath.Join(s.root, filepath.FromSlash(rel)) }
+
+func (s *Store) write(rel string, data []byte) error {
+	p := s.abs(rel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	tmp := p + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, p)
+}
+
+func encodeJPEG(img image.Image, quality int) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := imaging.Encode(&buf, img, imaging.JPEG, imaging.JPEGQuality(quality)); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// flatten draws an image with alpha onto a white background.
+func flatten(img image.Image) image.Image {
+	b := img.Bounds()
+	bg := imaging.New(b.Dx(), b.Dy(), color.White)
+	return imaging.Overlay(bg, img, image.Pt(0, 0), 1.0)
+}
+
+// probe validates the format and pixel count.
+func probe(data []byte) (image.Config, string, error) {
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return cfg, "", ErrUnsupported
+	}
+	switch format {
+	case "jpeg", "png", "gif", "webp":
+	default:
+		return cfg, "", ErrUnsupported
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width*cfg.Height > maxPixels {
+		return cfg, "", ErrTooLarge
+	}
+	return cfg, format, nil
+}
+
+// SaveImage processes and stores an uploaded image plus its thumbnail.
+func (s *Store) SaveImage(data []byte) (*Saved, error) {
+	cfg, format, err := probe(data)
+	if err != nil {
+		return nil, err
+	}
+	s.acquire()
+	defer s.release()
+
+	dir := time.Now().Format("2006/01")
+	name := randomName()
+	out := &Saved{}
+	var main []byte
+	var img image.Image
+	if format == "gif" {
+		// Keep GIFs untouched so animations survive; thumbnail from the first frame.
+		img, _, err = image.Decode(bytes.NewReader(data))
+		if err != nil {
+			return nil, ErrUnsupported
+		}
+		main = data
+		out.Path = dir + "/" + name + ".gif"
+		out.Width, out.Height = cfg.Width, cfg.Height
+	} else {
+		img, err = imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
+		if err != nil {
+			return nil, ErrUnsupported
+		}
+		b := img.Bounds()
+		if b.Dx() > MaxDimension || b.Dy() > MaxDimension {
+			img = imaging.Fit(img, MaxDimension, MaxDimension, imaging.Lanczos)
+		}
+		if format != "jpeg" {
+			img = flatten(img)
+		}
+		if main, err = encodeJPEG(img, jpegQuality); err != nil {
+			return nil, fmt.Errorf("encode jpeg: %w", err)
+		}
+		out.Path = dir + "/" + name + ".jpg"
+		out.Width, out.Height = img.Bounds().Dx(), img.Bounds().Dy()
+	}
+	var thumbImg image.Image = imaging.Fit(img, ThumbDimension, ThumbDimension, imaging.Lanczos)
+	if format == "gif" {
+		thumbImg = flatten(thumbImg)
+	}
+	thumb, err := encodeJPEG(thumbImg, thumbQuality)
+	if err != nil {
+		return nil, fmt.Errorf("encode thumb: %w", err)
+	}
+	out.ThumbPath = dir + "/" + name + "_t.jpg"
+	if err := s.write(out.Path, main); err != nil {
+		return nil, err
+	}
+	if err := s.write(out.ThumbPath, thumb); err != nil {
+		s.Remove(out.Path)
+		return nil, err
+	}
+	out.Size = int64(len(main) + len(thumb))
+	return out, nil
+}
+
+// SaveAvatar stores a square avatar and returns its relative path.
+func (s *Store) SaveAvatar(data []byte, userID int64) (string, error) {
+	if _, _, err := probe(data); err != nil {
+		return "", err
+	}
+	s.acquire()
+	defer s.release()
+	img, err := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
+	if err != nil {
+		return "", ErrUnsupported
+	}
+	img = flatten(imaging.Fill(img, AvatarSize, AvatarSize, imaging.Center, imaging.Lanczos))
+	b, err := encodeJPEG(img, jpegQuality)
+	if err != nil {
+		return "", err
+	}
+	rel := fmt.Sprintf("avatars/%d_%s.jpg", userID, randomName()[:12])
+	return rel, s.write(rel, b)
+}
+
+// AvatarPrefix is the relative path prefix of a user's avatars.
+func AvatarPrefix(userID int64) string { return fmt.Sprintf("avatars/%d_", userID) }
+
+// Remove deletes stored files (missing files are ignored).
+func (s *Store) Remove(rels ...string) {
+	for _, rel := range rels {
+		if rel == "" {
+			continue
+		}
+		clean := path.Clean(rel)
+		if strings.HasPrefix(clean, "..") || strings.HasPrefix(clean, "/") {
+			continue
+		}
+		_ = os.Remove(s.abs(clean))
+	}
+}
+
+// Exif holds metadata extracted from a JPEG.
+type Exif struct {
+	Lng, Lat *float64 // WGS-84
+	TakenAt  *time.Time
+}
+
+// ReadExif extracts GPS position and capture time from JPEG data. Capture
+// times without zone information are interpreted in loc.
+func ReadExif(data []byte, loc *time.Location) Exif {
+	var out Exif
+	if len(data) < 4 || data[0] != 0xFF || data[1] != 0xD8 {
+		return out // not a JPEG
+	}
+	x, err := exif.Decode(bytes.NewReader(data))
+	if err != nil || x == nil {
+		return out
+	}
+	if lat, lng, err := x.LatLong(); err == nil && !(lat == 0 && lng == 0) &&
+		lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 {
+		out.Lng, out.Lat = &lng, &lat
+	}
+	for _, field := range []exif.FieldName{exif.DateTimeOriginal, exif.DateTimeDigitized, exif.DateTime} {
+		tag, err := x.Get(field)
+		if err != nil {
+			continue
+		}
+		str, err := tag.StringVal()
+		if err != nil {
+			continue
+		}
+		str = strings.TrimRight(strings.TrimSpace(str), "\x00")
+		if t, err := time.ParseInLocation("2006:01:02 15:04:05", str, loc); err == nil && t.Year() > 1990 {
+			out.TakenAt = &t
+			break
+		}
+	}
+	return out
+}

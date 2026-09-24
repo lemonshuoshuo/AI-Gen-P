@@ -1,0 +1,71 @@
+# TripHub 一键部署
+#   1. cp .env.example .env 并修改其中的密码等配置
+#   2. docker compose up -d --build
+#   3. 浏览器访问 http://服务器IP:8080（正式使用请配置 HTTPS，见 DEPLOY.md）
+name: triphub
+
+services:
+  db:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: triphub
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?请在 .env 中设置 DB_PASSWORD}
+      POSTGRES_DB: triphub
+      TZ: Asia/Shanghai
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U triphub -d triphub"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      args:
+        TARGETARCH: ${ARCH:-amd64}
+    image: triphub:${TRIPHUB_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-8080}:8080"
+    environment:
+      TZ: Asia/Shanghai
+      TRIPHUB_DB_DSN: postgres://triphub:${DB_PASSWORD}@db:5432/triphub?sslmode=disable
+      TRIPHUB_DATA_DIR: /data
+      TRIPHUB_ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      TRIPHUB_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      TRIPHUB_JWT_SECRET: ${JWT_SECRET:-}
+      TRIPHUB_SITE_NAME: ${SITE_NAME:-TripHub}
+      TRIPHUB_AMAP_KEY: ${AMAP_KEY:-}
+      TRIPHUB_AI_BASE_URL: ${AI_BASE_URL:-}
+      TRIPHUB_AI_API_KEY: ${AI_API_KEY:-}
+      TRIPHUB_AI_MODEL: ${AI_MODEL:-}
+      TRIPHUB_MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
+      TRIPHUB_CORS_ORIGINS: ${CORS_ORIGINS:-}
+    volumes:
+      - ./data/app:/data
+    extra_hosts:
+      # 让容器能访问宿主机上的本地模型（如 Ollama）
+      - "host.docker.internal:host-gateway"
+
+  # 可选：自动申请 HTTPS 证书（需要域名解析到本机，国内服务器需已备案）
+  # 启用：在 .env 设置 DOMAIN 后执行 docker compose --profile https up -d
+  caddy:
+    profiles: ["https"]
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy:/data

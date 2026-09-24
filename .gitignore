@@ -1,0 +1,12 @@
+# 构建产物
+/dist/
+web/dist/
+server/internal/webui/dist/*
+!server/internal/webui/dist/.keep
+server/triphub
+server/data/
+
+node_modules/
+*.log
+.DS_Store
+.env

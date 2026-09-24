@@ -1,0 +1,14 @@
+{
+  "name": "TripHub 旅行足迹",
+  "short_name": "TripHub",
+  "description": "规划路线、按图出行、打卡避雷、点亮走过的地方",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#faf9fc",
+  "theme_color": "#ff5a5f",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

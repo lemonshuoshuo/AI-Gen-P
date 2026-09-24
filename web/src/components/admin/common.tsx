@@ -1,0 +1,99 @@
+import { useEffect, useEffectEvent, useState, type ReactNode } from 'react'
+import { Search, X } from 'lucide-react'
+import { Input } from '@/components/ui'
+import { cn } from '@/lib/cn'
+
+export const ADMIN_PAGE_SIZE = 20
+
+/** 筛选条件 + 页码；任何筛选变化都会回到第 1 页 */
+export function useFilters<F extends Record<string, string>>(init: F) {
+  const [state, setState] = useState<F & { page: number }>({ ...init, page: 1 })
+  return {
+    f: state,
+    set: (patch: Partial<F>) => setState((s) => ({ ...s, ...patch, page: 1 })),
+    setPage: (page: number) => setState((s) => ({ ...s, page })),
+  }
+}
+
+/** 带防抖的搜索框：停止输入 350ms 后才触发 onChange */
+export function SearchInput({
+  value,
+  onChange,
+  placeholder,
+  className,
+}: {
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  className?: string
+}) {
+  const [text, setText] = useState(value)
+  const commit = useEffectEvent((v: string) => {
+    if (v !== value) onChange(v)
+  })
+  useEffect(() => {
+    const t = setTimeout(() => commit(text.trim()), 350)
+    return () => clearTimeout(t)
+  }, [text])
+  return (
+    <div className={cn('relative', className)}>
+      <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-400" />
+      <Input value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} className="pr-9 pl-9" />
+      {text && (
+        <button
+          type="button"
+          aria-label="清空"
+          onClick={() => setText('')}
+          className="absolute top-1/2 right-2.5 -translate-y-1/2 rounded-full p-0.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700"
+        >
+          <X className="size-4" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+export function FilterBar({ children }: { children: ReactNode }) {
+  return <div className="mb-4 flex flex-wrap items-center gap-2">{children}</div>
+}
+
+/** Select 自带 w-full，用固定宽度的容器约束 */
+export function FilterSlot({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn('w-[calc(50%-0.25rem)] sm:w-36', className)}>{children}</div>
+}
+
+export function PanelHeader({ title, desc, extra }: { title: string; desc?: ReactNode; extra?: ReactNode }) {
+  return (
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h2 className="text-lg font-bold">{title}</h2>
+        {desc && <p className="mt-0.5 text-sm text-ink-400">{desc}</p>}
+      </div>
+      {extra}
+    </div>
+  )
+}
+
+type Tone = 'green' | 'red' | 'amber' | 'sky' | 'gray' | 'dark'
+const toneCls: Record<Tone, string> = {
+  green: 'bg-emerald-50 text-emerald-700',
+  red: 'bg-red-50 text-red-700',
+  amber: 'bg-amber-50 text-amber-700',
+  sky: 'bg-sky-50 text-sky-700',
+  gray: 'bg-ink-100 text-ink-500',
+  dark: 'bg-ink-900 text-white',
+}
+
+export function Pill({ tone = 'gray', icon, children }: { tone?: Tone; icon?: ReactNode; children: ReactNode }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap',
+        toneCls[tone],
+      )}
+    >
+      {icon}
+      {children}
+    </span>
+  )
+}

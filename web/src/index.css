@@ -1,0 +1,131 @@
+@import 'tailwindcss';
+@import 'maplibre-gl/dist/maplibre-gl.css';
+
+@theme {
+  --font-sans: 'Inter', system-ui, -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+
+  --color-brand-50: #fff1f1;
+  --color-brand-100: #ffe0e0;
+  --color-brand-200: #ffc6c7;
+  --color-brand-300: #ff9ea0;
+  --color-brand-400: #ff7275;
+  --color-brand-500: #ff5a5f;
+  --color-brand-600: #ec3a40;
+  --color-brand-700: #c72a30;
+  --color-brand-800: #a4272c;
+  --color-brand-900: #88262a;
+
+  --color-sunset-400: #ff9a44;
+  --color-violet-brand: #7c5cff;
+
+  --color-ink-900: #1c1b22;
+  --color-ink-700: #3d3b48;
+  --color-ink-500: #6b6878;
+  --color-ink-400: #9895a5;
+  --color-ink-300: #c9c6d3;
+  --color-ink-200: #e6e4ec;
+  --color-ink-100: #f3f2f7;
+  --color-ink-50: #faf9fc;
+
+  --shadow-card: 0 1px 2px rgb(28 27 34 / 0.04), 0 4px 16px rgb(28 27 34 / 0.06);
+  --shadow-float: 0 8px 32px rgb(28 27 34 / 0.16);
+
+  --animate-fade-in: fade-in 0.25s ease-out;
+  --animate-slide-up: slide-up 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-pulse-ring: pulse-ring 1.8s ease-out infinite;
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse-ring {
+    0% { transform: scale(0.6); opacity: 0.8; }
+    100% { transform: scale(2.4); opacity: 0; }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-ink-50 text-ink-900 font-sans antialiased;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@utility bg-brand-gradient {
+  background-image: linear-gradient(135deg, #ff5a5f 0%, #ff9a44 100%);
+}
+@utility text-brand-gradient {
+  background-image: linear-gradient(135deg, #ff5a5f 0%, #ff9a44 100%);
+  background-clip: text;
+  color: transparent;
+}
+@utility bg-love-gradient {
+  background-image: linear-gradient(135deg, #ff6b9d 0%, #c56cf0 100%);
+}
+@utility bg-night {
+  background-image: radial-gradient(ellipse at top, #1d2240 0%, #0b0d1a 70%);
+}
+@utility glass {
+  background: rgb(255 255 255 / 0.72);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+}
+@utility glass-dark {
+  background: rgb(14 16 32 / 0.62);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+}
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* 地图控件风格微调 */
+.maplibregl-ctrl-group {
+  border-radius: 12px !important;
+  overflow: hidden;
+  box-shadow: var(--shadow-card) !important;
+}
+.maplibregl-ctrl-attrib {
+  font-size: 10px;
+}
+.maplibregl-popup-content {
+  border-radius: 14px !important;
+  padding: 10px 12px !important;
+  box-shadow: var(--shadow-float) !important;
+}
+
+/* Markdown 正文 */
+.prose-trip {
+  line-height: 1.8;
+  word-break: break-word;
+}
+.prose-trip p { margin: 0.6em 0; }
+.prose-trip h1, .prose-trip h2, .prose-trip h3 { font-weight: 700; margin: 1em 0 0.4em; }
+.prose-trip h1 { font-size: 1.4em; }
+.prose-trip h2 { font-size: 1.2em; }
+.prose-trip h3 { font-size: 1.05em; }
+.prose-trip ul { list-style: disc; padding-left: 1.4em; }
+.prose-trip ol { list-style: decimal; padding-left: 1.4em; }
+.prose-trip blockquote { border-left: 3px solid var(--color-brand-300); padding-left: 0.8em; color: var(--color-ink-500); }
+.prose-trip a { color: var(--color-brand-600); text-decoration: underline; }
+.prose-trip img { border-radius: 12px; max-width: 100%; }
+.prose-trip code { background: var(--color-ink-100); padding: 0.1em 0.35em; border-radius: 4px; }
