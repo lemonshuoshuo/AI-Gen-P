@@ -46,37 +46,39 @@ const highlights = [
   { title: '我们', desc: '两个人的旅行，记在同一本手账里' },
 ]
 
-/** 左侧扉页：题记、线描路线、四条功能目录（纸面 + 细线，不用发光色块） */
+/** 左侧扉页：超大宋体题记、象牙白细线路线图、四条编号目录（近黑底 + 细线，不用色块） */
 function Frontispiece({ siteName }: { siteName: string }) {
   return (
-    <aside className="relative hidden w-[46%] max-w-[660px] flex-col border-r border-ink-200 bg-ink-100/55 px-12 py-10 lg:flex xl:px-16">
+    <aside className="relative hidden w-[52%] max-w-[860px] flex-col border-r border-ink-200 px-12 py-10 lg:flex xl:px-16">
       <div className="flex items-center justify-between">
         <Logo />
         <span className="eyebrow">Travel Journal · 旅行手账</span>
       </div>
 
-      <div className="flex flex-1 flex-col justify-center py-8">
-        <figure>
-          <blockquote className="relative">
-            <span aria-hidden className="font-num absolute -top-9 -left-1 text-[88px] leading-none text-brand-500 select-none">
-              &ldquo;
-            </span>
-            <p className="font-display pt-8 text-[30px] leading-[1.5] text-ink-900 xl:text-[34px]">
+      <div className="flex flex-1 flex-col justify-center py-12">
+        <figure className="animate-slide-up">
+          <blockquote>
+            <p className="text-display-lg font-normal [font-feature-settings:'halt']">
               世界是一本书，
               <br />
-              不旅行的人只读了其中一页。
+              不旅行的人
+              <br />
+              只读了其中一页。
             </p>
           </blockquote>
-          <figcaption className="mt-4 flex items-center gap-3 text-[13px] tracking-wider text-ink-500">
-            <span className="h-px w-8 bg-ink-400" />
-            圣奥古斯丁
+          <figcaption className="mt-8 flex items-center gap-4">
+            <span className="h-px w-10 bg-ink-400" />
+            <span>
+              <span className="block text-[13px] text-ink-900">圣奥古斯丁</span>
+              <span className="caption block">Augustine of Hippo</span>
+            </span>
           </figcaption>
         </figure>
-        <div className="mt-8 flex items-end gap-6">
-          <RouteSketch className="max-h-[210px] w-auto max-w-[300px] opacity-90" />
-          <div className="mb-3 hidden flex-col items-start gap-2 xl:flex">
-            <SealMark size={38} />
-            <span className="eyebrow leading-relaxed">
+        <div className="animate-fade-in mt-14 flex items-end justify-between gap-8">
+          <RouteSketch className="max-h-[220px] w-auto max-w-[320px]" />
+          <div className="mb-2 hidden flex-col items-end gap-3 text-right xl:flex">
+            <SealMark size={44} className="text-ink-700" />
+            <span className="caption leading-relaxed">
               Est. <span className="font-num">2026</span>
               <br />
               上海 → 黄山
@@ -85,22 +87,22 @@ function Frontispiece({ siteName }: { siteName: string }) {
         </div>
       </div>
 
-      <ol className="grid grid-cols-2 border-t border-ink-900/80">
+      <ol className="grid grid-cols-2 border-t border-ink-200">
         {highlights.map((h, i) => (
           <li
             key={h.title}
-            className={cn('flex gap-3 py-4', i % 2 === 0 ? 'border-r border-ink-200 pr-4' : 'pl-5', i < 2 && 'border-b border-ink-200')}
+            className={cn('flex gap-4 py-5', i % 2 === 0 ? 'border-r border-ink-200 pr-5' : 'pl-6', i < 2 && 'border-b border-ink-200')}
           >
-            <span className="font-num pt-0.5 text-[13px] text-ink-400 italic">{String(i + 1).padStart(2, '0')}</span>
+            <span className="font-num text-[1.75rem] leading-none font-light text-ink-400">{String(i + 1).padStart(2, '0')}</span>
             <span className="min-w-0">
-              <span className="font-display block text-[15px] text-ink-900">{h.title}</span>
-              <span className="mt-0.5 block text-xs leading-relaxed text-ink-500">{h.desc}</span>
+              <span className="font-display block text-[1.15rem] leading-tight text-ink-900">{h.title}</span>
+              <span className="caption mt-1 block">{h.desc}</span>
             </span>
           </li>
         ))}
       </ol>
-      <p className="eyebrow mt-6">
-        © <span className="font-num">{new Date().getFullYear()}</span> {siteName}
+      <p className="caption mt-6">
+        <span className="font-num">© {new Date().getFullYear()}</span> {siteName}
       </p>
     </aside>
   )
@@ -154,41 +156,39 @@ export default function LoginPage() {
     <div className="flex min-h-dvh">
       <Frontispiece siteName={site?.name || 'TripHub'} />
 
-      <main className="flex flex-1 flex-col px-6 pt-8 pb-8 sm:px-10">
-        <div className="m-auto w-full max-w-[22rem] py-6">
-          <Logo className="mb-12 lg:hidden" />
-          <p className="eyebrow">{isRegister ? 'Join · 注册' : 'Sign in · 登录'}</p>
-          <h1 className="mt-2.5 text-[28px] leading-tight md:text-[32px]">{isRegister ? '开一本新的旅行手账' : '欢迎回来'}</h1>
-          <p className="mt-2 text-sm leading-relaxed text-ink-500">
-            {isRegister ? '注册后就能记录你的第一段旅程' : '登录后，接着写你的旅程'}
-          </p>
+      <main className="flex flex-1 flex-col px-4 pt-6 pb-8 sm:px-10">
+        <Logo className="lg:hidden" />
+        <div className="animate-slide-up m-auto w-full max-w-[26rem] py-12">
+          <p className="eyebrow border-t border-ink-200 pt-3 !text-ink-800">{isRegister ? 'Join · 注册' : 'Sign in · 登录'}</p>
+          <h1 className="text-display-md mt-10 font-normal">{isRegister ? '开一本新的旅行手账' : '欢迎回来'}</h1>
+          <p className="caption mt-4 text-[14px]">{isRegister ? '注册后就能记录你的第一段旅程' : '登录后，接着写你的旅程'}</p>
 
           {isRegister && site && !site.registration_open ? (
             <Note tone="amber" label="Notice" className="mt-8">
               站点暂时关闭了注册，请稍后再来。
             </Note>
           ) : (
-            <form onSubmit={submit} className="mt-8 space-y-4">
+            <form onSubmit={submit} className="mt-10 space-y-5">
               {isRegister ? (
                 <>
                   <Field label="用户名" hint="3-20 位字母、数字或下划线，注册后不可修改">
-                    <Input value={form.username} onChange={set('username')} autoComplete="username" required autoFocus />
+                    <Input value={form.username} onChange={set('username')} autoComplete="username" required autoFocus className="h-11" />
                   </Field>
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="昵称（可选）">
-                      <Input value={form.nickname} onChange={set('nickname')} maxLength={20} />
+                      <Input value={form.nickname} onChange={set('nickname')} maxLength={20} className="h-11" />
                     </Field>
                     <Field label="邮箱（可选）">
-                      <Input type="email" value={form.email} onChange={set('email')} autoComplete="email" />
+                      <Input type="email" value={form.email} onChange={set('email')} autoComplete="email" className="h-11" />
                     </Field>
                   </div>
                   <Field label="密码" hint="8–64 位，不要用过于简单的密码">
-                    <Input type="password" value={form.password} onChange={set('password')} autoComplete="new-password" required />
+                    <Input type="password" value={form.password} onChange={set('password')} autoComplete="new-password" required className="h-11" />
                   </Field>
                   <Field label="确认密码">
-                    <Input type="password" value={form.password2} onChange={set('password2')} autoComplete="new-password" required />
+                    <Input type="password" value={form.password2} onChange={set('password2')} autoComplete="new-password" required className="h-11" />
                   </Field>
-                  <div className="flex items-start gap-2.5 pt-1 text-[13px] leading-relaxed text-ink-600">
+                  <div className="flex items-start gap-3 pt-1 text-[13px] leading-relaxed text-ink-600">
                     <input
                       id="agree-terms"
                       type="checkbox"
@@ -211,14 +211,14 @@ export default function LoginPage() {
               ) : (
                 <>
                   <Field label="用户名或邮箱">
-                    <Input value={form.account} onChange={set('account')} autoComplete="username" required autoFocus />
+                    <Input value={form.account} onChange={set('account')} autoComplete="username" required autoFocus className="h-11" />
                   </Field>
                   <Field label="密码">
-                    <Input type="password" value={form.password} onChange={set('password')} autoComplete="current-password" required />
+                    <Input type="password" value={form.password} onChange={set('password')} autoComplete="current-password" required className="h-11" />
                   </Field>
                 </>
               )}
-              <div className="pt-2">
+              <div className="pt-3">
                 <Button type="submit" block size="lg" loading={loading}>
                   {isRegister ? '注册' : '登录'}
                 </Button>
@@ -226,7 +226,7 @@ export default function LoginPage() {
             </form>
           )}
 
-          <div className="mt-8 flex items-center justify-between border-t border-ink-200 pt-5 text-sm">
+          <div className="mt-12 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-ink-200 pt-5 text-[13px]">
             <span className="text-ink-500">
               {isRegister ? '已有账号？' : '还没有账号？'}
               <Link
@@ -236,13 +236,13 @@ export default function LoginPage() {
                 {isRegister ? '去登录' : '立即注册'}
               </Link>
             </span>
-            <Link to="/" className="text-ink-400 transition-colors hover:text-ink-900">
+            <Link to="/" className="inline-flex h-10 items-center text-ink-400 transition-colors hover:text-ink-900">
               先随便逛逛 →
             </Link>
           </div>
         </div>
         {/* 登录 / 注册页没有站点布局：在这里显示备案号和用户协议、隐私政策 */}
-        <SiteFooter compact className="mt-8" />
+        <SiteFooter compact className="mt-6" />
       </main>
       <LegalModal doc={legal} onClose={() => setLegal(null)} />
     </div>

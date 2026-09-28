@@ -5,7 +5,7 @@ import { Flag, MapPin, Phone, Plus, Share2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, isNotFound, type Photo, type Place, type TripCard, type Verdict } from '@/api'
 import { CommentSection } from '@/components/comments/CommentSection'
-import { FilterLinks, MoreButton, Note, SectionHead } from '@/components/editorial'
+import { FilterLinks, LabelRow, MoreButton, Note, Reveal, SectionHead } from '@/components/editorial'
 import { BaseMap } from '@/components/map/BaseMap'
 import { WaypointMarkers } from '@/components/map/layers'
 import { VerdictBar, recommendRate } from '@/components/place/PlaceCard'
@@ -100,7 +100,7 @@ function AddToTripModal({ place, open, onClose }: { place: Place; open: boolean;
         />
       ) : (
         <div>
-          <p className="mb-2 text-xs leading-relaxed text-ink-400">会加到计划路线的末尾，之后可以在编辑页调整顺序和日期</p>
+          <p className="caption mb-4">会加到计划路线的末尾，之后可以在编辑页调整顺序和日期</p>
           <ul className="divide-y divide-ink-200 border-y border-ink-200">
             {trips.map((t) => (
               <li key={t.id}>
@@ -108,21 +108,21 @@ function AddToTripModal({ place, open, onClose }: { place: Place; open: boolean;
                   type="button"
                   disabled={adding != null}
                   onClick={() => add(t)}
-                  className="group flex w-full items-center gap-3 py-3 text-left transition-colors disabled:opacity-60"
+                  className="group flex min-h-14 w-full items-center gap-3 py-3 text-left transition-colors disabled:opacity-60"
                 >
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-[3px] border border-ink-200 px-1.5 py-0.5 text-[11px] tracking-wider text-ink-600">
+                  <span className="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-ink-200 px-2.5 text-[11px] tracking-wider text-ink-600">
                     <span
                       aria-hidden
-                      className={cn('size-[5px] rounded-full', t.phase === 'ongoing' ? 'bg-emerald-500' : 'border border-sky-600')}
+                      className={cn('size-[5px] rounded-full', t.phase === 'ongoing' ? 'bg-brand-500' : 'border border-ink-500')}
                     />
                     {phases[t.phase].label}
                   </span>
-                  <span className="font-display min-w-0 flex-1 truncate text-[15px] text-ink-900 group-hover:text-brand-700">{t.title}</span>
+                  <span className="font-display min-w-0 flex-1 truncate text-[1.15rem] text-ink-900 transition-colors group-hover:text-ink-600">{t.title}</span>
                   {adding === t.id ? (
                     <Spinner className="size-4" />
                   ) : (
-                    <span className="shrink-0 text-xs text-ink-400">
-                      <span className="font-num text-ink-700">{t.waypoint_count}</span> 个地点
+                    <span className="caption shrink-0">
+                      <span className="font-num text-ink-800">{t.waypoint_count}</span> 个地点
                     </span>
                   )}
                 </button>
@@ -191,149 +191,193 @@ export default function PlacePage() {
   }))
 
   return (
-    <div className="mx-auto max-w-5xl px-4 pt-6 pb-16 md:px-6 md:pt-10">
-      <div className="flex items-center justify-between gap-4">
-        <nav aria-label="位置" className="eyebrow flex flex-wrap items-center gap-2">
-          <Link to="/places" className="transition-colors hover:text-ink-900">
-            Places · 打卡地
-          </Link>
-          {place.city && (
-            <>
-              <span aria-hidden className="text-ink-300">
-                /
-              </span>
-              <Link to={`/places?city=${encodeURIComponent(place.city)}`} className="transition-colors hover:text-ink-900">
-                {place.city}
-              </Link>
-            </>
-          )}
-        </nav>
-        <button
-          type="button"
-          onClick={() => requireAuth(() => setReport({ type: 'place', id: place.id }))}
-          className="inline-flex shrink-0 items-center gap-1 text-xs text-ink-400 transition-colors hover:text-brand-600"
-        >
-          <Flag className="size-3.5" strokeWidth={1.5} />
-          举报
-        </button>
-      </div>
+    <div className="mx-auto max-w-[90rem] px-4 pt-10 pb-24 md:px-8 md:pt-16 md:pb-32">
+      <LabelRow
+        label={
+          <nav aria-label="位置" className="flex flex-wrap items-center gap-2">
+            <Link to="/places" className="transition-colors hover:text-ink-500">
+              Places · 打卡地
+            </Link>
+            {place.city && (
+              <>
+                <span aria-hidden className="text-ink-300">
+                  /
+                </span>
+                <Link to={`/places?city=${encodeURIComponent(place.city)}`} className="transition-colors hover:text-ink-500">
+                  {place.city}
+                </Link>
+              </>
+            )}
+          </nav>
+        }
+        count={`No. ${String(place.id).padStart(3, '0')}`}
+        extra={
+          <button
+            type="button"
+            onClick={() => requireAuth(() => setReport({ type: 'place', id: place.id }))}
+            className="inline-flex h-10 shrink-0 items-center gap-1.5 text-[13px] text-ink-400 transition-colors hover:text-brand-600 md:h-8"
+          >
+            <Flag className="size-3.5" strokeWidth={1.25} />
+            举报
+          </button>
+        }
+      />
 
-      <div className="mt-5 grid gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,400px)] md:gap-12">
-        <div className="min-w-0">
-          <CategoryChip category={place.category} className="text-[13px]" />
-          <h1 className="mt-3 text-[32px] leading-[1.2] text-balance md:text-[44px]">{place.name}</h1>
-          {address && (
-            <p className="mt-4 flex items-start gap-1.5 text-sm leading-relaxed text-ink-500">
-              <MapPin className="mt-0.5 size-4 shrink-0 text-ink-400" strokeWidth={1.5} />
-              {address}
-            </p>
+      {/* 地名：超大宋体，一屏唯一的焦点 */}
+      <header className="animate-slide-up mt-12 md:mt-20">
+        <p className="flex items-center gap-3 text-[13px] text-ink-500">
+          <CategoryChip category={place.category} className="text-[13px] text-ink-700" />
+          {warn && (
+            <span className="inline-flex items-center gap-1.5 text-brand-600">
+              <span aria-hidden className="size-1.5 rounded-full bg-brand-500" />
+              慎去
+            </span>
           )}
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm text-ink-500">
-            {place.rating_count > 0 && (
-              <span className="inline-flex items-center gap-1.5">
-                <Stars value={place.rating_avg} />
-                <span className="font-num text-ink-900">{place.rating_avg.toFixed(1)}</span>
-                <span className="text-xs text-ink-400">· {place.rating_count} 人评分</span>
-              </span>
-            )}
-            {place.avg_cost > 0 && (
+        </p>
+        <h1 className={cn("text-display-xl mt-5 font-normal text-balance [font-feature-settings:'halt'] md:mt-8", place.name.length <= 6 && 'max-sm:text-[3.6rem]')}>
+          {place.name}
+        </h1>
+      </header>
+
+      {place.cover_url && (
+        <figure className="mt-12 md:mt-20">
+          <div className="aspect-[3/2] overflow-hidden bg-surface md:aspect-[21/9]">
+            <img src={place.cover_url} alt={place.name} className="size-full object-cover" />
+          </div>
+          <figcaption className="mt-3">
+            <span className="block text-[13px] text-ink-900">{place.name}</span>
+            <span className="caption block">来自旅行者的打卡照片</span>
+          </figcaption>
+        </figure>
+      )}
+
+      <div className="mt-12 grid gap-x-8 gap-y-12 md:mt-20 lg:grid-cols-12">
+        <div className="flex min-w-0 flex-col justify-between gap-10 lg:col-span-4">
+          <div>
+            {/* 说明文字对：地址（亮）+ 坐标（灰） */}
+            <p className="flex items-start gap-2">
+              <MapPin className="mt-0.5 size-4 shrink-0 text-ink-400" strokeWidth={1.25} />
               <span>
-                人均 <span className="font-num text-ink-900">¥{Math.round(place.avg_cost)}</span>
+                <span className="block text-[14px] leading-relaxed text-ink-900">{address || place.name}</span>
+                <span className="caption font-num block">
+                  {place.lat.toFixed(4)}°N · {place.lng.toFixed(4)}°E
+                </span>
               </span>
+            </p>
+            {(place.rating_count > 0 || place.avg_cost > 0 || place.tel) && (
+              <dl className="mt-8 divide-y divide-ink-200 border-y border-ink-200 text-[13.5px]">
+                {place.rating_count > 0 && (
+                  <div className="flex items-center justify-between gap-4 py-3">
+                    <dt className="text-ink-500">评分</dt>
+                    <dd className="flex items-center gap-2">
+                      <Stars value={place.rating_avg} size={12} />
+                      <span className="font-num text-[17px] text-ink-900">{place.rating_avg.toFixed(1)}</span>
+                      <span className="caption">· {place.rating_count} 人</span>
+                    </dd>
+                  </div>
+                )}
+                {place.avg_cost > 0 && (
+                  <div className="flex items-center justify-between gap-4 py-3">
+                    <dt className="text-ink-500">人均</dt>
+                    <dd className="font-num text-[17px] text-ink-900">¥{Math.round(place.avg_cost)}</dd>
+                  </div>
+                )}
+                {place.tel && (
+                  <div className="flex items-center justify-between gap-4 py-3">
+                    <dt className="text-ink-500">电话</dt>
+                    <dd>
+                      <a
+                        href={`tel:${place.tel.split(';')[0]}`}
+                        className="inline-flex items-center gap-1.5 text-ink-900 underline decoration-ink-300 underline-offset-4 hover:decoration-ink-900"
+                      >
+                        <Phone className="size-3.5" strokeWidth={1.25} />
+                        {place.tel}
+                      </a>
+                    </dd>
+                  </div>
+                )}
+              </dl>
             )}
-            {place.tel && (
-              <a
-                href={`tel:${place.tel.split(';')[0]}`}
-                className="inline-flex items-center gap-1 text-ink-700 underline decoration-ink-300 underline-offset-4 hover:decoration-ink-900"
-              >
-                <Phone className="size-3.5" strokeWidth={1.5} />
-                {place.tel}
-              </a>
+
+            {warn && (
+              <Note tone="caution" label="Caution" className="mt-8">
+                这里被 <span className="font-num">{place.avoid_count}</span> 位旅行者标记为「踩雷」，去之前看看大家的评价吧。
+              </Note>
             )}
           </div>
 
-          {warn && (
-            <Note tone="caution" label="Caution" className="mt-5">
-              这里被 <span className="font-num">{place.avoid_count}</span> 位旅行者标记为「踩雷」，去之前看看大家的评价吧。
-            </Note>
-          )}
-
-          <div className="mt-7 flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2">
             <NavigateMenu target={{ lng: place.lng, lat: place.lat, name: place.name, address: place.address }} size="md" variant="primary" label="导航过去" />
-            <Button variant="outline" icon={<Plus className="size-4" strokeWidth={1.75} />} onClick={() => requireAuth(() => setAddOpen(true))}>
+            <Button variant="outline" icon={<Plus className="size-4" strokeWidth={1.5} />} onClick={() => requireAuth(() => setAddOpen(true))}>
               加入行程
             </Button>
-            <Button variant="outline" icon={<Share2 className="size-4" strokeWidth={1.75} />} onClick={() => setShareOpen(true)}>
+            <Button variant="outline" icon={<Share2 className="size-4" strokeWidth={1.5} />} onClick={() => setShareOpen(true)}>
               分享
             </Button>
           </div>
         </div>
 
-        <figure className="relative h-56 overflow-hidden rounded-[9px] bg-ink-100 md:h-auto md:min-h-72">
+        <figure className="relative aspect-[4/3] overflow-hidden rounded-sm bg-surface ring-1 ring-ink-200 md:aspect-[16/10] lg:col-span-8">
           <BaseMap className="absolute inset-0 size-full" center={[place.lng, place.lat]} zoom={15.5} navigation={false}>
             <WaypointMarkers waypoints={marker} labels={{ [place.id]: '◎' }} />
           </BaseMap>
-          <figcaption className="font-num pointer-events-none absolute top-2.5 left-2.5 z-10 rounded-[3px] bg-white/90 px-1.5 py-0.5 text-[11px] tracking-wider text-ink-600 italic ring-1 ring-ink-900/10">
+          <figcaption className="glass font-num pointer-events-none absolute top-3 left-3 z-10 rounded-full px-3 py-1 text-[11.5px] tracking-wider text-ink-700 ring-1 ring-ink-200">
             {place.lat.toFixed(3)}°N {place.lng.toFixed(3)}°E
           </figcaption>
-          <span aria-hidden className="pointer-events-none absolute inset-0 z-10 rounded-[inherit] ring-1 ring-ink-900/10 ring-inset" />
         </figure>
       </div>
 
-      {/* 评价账目：推荐率大数字 + 推荐 / 一般 / 踩雷 三栏 + 比例细条 */}
-      <section aria-label="打卡评价统计" className="mt-12 border-t-2 border-ink-900 pt-6 md:mt-16">
-        <div className="grid gap-8 md:grid-cols-[minmax(0,240px)_minmax(0,1fr)] md:gap-14">
-          <div>
-            <p className="eyebrow">Recommended · 推荐率</p>
-            <div className="mt-3 flex items-baseline gap-1">
-              <span className="font-num text-[64px] leading-[0.9] text-ink-900 md:text-[80px]">{rate ?? '—'}</span>
-              {rate != null && <span className="font-num text-2xl text-ink-400">%</span>}
+      {/* 评价账目：推荐率大数字 + 推荐 / 一般 / 踩雷 三栏 + 比例细线 */}
+      <Reveal as="section" aria-label="打卡评价统计" className="mt-24 md:mt-40">
+        <LabelRow label="Verdict · 评价统计" count={`${total} 条评价 · ${place.checkin_count} 人打卡`} />
+        <div className="mt-10 grid gap-x-8 gap-y-12 md:mt-16 lg:grid-cols-12">
+          <div className="lg:col-span-5">
+            <div className="flex items-baseline gap-2">
+              <span className="font-num text-[7.5rem] leading-[0.8] font-light text-ink-900 md:text-[11rem]">{rate ?? '—'}</span>
+              {rate != null && <span className="font-num text-4xl font-light text-ink-500 md:text-5xl">%</span>}
             </div>
-            <p className="mt-3 text-xs text-ink-400">
-              <span className="font-num text-ink-700">{place.checkin_count}</span> 人打卡 ·{' '}
-              <span className="font-num text-ink-700">{total}</span> 条评价
+            <p className="mt-6">
+              <span className="block text-[13px] text-ink-900">推荐率</span>
+              <span className="caption block">推荐占全部评价的比例</span>
             </p>
           </div>
-          <div className="md:pt-7">
+          <div className="lg:col-span-7 lg:pt-4">
             <dl className="grid grid-cols-3">
               {ledger.map((x, i) => (
-                <div key={x.key} className={cn('min-w-0', i > 0 && 'border-l border-ink-200 pl-4 sm:pl-6')}>
+                <div key={x.key} className={cn('min-w-0', i > 0 && 'border-l border-ink-200 pl-4 sm:pl-8')}>
                   <dt className="flex items-center gap-1.5 text-[13px] tracking-wide" style={{ color: x.v.color }}>
-                    <span className="text-[11px] leading-none">{x.v.mark}</span>
+                    <span className="text-[10px] leading-none">{x.v.mark}</span>
                     {x.v.label}
                   </dt>
-                  <dd className="mt-2 flex items-baseline gap-1">
-                    <span className="font-num text-[36px] leading-none text-ink-900 md:text-[44px]">{x.n}</span>
-                    <span className="text-xs text-ink-400">人</span>
+                  <dd className="mt-4 flex items-baseline gap-1.5">
+                    <span className="font-num text-[3rem] leading-none font-light text-ink-900 md:text-[4.5rem]">{x.n}</span>
+                    <span className="text-xs text-ink-500">人</span>
                   </dd>
-                  <dd className="font-num mt-1.5 text-xs text-ink-400">{total ? Math.round((x.n / total) * 100) : 0}%</dd>
+                  <dd className="caption font-num mt-2">{total ? Math.round((x.n / total) * 100) : 0}%</dd>
                 </div>
               ))}
             </dl>
-            {total > 0 ? <VerdictBar place={place} className="mt-5 h-1" /> : <div className="mt-5 h-1 bg-ink-100" />}
+            {total > 0 ? <VerdictBar place={place} className="mt-10" /> : <div className="mt-10 h-px bg-ink-200" />}
+            {/* 评论不计入统计：说明数字从哪来，避免以为在下面评论就算一票 */}
+            <p className="caption mt-6 max-w-lg">
+              推荐率与踩雷数统计自公开旅程中的打卡评价：在你的旅程里打卡这里，并选择 推荐 / 一般 / 踩雷，旅程公开后即计入。
+            </p>
           </div>
         </div>
-        {/* 评论不计入统计：说明数字从哪来，避免以为在下面评论就算一票 */}
-        <p className="mt-6 border-t border-ink-200 pt-3 text-xs leading-relaxed text-ink-400">
-          推荐率与踩雷数统计自公开旅程中的打卡评价：在你的旅程里打卡这里，并选择 推荐 / 一般 / 踩雷，旅程公开后即计入。
-        </p>
-      </section>
+      </Reveal>
 
-      <section className="mt-14 md:mt-20" aria-labelledby="reviews-title">
+      <section className="mt-24 md:mt-40" aria-labelledby="reviews-title">
         <SectionHead
           id="reviews-title"
           eyebrow="Field Notes · 打卡手记"
-          title={
-            <>
-              大家的打卡体验
-              {!!reviewTotal && <span className="font-num ml-2 text-base text-ink-400">{reviewTotal}</span>}
-            </>
-          }
+          count={reviewTotal ? `${reviewTotal} 篇` : undefined}
+          title="大家的打卡体验"
           extra={
             <FilterLinks<Verdict | ''>
               label="评价"
               value={verdict}
               onChange={setVerdict}
+              className="-mr-2"
               options={[
                 { value: '', label: '全部' },
                 { value: 'recommend', label: `${verdicts.recommend.mark} 推荐` },
@@ -343,77 +387,92 @@ export default function PlacePage() {
             />
           }
         />
-        {reviews.isLoadingError && <LoadError className="py-8" error={reviews.error} onRetry={() => reviews.refetch()} />}
-        {!reviews.isLoading && !reviews.isLoadingError && items.length === 0 && (
-          <Empty title="暂无公开的打卡评价" desc="在旅程中打卡这里并给出评价，旅程公开后会显示在这里" className="py-10" />
-        )}
-        <ol className="divide-y divide-ink-200">
-          {items.map((r) => (
-            <li key={r.waypoint.id} className="py-6">
-              <div className="flex items-center gap-3">
-                <Avatar user={r.author} size={34} />
-                <div className="min-w-0 flex-1">
-                  <UserName user={r.author} className="text-sm" />
-                  <div className="mt-0.5 truncate text-xs text-ink-400">
-                    <span className="font-num">{fromNow(r.waypoint.arrived_at ?? r.waypoint.created_at)}</span> · 来自
-                    <Link
-                      to={`/trips/${r.trip.id}`}
-                      className="ml-0.5 text-ink-700 underline decoration-ink-300 underline-offset-2 transition-colors hover:decoration-ink-900"
-                    >
-                      《{r.trip.title}》
-                    </Link>
+        <div className="mt-10 md:mt-16">
+          {reviews.isLoadingError && <LoadError className="py-8" error={reviews.error} onRetry={() => reviews.refetch()} />}
+          {!reviews.isLoading && !reviews.isLoadingError && items.length === 0 && (
+            <Empty title="暂无公开的打卡评价" desc="在旅程中打卡这里并给出评价，旅程公开后会显示在这里" className="py-10" />
+          )}
+          <ol className="border-b border-ink-200">
+            {items.map((r) => (
+              <li key={r.waypoint.id} className="grid gap-x-8 gap-y-5 border-t border-ink-200 py-8 md:py-12 lg:grid-cols-12">
+                {/* 左栏：谁、何时、评价（亮 + 灰的说明文字对） */}
+                <div className="flex items-start gap-3 lg:col-span-3 lg:flex-col lg:gap-4">
+                  <Avatar user={r.author} size={36} />
+                  <div className="min-w-0 flex-1">
+                    <UserName user={r.author} className="text-[13.5px] text-ink-900" />
+                    <p className="caption mt-0.5 truncate">
+                      <span className="font-num">{fromNow(r.waypoint.arrived_at ?? r.waypoint.created_at)}</span> · 来自
+                      <Link
+                        to={`/trips/${r.trip.id}`}
+                        className="ml-0.5 text-ink-600 underline decoration-ink-300 underline-offset-2 transition-colors hover:text-ink-900 hover:decoration-ink-900"
+                      >
+                        《{r.trip.title}》
+                      </Link>
+                    </p>
+                    <div className="mt-3 flex items-center gap-3">
+                      <VerdictBadge verdict={r.waypoint.verdict} className="shrink-0" />
+                      {/* 点评是那段旅程里的一个打卡点：举报这段旅程，管理员处理方式是隐藏旅程 */}
+                      {r.author.id !== me?.id && (
+                        <button
+                          type="button"
+                          className="inline-flex h-10 items-center text-xs text-ink-400 transition-colors hover:text-brand-600 md:h-8"
+                          onClick={() => requireAuth(() => setReport({ type: 'trip', id: r.trip.id }))}
+                        >
+                          举报
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <VerdictBadge verdict={r.waypoint.verdict} className="shrink-0" />
-                {/* 点评是那段旅程里的一个打卡点：举报这段旅程，管理员处理方式是隐藏旅程 */}
-                {r.author.id !== me?.id && (
-                  <button
-                    type="button"
-                    className="shrink-0 text-xs text-ink-400 transition-colors hover:text-brand-600"
-                    onClick={() => requireAuth(() => setReport({ type: 'trip', id: r.trip.id }))}
-                  >
-                    举报
-                  </button>
-                )}
-              </div>
-              <div className="sm:pl-[46px]">
-                {(r.waypoint.rating > 0 || r.waypoint.cost > 0) && (
-                  <div className="mt-3 flex items-center gap-3 text-xs text-ink-500">
-                    {r.waypoint.rating > 0 && <Stars value={r.waypoint.rating} size={12} />}
-                    {r.waypoint.cost > 0 && (
-                      <span>
-                        人均 <span className="font-num text-ink-800">¥{r.waypoint.cost}</span>
-                      </span>
-                    )}
-                  </div>
-                )}
-                {r.waypoint.note && (
-                  <p className="mt-3 text-[15px] leading-[1.85] whitespace-pre-wrap text-ink-700">{r.waypoint.note}</p>
-                )}
-                {r.photos.length > 0 && (
-                  <div className="mt-3.5 grid grid-cols-4 gap-1.5 sm:grid-cols-6">
-                    {r.photos.slice(0, 8).map((p, i) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => setViewer({ list: r.photos, i })}
-                        className="relative aspect-square overflow-hidden rounded-[5px] bg-ink-100"
-                        aria-label={`查看照片 ${i + 1}`}
-                      >
-                        <img src={p.thumb_url} alt="" loading="lazy" className="size-full object-cover" />
-                        <span aria-hidden className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-ink-900/10 ring-inset" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </li>
-          ))}
-        </ol>
-        {reviews.hasNextPage && <MoreButton loading={reviews.isFetchingNextPage} onClick={() => reviews.fetchNextPage()} className="pt-4">查看更多</MoreButton>}
+                <div className="min-w-0 lg:col-span-9">
+                  {r.waypoint.note ? (
+                    <p className="font-display max-w-3xl text-[1.3rem] leading-[1.7] whitespace-pre-wrap text-ink-800 md:text-[1.55rem]">{r.waypoint.note}</p>
+                  ) : (
+                    <p className="caption">没有写下文字</p>
+                  )}
+                  {(r.waypoint.rating > 0 || r.waypoint.cost > 0) && (
+                    <div className="caption mt-4 flex items-center gap-4">
+                      {r.waypoint.rating > 0 && <Stars value={r.waypoint.rating} size={12} />}
+                      {r.waypoint.cost > 0 && (
+                        <span>
+                          人均 <span className="font-num text-ink-800">¥{r.waypoint.cost}</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {r.photos.length > 0 && (
+                    <div className="mt-6 grid grid-cols-3 gap-2 md:grid-cols-4 md:gap-3">
+                      {r.photos.slice(0, 8).map((p, i) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setViewer({ list: r.photos, i })}
+                          className="group relative aspect-[4/5] overflow-hidden bg-surface"
+                          aria-label={`查看照片 ${i + 1}`}
+                        >
+                          <img
+                            src={p.thumb_url}
+                            alt=""
+                            loading="lazy"
+                            className="size-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03]"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+          {reviews.hasNextPage && (
+            <MoreButton loading={reviews.isFetchingNextPage} onClick={() => reviews.fetchNextPage()} className="pt-10">
+              查看更多
+            </MoreButton>
+          )}
+        </div>
       </section>
 
-      <div className="mt-16 md:mt-20">
+      <div className="mt-24 md:mt-40">
         <CommentSection
           placeId={place.id}
           count={place.comment_count}

@@ -379,19 +379,19 @@ function badgeHtml(n: number) {
     : ''
 }
 
-/** 相框式照片标记：纸色细边框 + 下方小尖角，选中时边框为强调色 */
+/** 相框式照片标记：近黑细边框 + 下方小尖角，选中时边框为强调色 */
 function photoPinHtml(url: string, selected: boolean, n: number, accent: string) {
   const frame = selected ? accent : PAPER
-  const s = selected ? 54 : 46
+  const s = selected ? 56 : 46
   return `
     <div style="position:relative;display:flex;flex-direction:column;align-items:center">
-      <div style="position:relative;width:${s}px;height:${s}px;padding:2.5px;background:${frame};border-radius:7px;
-        box-shadow:0 0 0 1px rgba(27,26,23,.14),0 8px 18px -6px rgba(27,26,23,.5);transition:all .15s">
+      <div style="position:relative;width:${s}px;height:${Math.round(s * 1.2)}px;padding:2px;background:${frame};border-radius:3px;
+        box-shadow:0 0 0 1px rgba(242,238,230,${selected ? 0 : 0.22}),0 10px 22px -8px rgba(0,0,0,.8);transition:all .2s">
         <img src="${url}" alt="" loading="lazy" decoding="async" draggable="false"
-          style="display:block;width:100%;height:100%;object-fit:cover;border-radius:4.5px;background:#ece7dd"/>
+          style="display:block;width:100%;height:100%;object-fit:cover;border-radius:1.5px;background:#1b1a18"/>
         ${badgeHtml(n)}
       </div>
-      <div style="width:0;height:0;margin-top:-1px;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid ${frame};filter:drop-shadow(0 1px 0 rgba(27,26,23,.12))"></div>
+      <div style="width:1px;height:8px;background:${selected ? accent : 'rgba(242,238,230,.55)'}"></div>
     </div>`
 }
 
@@ -451,7 +451,7 @@ function FootprintPins({
         map,
         visible,
         (i) => [points[i].lng, points[i].lat],
-        (i) => (points[i].photo_thumb_url ? [52, 58] : [30, 34]),
+        (i) => (points[i].photo_thumb_url ? [52, 66] : [30, 34]),
         coarsePointer ? 120 : 200,
       )
       const want = new Map(placed.map((p) => [p.i, p.n]))
@@ -536,7 +536,7 @@ function CityLabels({ cities, color }: { cities: Footprints['cities']; color: st
         const el = document.createElement('div')
         el.style.pointerEvents = 'none'
         const name = c.name.length > 2 ? c.name.replace(/(市|地区)$/, '') : c.name
-        el.innerHTML = `<div style="margin-top:6px;white-space:nowrap;font:400 12px/1 'Noto Serif SC','Songti SC',serif;letter-spacing:.06em;color:#f4f1ea;text-shadow:0 1px 3px rgba(12,19,20,.9),0 0 8px rgba(12,19,20,.7)">${name}<span style="margin-left:4px;font:500 11px/1 'Cormorant Garamond Variable',Georgia,serif;font-variant-numeric:lining-nums;color:${color}">${c.count}</span></div>`
+        el.innerHTML = `<div style="margin-top:6px;white-space:nowrap;font:400 12px/1 'Noto Serif SC','Songti SC',serif;letter-spacing:.06em;color:${INK};text-shadow:0 1px 3px rgba(11,17,18,.9),0 0 8px rgba(11,17,18,.7)">${name}<span style="margin-left:4px;font:500 11px/1 'Cormorant Garamond Variable',Georgia,serif;font-variant-numeric:lining-nums;color:${color}">${c.count}</span></div>`
         all.set(c.code, new Marker({ element: el, anchor: 'top' }).setLngLat([c.lng, c.lat]).addTo(map))
       }
     }
@@ -550,54 +550,46 @@ function CityLabels({ cities, color }: { cities: Footprints['cities']; color: st
   return null
 }
 
-/* ---------------- 选中足迹的小卡片 ---------------- */
-function PointCard({ p, label, onClose, dark }: { p: FootprintPoint; label: string; onClose: () => void; dark: boolean }) {
+/* ---------------- 选中足迹的小卡片：照片 + 两行说明（地点亮、旅程与日期灰） ---------------- */
+function PointCard({ p, label, onClose }: { p: FootprintPoint; label: string; onClose: () => void }) {
   const cat = categoryOf(p.category)
   return (
-    <div
-      className={cn(
-        'animate-slide-up absolute inset-x-3 bottom-3 z-20 overflow-hidden rounded-xl sm:right-auto sm:w-[22rem]',
-        dark ? 'glass-dark text-paper ring-1 ring-white/12' : 'bg-surface text-ink-900 shadow-float',
-      )}
-    >
-      <div className="flex gap-3 p-3">
+    <div className="glass animate-slide-up absolute inset-x-3 bottom-3 z-20 overflow-hidden rounded-sm border border-white/10 text-ink-900 sm:right-auto sm:bottom-6 sm:left-6 sm:w-[24rem]">
+      <div className="flex gap-4 p-3 pr-12">
         {p.photo_thumb_url ? (
-          <img src={p.photo_thumb_url} alt="" className="size-[4.5rem] shrink-0 rounded-md object-cover" loading="lazy" />
+          <img src={p.photo_thumb_url} alt="" className="h-[5.5rem] w-[4.4rem] shrink-0 rounded-sm object-cover" loading="lazy" />
         ) : (
-          <div className={cn('flex size-[4.5rem] shrink-0 items-center justify-center rounded-md border', dark ? 'border-white/12' : 'border-ink-200')}>
-            <cat.icon className="size-6" style={{ color: cat.color }} strokeWidth={1.5} />
+          <div className="flex h-[5.5rem] w-[4.4rem] shrink-0 items-center justify-center rounded-sm border border-white/10">
+            <cat.icon className="size-5" style={{ color: cat.color }} strokeWidth={1.4} />
           </div>
         )}
-        <div className="min-w-0 flex-1 pr-5">
-          <p className={cn('eyebrow truncate', dark && '!text-white/50')}>
+        <div className="flex min-w-0 flex-1 flex-col py-0.5">
+          <p className="eyebrow truncate">
             <span className="font-num">No. {label.padStart(2, '0')}</span>
             {p.city && ` · ${p.city}`}
           </p>
-          <h3 className="mt-1 truncate text-[16px] leading-snug">{p.name}</h3>
-          <p className={cn('mt-0.5 truncate text-[13px]', dark ? 'text-white/60' : 'text-ink-500')}>{p.trip_title}</p>
-          <div className="mt-1.5 flex items-center gap-2">
-            {p.date && <span className={cn('font-num text-xs', dark ? 'text-white/55' : 'text-ink-400')}>{fmtDate(p.date)}</span>}
-            {p.verdict && <VerdictBadge verdict={p.verdict} className="!py-0" />}
-          </div>
+          <h3 className="font-display mt-1.5 truncate text-[1.375rem] leading-tight font-normal">{p.name}</h3>
+          <p className="caption mt-auto truncate">
+            {p.trip_title}
+            {p.date && <span className="font-num"> · {fmtDate(p.date)}</span>}
+          </p>
+          {p.verdict && <VerdictBadge verdict={p.verdict} className="mt-1.5 self-start !py-0" />}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="关闭"
-          className={cn('absolute top-2 right-2 rounded-md p-1.5', dark ? 'text-white/60 hover:text-white' : 'text-ink-400 hover:text-ink-900')}
-        >
-          <X className="size-4" strokeWidth={1.6} />
-        </button>
       </div>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="关闭"
+        className="absolute top-1 right-1 flex size-10 items-center justify-center rounded-full text-ink-500 transition-colors hover:text-ink-900"
+      >
+        <X className="size-4" strokeWidth={1.5} />
+      </button>
       <Link
         to={`/trips/${p.trip_id}`}
-        className={cn(
-          'flex items-center justify-between border-t px-3 py-2.5 text-[13px] tracking-wide transition-colors',
-          dark ? 'border-white/10 text-white/80 hover:text-white' : 'border-ink-200 text-ink-700 hover:text-ink-900',
-        )}
+        className="flex min-h-11 items-center justify-between border-t border-white/10 px-3 text-[13px] tracking-wide text-ink-700 transition-colors hover:text-ink-900"
       >
         查看这段旅程
-        <ArrowRight className="size-4" strokeWidth={1.6} />
+        <ArrowRight className="size-4" strokeWidth={1.4} />
       </Link>
     </div>
   )
@@ -652,19 +644,17 @@ export function FootprintMap({
     fly({ ...v, zoom, pitch: PITCH[stageOf(zoom, sh)] })
   }
 
-  const chip = cn(
-    'flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium tracking-wide backdrop-blur transition-colors',
-    night
-      ? 'bg-[#0c1314]/60 text-white/80 ring-1 ring-white/12 hover:text-white'
-      : 'border border-ink-900/10 bg-white/90 text-ink-700 shadow-card hover:border-ink-900/25 hover:text-ink-900',
-  )
+  // 地图上的控件：玻璃底 + 细线胶囊
+  const chip =
+    'glass flex h-10 items-center gap-1.5 rounded-full border border-white/15 px-3.5 text-xs tracking-[0.04em] text-ink-800 transition-colors duration-300 hover:border-white/40 hover:text-ink-900 sm:h-9'
   const photos = useMemo(() => data.points.filter((p) => p.photo_thumb_url).length, [data.points])
   const sel = picked != null ? data.points[picked] : null
 
   return (
     <div
       ref={boxRef}
-      className={cn('relative overflow-hidden rounded-xl transition-colors duration-700', night ? 'bg-night' : 'bg-paper shadow-card', className)}
+      data-fp-map
+      className={cn('relative overflow-hidden transition-colors duration-700', night ? 'bg-night' : 'bg-[#121210]', className)}
     >
       {shift != null && (
         <BaseMap
@@ -689,39 +679,33 @@ export function FootprintMap({
         </BaseMap>
       )}
 
-      <div className="absolute top-3 right-3 z-10 flex gap-2">
+      <div className="absolute top-3 right-3 z-10 flex gap-2 md:top-5 md:right-6">
         <button type="button" onClick={showChina} className={chip} title="看全国">
-          <Maximize2 className="size-3.5" strokeWidth={1.6} />
+          <Maximize2 className="size-3.5" strokeWidth={1.4} />
           全国
         </button>
         <button type="button" onClick={fitAll} className={chip} title="回到全部足迹">
-          <Scan className="size-3.5" strokeWidth={1.6} />
+          <Scan className="size-3.5" strokeWidth={1.4} />
           全部足迹
         </button>
       </div>
 
+      {/* 左下角的说明文字：极淡的暗角托底，保证在亮色的立体省份上也看得清 */}
+      <div className="pointer-events-none absolute bottom-0 left-0 z-[5] h-44 w-[min(100%,30rem)] bg-[radial-gradient(ellipse_at_bottom_left,rgb(0_0_0/0.62),transparent_70%)]" />
       {sel ? (
-        <PointCard p={sel} label={labels[picked!]} dark={night} onClose={() => setPicked(null)} />
+        <PointCard p={sel} label={labels[picked!]} onClose={() => setPicked(null)} />
       ) : (
-        <div
-          className={cn(
-            'pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-3 rounded-lg px-3 py-2 text-xs tracking-wide backdrop-blur',
-            night ? 'bg-[#0c1314]/55 text-white/65 ring-1 ring-white/10' : 'bg-white/88 text-ink-500 shadow-card',
-          )}
-        >
-          <span className={cn('eyebrow !tracking-[0.14em]', night && '!text-white/45')}>
-            {stage === 'country' ? 'China · 全国' : stage === 'region' ? 'Region · 省域' : 'Street · 街巷'}
-          </span>
-          <span className={cn('h-3 w-px', night ? 'bg-white/15' : 'bg-ink-200')} />
-          <span>
-            <b className={cn('font-num text-[13px] font-medium', night ? 'text-gold' : 'text-ink-900')}>{data.stats.provinces}</b> 省
-            <b className={cn('font-num ml-2 text-[13px] font-medium', night ? 'text-gold' : 'text-ink-900')}>{data.stats.cities}</b> 城
+        <div key={stage} className="animate-fade-in pointer-events-none absolute bottom-4 left-4 z-10 md:bottom-6 md:left-8">
+          <p className="eyebrow !text-white/50">{stage === 'country' ? 'China · 全国' : stage === 'region' ? 'Region · 省域' : 'Street · 街巷'}</p>
+          <p className="mt-1.5 text-[13px] text-white/70">
+            <span className="font-num text-xl font-light text-white">{data.stats.provinces}</span> 省
+            <span className="font-num ml-3 text-xl font-light text-white">{data.stats.cities}</span> 城
             {stage === 'city' && photos > 0 && (
               <>
-                <b className="font-num ml-2 text-[13px] font-medium text-ink-900">{photos}</b> 张照片
+                <span className="font-num ml-3 text-xl font-light text-white">{photos}</span> 张照片
               </>
             )}
-          </span>
+          </p>
         </div>
       )}
     </div>

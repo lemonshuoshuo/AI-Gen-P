@@ -4,11 +4,11 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { Flag, Heart, Settings, UserCheck, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, isNotFound, type UserProfile } from '@/api'
-import { DoubleRule, MoreButton } from '@/components/editorial'
+import { FilterLinks, LabelRow, MoreButton } from '@/components/editorial'
 import { ReportDialog } from '@/components/report/ReportDialog'
 import { FootprintStats } from '@/components/three/FootprintStats'
 import { TripGrid, TripGridSkeleton } from '@/components/trip/TripCard'
-import { Avatar, Button, Empty, LevelBadge, LoadError, Modal, PageLoader, TabBar, UserName, buttonClass } from '@/components/ui'
+import { Avatar, Button, Empty, LevelBadge, LoadError, Modal, PageLoader, UserName, buttonClass } from '@/components/ui'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useRequireAuth } from '@/hooks/useRequireAuth'
 import { cn } from '@/lib/cn'
@@ -41,9 +41,9 @@ function FollowList({ username, kind, onClose }: { username: string; kind: 'foll
         <ul className="divide-y divide-ink-200">
           {users.map((u) => (
             <li key={u.id}>
-              <Link to={`/u/${u.username}`} onClick={onClose} className="group flex items-center gap-3 py-3">
+              <Link to={`/u/${u.username}`} onClick={onClose} className="group flex min-h-14 items-center gap-3 py-3">
                 <Avatar user={u} size={34} />
-                <UserName user={u} link={false} className="text-[15px] group-hover:text-brand-700" />
+                <UserName user={u} link={false} className="text-[15px] text-ink-900 transition-colors group-hover:text-ink-600" />
                 <span aria-hidden className="ml-auto text-ink-300 transition-colors group-hover:text-ink-900">
                   →
                 </span>
@@ -101,85 +101,66 @@ export default function UserPage() {
     { en: 'Likes', zh: '获赞', n: user.stats.likes },
   ]
 
+  const tripsLabel = user.is_me ? '我的旅程' : 'TA 的旅程'
+
   return (
     <div>
-      <header className="mx-auto max-w-6xl px-4 pt-8 md:px-6 md:pt-12">
-        <div className="flex items-center justify-between gap-4 pb-2.5">
-          <p className="eyebrow">Traveller · 旅人档案</p>
-          <p className="eyebrow">
-            No. <span className="font-num">{String(user.id).padStart(4, '0')}</span>
-          </p>
-        </div>
-        <DoubleRule />
-        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-5 gap-y-5 pt-7 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-end md:gap-x-8 md:pt-9">
-          <Avatar user={user} size={96} className="hidden ring-1 ring-ink-900/10 ring-offset-4 ring-offset-paper md:inline-flex" />
-          <Avatar user={user} size={64} className="ring-1 ring-ink-900/10 ring-offset-2 ring-offset-paper md:hidden" />
-          <div className="min-w-0">
-            <h1 className="text-[28px] leading-tight break-words md:text-[42px]">{user.nickname || user.username}</h1>
-            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-500">
+      <header className="mx-auto max-w-[90rem] px-4 pt-10 md:px-8 md:pt-16">
+        <LabelRow label="Traveller · 旅人档案" count={`No. ${String(user.id).padStart(4, '0')}`} />
+        <div className="animate-slide-up mt-12 grid gap-x-8 gap-y-8 md:mt-20 lg:grid-cols-12 lg:items-end">
+          <div className="min-w-0 lg:col-span-8">
+            <Avatar user={user} size={72} className="mb-8 ring-1 ring-ink-200 ring-offset-4 ring-offset-paper lg:hidden" />
+            <h1 className="text-display-xl font-normal break-words">{user.nickname || user.username}</h1>
+            {/* 说明文字对：等级（亮）+ 账号与加入时间（灰） */}
+            <p className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-900 md:mt-8">
               <LevelBadge level={user.level} />
               <span>{user.level_name}</span>
               {user.role === 'admin' && (
-                <span className="inline-flex h-4 items-center rounded-sm bg-ink-900 px-1 text-[10px] leading-none text-paper">管理员</span>
+                <span className="inline-flex h-5 items-center rounded-full border border-ink-300 px-2 text-[11px] leading-none text-ink-700">管理员</span>
               )}
-              <span aria-hidden className="text-ink-300">
-                ·
-              </span>
-              <span className="font-num text-ink-400">@{user.username}</span>
-              <span aria-hidden className="text-ink-300">
-                ·
-              </span>
-              <span className="text-ink-400">
-                <span className="font-num">{fmtDate(user.created_at)}</span> 加入
-              </span>
+            </p>
+            <p className="caption mt-0.5">
+              <span className="font-num">@{user.username}</span> · <span className="font-num">{fmtDate(user.created_at)}</span> 加入
             </p>
           </div>
-          <div className="col-span-2 flex items-center gap-2 md:col-span-1 md:justify-end md:self-end">
-            {user.is_me ? (
-              <Link to="/settings" className={buttonClass({ variant: 'outline', size: 'sm' })}>
-                <Settings className="size-4" strokeWidth={1.75} />
-                编辑资料
-              </Link>
-            ) : (
-              <>
-                <Button
-                  size="sm"
-                  variant={user.is_following ? 'outline' : 'primary'}
-                  loading={follow.isPending}
-                  icon={
-                    user.is_following ? (
-                      <UserCheck className="size-4" strokeWidth={1.75} />
-                    ) : (
-                      <UserPlus className="size-4" strokeWidth={1.75} />
-                    )
-                  }
-                  onClick={() => requireAuth(() => follow.mutate())}
-                >
-                  {user.is_following ? '已关注' : '关注'}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="px-2"
-                  aria-label="举报"
-                  title="举报"
-                  onClick={() => requireAuth(() => setReport(true))}
-                >
-                  <Flag className="size-4" strokeWidth={1.75} />
-                </Button>
-              </>
-            )}
+          <div className="flex flex-col items-start gap-6 lg:col-span-4 lg:items-end">
+            <Avatar user={user} size={128} className="hidden ring-1 ring-ink-200 ring-offset-8 ring-offset-paper lg:inline-flex" />
+            <div className="flex items-center gap-2">
+              {user.is_me ? (
+                <Link to="/settings" className={buttonClass({ variant: 'outline' })}>
+                  <Settings className="size-4" strokeWidth={1.5} />
+                  编辑资料
+                </Link>
+              ) : (
+                <>
+                  <Button
+                    variant={user.is_following ? 'outline' : 'primary'}
+                    loading={follow.isPending}
+                    icon={
+                      user.is_following ? <UserCheck className="size-4" strokeWidth={1.5} /> : <UserPlus className="size-4" strokeWidth={1.5} />
+                    }
+                    onClick={() => requireAuth(() => follow.mutate())}
+                  >
+                    {user.is_following ? '已关注' : '关注'}
+                  </Button>
+                  <Button variant="ghost" className="w-10 px-0" aria-label="举报" title="举报" onClick={() => requireAuth(() => setReport(true))}>
+                    <Flag className="size-4" strokeWidth={1.25} />
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
         </div>
+
         {(user.bio || user.partner) && (
-          <div className="mt-5 max-w-2xl md:ml-[128px]">
+          <div className="mt-14 max-w-3xl md:mt-20">
             {user.bio && (
-              <p className="font-display text-[16px] leading-[1.75] text-ink-700 md:text-[17px]">
-                <span aria-hidden className="font-num mr-0.5 text-brand-500">
+              <p className="font-display text-[1.45rem] leading-[1.6] text-ink-700 md:text-[2rem] md:leading-[1.5]">
+                <span aria-hidden className="font-num mr-1 text-ink-400">
                   &ldquo;
                 </span>
                 {user.bio}
-                <span aria-hidden className="font-num ml-0.5 text-brand-500">
+                <span aria-hidden className="font-num ml-1 text-ink-400">
                   &rdquo;
                 </span>
               </p>
@@ -187,29 +168,35 @@ export default function UserPage() {
             {user.partner && (
               <Link
                 to={`/u/${user.partner.username}`}
-                className="mt-2.5 inline-flex items-center gap-1.5 text-[13px] text-pink-600 underline decoration-pink-200 underline-offset-4 transition-colors hover:decoration-pink-600"
+                className="mt-5 inline-flex h-10 items-center gap-2 text-[13px] text-ink-700 underline decoration-ink-300 underline-offset-4 transition-colors hover:text-ink-900 hover:decoration-ink-900"
               >
-                <Heart className="size-3.5" strokeWidth={1.75} />
+                <Heart className="size-3.5 text-pink-500" strokeWidth={1.5} />
                 和 {user.partner.nickname || user.partner.username} 一起旅行中
               </Link>
             )}
           </div>
         )}
 
-        <div className="mt-8 grid grid-cols-4 border-y border-ink-200">
+        {/* 统计：大号细字 Cormorant 数字，之间用竖细线分隔 */}
+        <dl className="mt-14 grid grid-cols-2 border-y border-ink-200 md:mt-20 md:grid-cols-4">
           {stats.map((x, i) => {
             const inner = (
               <>
-                <span className="font-num block text-[26px] leading-none text-ink-900 md:text-[34px]">{x.n}</span>
-                <span className="mt-2 block text-xs tracking-wide text-ink-400">
-                  <span className="eyebrow mr-1 hidden md:inline">{x.en} ·</span>
-                  {x.zh}
-                </span>
+                <dt className="eyebrow">
+                  {x.en} · {x.zh}
+                </dt>
+                <dd className="font-num mt-4 text-[3rem] leading-none font-light text-ink-900 transition-colors duration-300 md:text-[4.5rem]">{x.n}</dd>
               </>
             )
-            const cls = cn('block py-4 text-left md:py-5', i > 0 && 'border-l border-ink-200 pl-3 md:pl-6')
+            const cls = cn(
+              'block py-6 text-left md:py-8',
+              i % 2 === 1 && 'border-l border-ink-200 pl-5',
+              i >= 2 && 'border-t border-ink-200 md:border-t-0',
+              i === 2 && 'md:border-l md:pl-6',
+              i > 0 && 'md:pl-6',
+            )
             return x.open ? (
-              <button key={x.en} type="button" onClick={() => setList(x.open)} className={cn(cls, 'group transition-colors hover:bg-white/40')}>
+              <button key={x.en} type="button" onClick={() => setList(x.open)} className={cn(cls, 'group hover:[&_dd]:text-ink-600')}>
                 {inner}
               </button>
             ) : (
@@ -218,22 +205,33 @@ export default function UserPage() {
               </div>
             )
           })}
-        </div>
+        </dl>
       </header>
 
-      <div className="mx-auto max-w-6xl px-4 pt-10 pb-16 md:px-6">
-        <TabBar<Tab>
-          value={tab}
-          onChange={(t) => {
-            if (t === 'footprints') void loadFootprintsView() // 与足迹数据同时下载
-            setTab(t)
-          }}
-          options={[
-            { value: 'trips', label: user.is_me ? '我的旅程' : 'TA 的旅程' },
-            { value: 'footprints', label: '足迹地图' },
-          ]}
+      <section className="mx-auto max-w-[90rem] px-4 pt-24 pb-24 md:px-8 md:pt-36 md:pb-32" aria-labelledby="user-tab-title">
+        <LabelRow
+          label={tab === 'trips' ? 'Journeys · 旅程' : 'Footprints · 足迹'}
+          count={tab === 'trips' && trips.data ? `${trips.data.pages[0].total} 段` : undefined}
+          extra={
+            <FilterLinks<Tab>
+              label="查看"
+              value={tab}
+              onChange={(t) => {
+                if (t === 'footprints') void loadFootprintsView() // 与足迹数据同时下载
+                setTab(t)
+              }}
+              className="-mr-2"
+              options={[
+                { value: 'trips', label: tripsLabel },
+                { value: 'footprints', label: '足迹地图' },
+              ]}
+            />
+          }
         />
-        <div className="mt-7">
+        <h2 id="user-tab-title" className="text-display-md mt-8 font-normal md:mt-12">
+          {tab === 'trips' ? tripsLabel : '足迹地图'}
+        </h2>
+        <div className="mt-10 md:mt-16">
           {tab === 'trips' &&
             (trips.isLoading ? (
               <TripGridSkeleton n={4} />
@@ -254,16 +252,16 @@ export default function UserPage() {
               <LoadError error={fp.error} onRetry={() => fp.refetch()} />
             ) : fp.data && fp.data.stats.waypoints > 0 ? (
               <>
-                <FootprintStats data={fp.data} className="mb-5" />
+                <FootprintStats data={fp.data} className="mb-8" />
                 <Suspense fallback={<PageLoader />}>
-                  <FootprintsView data={fp.data} height="h-[46vh] sm:h-[56vh]" />
+                  <FootprintsView data={fp.data} height="h-[46vh] sm:h-[62vh]" />
                 </Suspense>
               </>
             ) : (
               <Empty title="还没有公开的足迹" />
             ))}
         </div>
-      </div>
+      </section>
       <FollowList username={username} kind={list} onClose={() => setList(null)} />
       <ReportDialog target={report ? { type: 'user', id: user.id } : null} onClose={() => setReport(false)} />
     </div>

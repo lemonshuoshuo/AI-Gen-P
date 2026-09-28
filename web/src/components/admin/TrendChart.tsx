@@ -1,15 +1,14 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import type { AdminStats } from '@/api/types'
-import { Segmented } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { dayjs } from '@/lib/format'
+import { LabelRow } from './common'
 
 type Metric = 'users' | 'trips' | 'comments'
-// 每个指标一种矿物色：朱砂 / 玉青 / 赭黄
-const metrics: { value: Metric; label: string; color: string }[] = [
-  { value: 'users', label: '新用户', color: 'var(--color-brand-500)' },
-  { value: 'trips', label: '新旅程', color: 'var(--color-emerald-500)' },
-  { value: 'comments', label: '新评论', color: 'var(--color-amber-500)' },
+const metrics: { value: Metric; label: string }[] = [
+  { value: 'users', label: '新用户' },
+  { value: 'trips', label: '新旅程' },
+  { value: 'comments', label: '新评论' },
 ]
 
 /** 取一个「好看」的刻度步长（1/2/5 × 10^n），保证至少为 1 */
@@ -20,15 +19,13 @@ function niceStep(max: number, ticks = 4) {
   return Math.max(1, step)
 }
 
-const Swatch = ({ color }: { color: string }) => (
-  <span className="inline-block size-2 shrink-0 rounded-[1px]" style={{ background: color }} aria-hidden />
-)
-
-/** 近 14 天趋势：单序列细柱图，可切换指标，悬停显示数值 */
+/**
+ * 近 14 天趋势：象牙白细柱，只有「今天」那一根是朱砂色（当前状态）；
+ * 指标用文字切换，悬停 / 聚焦显示数值
+ */
 export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
   const [metric, setMetric] = useState<Metric>('users')
-  const cur = metrics.find((m) => m.value === metric)!
-  const label = cur.label
+  const label = metrics.find((m) => m.value === metric)!.label
   const values = trend.map((d) => d[metric])
   const total = values.reduce((a, b) => a + b, 0)
   const peak = Math.max(0, ...values)
@@ -41,36 +38,48 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
   const peakIndex = peak > 0 ? values.lastIndexOf(peak) : -1
 
   return (
-    <div>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="eyebrow">Last 14 days · 近 14 天</p>
-          <div className="mt-2 flex items-baseline gap-3">
-            <h2 className="text-xl text-ink-900">{label}</h2>
-            <span className="text-xs text-ink-400">
-              合计 <span className="font-num text-2xl leading-none text-ink-900">{total}</span>
-            </span>
+    <div className="animate-slide-up [animation-delay:180ms] [animation-fill-mode:backwards]">
+      <LabelRow
+        label="Last 14 days · 近 14 天"
+        extra={
+          <div role="group" aria-label="指标" className="-mr-2 flex items-center text-[13px]">
+            {metrics.map((m, i) => (
+              <Fragment key={m.value}>
+                {i > 0 && (
+                  <span aria-hidden className="text-ink-300">
+                    /
+                  </span>
+                )}
+                <button
+                  type="button"
+                  aria-pressed={metric === m.value}
+                  onClick={() => setMetric(m.value)}
+                  className={cn(
+                    'inline-flex h-10 items-center px-2 tracking-wide whitespace-nowrap transition-colors duration-300',
+                    metric === m.value
+                      ? 'text-ink-900 underline decoration-ink-900 decoration-1 underline-offset-[7px]'
+                      : 'text-ink-400 hover:text-ink-900',
+                  )}
+                >
+                  {m.label}
+                </button>
+              </Fragment>
+            ))}
           </div>
-        </div>
-        <Segmented<Metric>
-          size="sm"
-          value={metric}
-          onChange={setMetric}
-          options={metrics.map((m) => ({
-            value: m.value,
-            label: (
-              <span className="inline-flex items-center gap-1.5">
-                <Swatch color={m.color} />
-                {m.label}
-              </span>
-            ),
-          }))}
-        />
+        }
+      />
+
+      <div className="mt-8 flex flex-wrap items-end justify-between gap-x-10 gap-y-4 md:mt-12">
+        <h2 className="text-display-md font-normal">{label}</h2>
+        <p className="flex items-baseline gap-3">
+          <span className="text-[13px] text-ink-500">合计</span>
+          <span className="font-num text-[3.5rem] leading-[0.85] font-light text-ink-900 md:text-[4.5rem]">{total}</span>
+        </p>
       </div>
 
-      <div className="mt-8 flex gap-3">
+      <div className="mt-10 flex gap-4 md:mt-14">
         {/* Y 轴刻度 */}
-        <div className="font-num relative h-44 w-6 shrink-0 text-right text-[11px] text-ink-400">
+        <div className="font-num relative h-52 w-6 shrink-0 text-right text-[12px] text-ink-400 md:h-60">
           {ticks.map((t) => (
             <span key={t} className="absolute right-0 translate-y-1/2 leading-none" style={{ bottom: `${(t / top) * 100}%` }}>
               {t}
@@ -78,12 +87,12 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
           ))}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="relative h-44">
-            {/* 网格线：底线用墨色，其余是极淡的细线 */}
+          <div className="relative h-52 md:h-60">
+            {/* 网格线：底线稍亮，其余是极淡的细线 */}
             {ticks.map((t) => (
               <div
                 key={t}
-                className={cn('absolute inset-x-0 border-t', t === 0 ? 'border-ink-900/70' : 'border-ink-200/70')}
+                className={cn('absolute inset-x-0 border-t', t === 0 ? 'border-ink-300' : 'border-ink-200/70')}
                 style={{ bottom: `${(t / top) * 100}%` }}
               />
             ))}
@@ -92,6 +101,7 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
               {trend.map((d, i) => {
                 const v = d[metric]
                 const h = (v / top) * 100
+                const isToday = d.date === today
                 // 两端的提示框向内对齐，避免超出版心
                 const align = i < 2 ? 'left-0' : i > trend.length - 3 ? 'right-0' : 'left-1/2 -translate-x-1/2'
                 return (
@@ -101,15 +111,18 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
                     aria-label={`${d.date} ${label} ${v}`}
                     className="group relative flex h-full flex-1 items-end justify-center outline-none"
                   >
-                    {/* 悬停时整列一道淡底，便于对准 */}
-                    <div className="absolute inset-y-0 left-1/2 w-6 -translate-x-1/2 bg-ink-900/[0.035] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+                    {/* 悬停时整列一道极淡的竖线，便于对准 */}
+                    <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-ink-200 opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus-visible:opacity-100" />
                     <div
-                      className="relative w-[5px] rounded-t-[2px] transition-opacity group-hover:opacity-80 sm:w-2"
-                      style={{ height: `${h}%`, background: cur.color, minHeight: v > 0 ? 2 : 0 }}
+                      className={cn(
+                        'relative w-[3px] transition-colors duration-300 sm:w-1',
+                        isToday ? 'bg-brand-500' : 'bg-ink-700 group-hover:bg-ink-900 group-focus-visible:bg-ink-900',
+                      )}
+                      style={{ height: `${h}%`, minHeight: v > 0 ? 2 : 0 }}
                     />
                     {i === peakIndex && (
                       <span
-                        className="font-num pointer-events-none absolute -translate-y-1.5 text-xs leading-none text-ink-700 transition-opacity group-hover:opacity-0"
+                        className="font-num pointer-events-none absolute -translate-y-2 text-[15px] leading-none text-ink-900 transition-opacity group-hover:opacity-0"
                         style={{ bottom: `${h}%` }}
                       >
                         {v}
@@ -117,12 +130,13 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
                     )}
                     <div
                       className={cn(
-                        'pointer-events-none absolute z-10 rounded-md bg-ink-900 px-2 py-1 text-[11px] whitespace-nowrap text-paper opacity-0 shadow-float transition group-hover:opacity-100 group-focus-visible:opacity-100',
+                        'pointer-events-none absolute z-10 rounded-sm bg-surface-2 px-2.5 py-1.5 text-[12px] whitespace-nowrap text-ink-900 opacity-0 ring-1 ring-ink-200 transition-opacity duration-300 group-hover:opacity-100 group-focus-visible:opacity-100',
                         align,
                       )}
                       style={{ bottom: `calc(${h}% + 20px)` }}
                     >
-                      {dayjs(d.date).format('M月D日')} · {label} <span className="font-num">{v}</span>
+                      <span className="text-ink-500">{dayjs(d.date).format('M月D日')} · </span>
+                      {label} <span className="font-num text-[14px]">{v}</span>
                     </div>
                   </div>
                 )
@@ -130,7 +144,7 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
             </div>
           </div>
           {/* X 轴 */}
-          <div className="font-num mt-2 flex text-center text-[11px] text-ink-400">
+          <div className="font-num mt-3 flex text-center text-[12px] text-ink-400">
             {trend.map((d, i) => (
               <span
                 key={d.date}
@@ -142,7 +156,7 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
                 )}
               >
                 {d.date === today ? (
-                  <span className="font-sans">今天</span>
+                  <span className="font-sans text-[11px]">今天</span>
                 ) : (
                   <>
                     <span className="sm:hidden">{dayjs(d.date).date()}</span>
@@ -155,30 +169,29 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
         </div>
       </div>
 
-      <details className="mt-5 text-sm">
-        <summary className="cursor-pointer text-xs tracking-wide text-ink-400 select-none hover:text-ink-700">查看数据表</summary>
+      <details className="mt-10">
+        <summary className="inline-flex h-10 cursor-pointer items-center text-[13px] tracking-wide text-ink-500 transition-colors select-none hover:text-ink-900">
+          查看数据表
+        </summary>
         <div className="mt-3 overflow-x-auto">
-          <table className="font-num w-full text-[13px]">
+          <table className="w-full text-[14px]">
             <thead>
-              <tr className="border-t border-b border-ink-900 border-b-ink-200 text-ink-400">
-                <th className="py-2 text-left font-sans text-xs font-normal">日期</th>
+              <tr className="border-y border-ink-200">
+                <th className="eyebrow py-3 text-left !font-medium">日期</th>
                 {metrics.map((m) => (
-                  <th key={m.value} className="py-2 text-right font-sans text-xs font-normal">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Swatch color={m.color} />
-                      {m.label}
-                    </span>
+                  <th key={m.value} className="eyebrow py-3 text-right !font-medium">
+                    {m.label}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody className="font-num">
               {[...trend].reverse().map((d) => (
                 <tr key={d.date} className="border-b border-ink-200 text-ink-700">
-                  <td className="py-1.5">{d.date}</td>
-                  <td className="py-1.5 text-right">{d.users}</td>
-                  <td className="py-1.5 text-right">{d.trips}</td>
-                  <td className="py-1.5 text-right">{d.comments}</td>
+                  <td className="py-2.5">{d.date}</td>
+                  <td className="py-2.5 text-right">{d.users}</td>
+                  <td className="py-2.5 text-right">{d.trips}</td>
+                  <td className="py-2.5 text-right">{d.comments}</td>
                 </tr>
               ))}
             </tbody>

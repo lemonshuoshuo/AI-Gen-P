@@ -7,7 +7,7 @@ import { Button, Empty, PageLoader } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { dayjs, fmtBytes, fmtCount } from '@/lib/format'
 import { insecureContext } from '@/lib/geo'
-import { PanelHeader } from './common'
+import { LabelRow, PanelHeader } from './common'
 import { TrendChart } from './TrendChart'
 
 /** 「12.3 MB」拆成数字和单位，单位用小字 */
@@ -16,16 +16,32 @@ function splitUnit(s: string): [string, string | undefined] {
   return m ? [m[1], m[2]] : [s, undefined]
 }
 
-/** 大号 Cormorant 数字 + 小标签；多个之间用细线分隔（由外层网格负责） */
-function Figure({ label, value, unit, sub }: { label: string; value: string; unit?: string; sub?: ReactNode }) {
+/** 大号细字 Cormorant 数字 + 极小标签；细线由外层网格负责 */
+function Figure({
+  label,
+  en,
+  value,
+  unit,
+  sub,
+  className,
+}: {
+  label: string
+  en: string
+  value: string
+  unit?: string
+  sub?: ReactNode
+  className?: string
+}) {
   return (
-    <div className="min-w-0 py-5 pr-4 pl-4 max-sm:[&:nth-child(odd)]:pl-0 sm:[&:nth-child(3n+1)]:pl-0">
-      <div className="text-xs tracking-wide text-ink-500">{label}</div>
-      <div className="mt-2.5 flex items-baseline gap-1">
-        <span className="font-num text-[2.5rem] leading-none font-normal tracking-tight text-ink-900 md:text-[2.875rem]">{value}</span>
-        {unit && <span className="font-num text-sm text-ink-400">{unit}</span>}
-      </div>
-      <div className="mt-2 min-h-4 truncate text-xs text-ink-400">{sub}</div>
+    <div className={cn('min-w-0 border-b border-ink-200 pt-5 pb-7 md:pt-6 md:pb-9', className)}>
+      <p className="eyebrow">
+        {en} · {label}
+      </p>
+      <p className="mt-6 flex items-baseline gap-1.5 md:mt-10">
+        <span className="font-num text-[3.25rem] leading-[0.85] font-light text-ink-900 md:text-[4.75rem]">{value}</span>
+        {unit && <span className="font-num text-lg text-ink-500">{unit}</span>}
+      </p>
+      <p className="caption mt-4 min-h-5 truncate">{sub}</p>
     </div>
   )
 }
@@ -34,21 +50,21 @@ function Figure({ label, value, unit, sub }: { label: string; value: string; uni
 const Today = ({ n }: { n: number }) =>
   n > 0 ? (
     <span className="text-emerald-700">
-      今日 <span className="font-num">+{n}</span>
+      今日 <span className="font-num text-[15px]">+{n}</span>
     </span>
   ) : (
     <span>今日暂无新增</span>
   )
 
-/** 待办条目：细线分隔的一行，右侧箭头 */
+/** 待办条目：细线分隔的一行，朱砂小点 + 大号数字，右侧「去处理 →」 */
 function TodoRow({ to, children, action }: { to: string; children: ReactNode; action: string }) {
   return (
-    <Link to={to} className="group flex items-center gap-3 py-3.5 text-sm text-ink-700 transition-colors hover:text-ink-900">
+    <Link to={to} className="group flex items-center gap-4 py-5 text-[15px] text-ink-700 transition-colors duration-300 hover:text-ink-900">
       <span className="size-1.5 shrink-0 rounded-full bg-brand-500" aria-hidden />
       <span className="min-w-0 flex-1">{children}</span>
-      <span className="inline-flex shrink-0 items-center gap-1 text-xs text-ink-500 group-hover:text-ink-900">
+      <span className="inline-flex shrink-0 items-center gap-2 text-[13px] text-ink-500 transition-colors duration-300 group-hover:text-ink-900">
         {action}
-        <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" strokeWidth={1.5} />
+        <ArrowRight className="size-4" strokeWidth={1.25} />
       </span>
     </Link>
   )
@@ -69,6 +85,7 @@ export function Overview() {
     )
 
   const hasTodo = !!pending.data || data.pending_trips > 0
+  const todoCount = (pending.data ? 1 : 0) + (data.pending_trips > 0 ? 1 : 0)
   const [storage, storageUnit] = splitUnit(fmtBytes(data.storage_bytes))
 
   return (
@@ -76,17 +93,18 @@ export function Overview() {
       <PanelHeader eyebrow={`Overview · ${dayjs().format('YYYY.MM.DD')}`} title="概览" desc="站点整体运行数据" />
 
       {hasTodo && (
-        <section className="mb-8" aria-label="待办">
-          <p className="eyebrow !text-brand-600">To do · 待办</p>
-          <div className="mt-2 divide-y divide-ink-200 border-y border-ink-200">
+        <section className="animate-slide-up mb-16 [animation-delay:60ms] [animation-fill-mode:backwards] md:mb-24" aria-label="待办">
+          <LabelRow label="To do · 待办" tone="brand" count={String(todoCount).padStart(2, '0')} />
+          <div className="mt-2 divide-y divide-ink-200 border-b border-ink-200">
             {!!pending.data && (
               <TodoRow to="/admin/reports" action="去处理">
-                有 <span className="font-num text-base text-ink-900">{pending.data}</span> 条举报等待处理
+                有 <span className="font-num mx-1 text-[1.75rem] leading-none font-light text-ink-900">{pending.data}</span> 条举报等待处理
               </TodoRow>
             )}
             {data.pending_trips > 0 && (
               <TodoRow to="/admin/trips?status=pending" action="去审核">
-                有 <span className="font-num text-base text-ink-900">{data.pending_trips}</span> 段公开旅程等待审核
+                有 <span className="font-num mx-1 text-[1.75rem] leading-none font-light text-ink-900">{data.pending_trips}</span>{' '}
+                段公开旅程等待审核
               </TodoRow>
             )}
           </div>
@@ -94,67 +112,80 @@ export function Overview() {
       )}
 
       {insecureContext && (
-        <div className="mb-8 border-l-2 border-amber-500 py-1 pl-4 text-sm leading-relaxed text-ink-600">
+        <div className="mb-16 border-l border-amber-500 py-1 pl-5 text-[13.5px] leading-relaxed text-ink-600 md:mb-24">
           <p className="eyebrow !text-amber-700">HTTP · 未启用 HTTPS</p>
-          <p className="mt-1.5">
+          <p className="mt-2 max-w-3xl">
             当前通过 HTTP 访问：手机浏览器会禁止定位（我到了打卡、记录 GPS 轨迹、附近推荐），系统分享和屏幕常亮也不可用。邀请用户使用前，请按部署文档「启用
             HTTPS」配置域名证书。
           </p>
         </div>
       )}
 
-      {/* 统计：顶部墨线，数字之间竖细线，行间横细线 */}
-      <div className="grid grid-cols-2 border-t border-ink-900 sm:grid-cols-3 [&>*]:border-b [&>*]:border-ink-200 max-sm:[&>*:nth-child(even)]:border-l sm:[&>*:not(:nth-child(3n+1))]:border-l">
-        <Figure label="注册用户" value={fmtCount(data.users)} sub={<Today n={data.today.users} />} />
-        <Figure
-          label="旅程"
-          value={fmtCount(data.trips)}
-          sub={
-            <>
-              公开 <span className="font-num">{fmtCount(data.public_trips)}</span>
-              {data.pending_trips > 0 && (
-                <>
-                  {' · '}待审 <span className="font-num">{fmtCount(data.pending_trips)}</span>
-                </>
-              )}
-              {data.today.trips > 0 && (
-                <>
-                  {' · '}
-                  <Today n={data.today.trips} />
-                </>
-              )}
-            </>
-          }
-        />
-        <Figure label="评论" value={fmtCount(data.comments)} sub={<Today n={data.today.comments} />} />
-        <Figure label="打卡地" value={fmtCount(data.places)} />
-        <Figure label="照片" value={fmtCount(data.photos)} />
-        <Figure label="存储占用" value={storage} unit={storageUnit} />
-      </div>
-
-      <section className="mt-10">
-        {data.trend.length ? <TrendChart trend={data.trend} /> : <Empty title="暂无趋势数据" />}
+      {/* 数据：大号细字数字，竖细线分隔，行间横细线 */}
+      <section className="animate-slide-up [animation-delay:120ms] [animation-fill-mode:backwards]" aria-label="数据">
+        <LabelRow label="Figures · 数据" count="06" />
+        <div className="grid grid-cols-2 xl:grid-cols-3 [&>*:nth-child(even)]:max-xl:border-l [&>*:nth-child(even)]:max-xl:pl-5 xl:[&>*:not(:nth-child(3n+1))]:border-l xl:[&>*:not(:nth-child(3n+1))]:pl-8">
+          <Figure label="注册用户" en="Members" value={fmtCount(data.users)} sub={<Today n={data.today.users} />} />
+          <Figure
+            label="旅程"
+            en="Journeys"
+            value={fmtCount(data.trips)}
+            sub={
+              <>
+                公开 <span className="font-num text-[15px]">{fmtCount(data.public_trips)}</span>
+                {data.pending_trips > 0 && (
+                  <>
+                    {' · '}待审 <span className="font-num text-[15px]">{fmtCount(data.pending_trips)}</span>
+                  </>
+                )}
+                {data.today.trips > 0 && (
+                  <>
+                    {' · '}
+                    <Today n={data.today.trips} />
+                  </>
+                )}
+              </>
+            }
+          />
+          <Figure label="评论" en="Comments" value={fmtCount(data.comments)} sub={<Today n={data.today.comments} />} />
+          <Figure label="打卡地" en="Places" value={fmtCount(data.places)} />
+          <Figure label="照片" en="Photos" value={fmtCount(data.photos)} />
+          <Figure label="存储占用" en="Storage" value={storage} unit={storageUnit} />
+        </div>
       </section>
 
-      {/* 系统诊断入口 */}
-      <Link
-        to="/admin/diagnostics"
-        className={cn(
-          'group mt-10 flex flex-col gap-3 rounded-xl border border-ink-200 bg-white/60 px-5 py-4 transition-colors hover:border-ink-900/30 hover:bg-surface',
-          'sm:flex-row sm:items-center sm:gap-6',
+      <section className="mt-20 md:mt-28">
+        {data.trend.length ? (
+          <TrendChart trend={data.trend} />
+        ) : (
+          <>
+            <LabelRow label="Last 14 days · 近 14 天" />
+            <Empty title="暂无趋势数据" />
+          </>
         )}
-      >
-        <div className="min-w-0 flex-1">
-          <p className="eyebrow">Diagnostics · 系统诊断</p>
-          <p className="mt-1.5 text-sm leading-relaxed text-ink-600">
-            地点搜索、路线距离或 AI 生成行程不可用？一键检测高德 Key、AI 模型与天地图的配置，并给出修复步骤。
+      </section>
+
+      {/* 系统诊断入口：细线标签行 + 大号宋体问句，右侧「去检测 →」 */}
+      <section className="mt-20 md:mt-28">
+        <LabelRow label="Diagnostics · 系统诊断" />
+        <Link
+          to="/admin/diagnostics"
+          className="group mt-8 grid gap-x-10 gap-y-5 border-b border-ink-200 pb-10 md:mt-12 xl:grid-cols-12 xl:items-end"
+        >
+          <p className="text-display-md font-normal text-ink-800 transition-colors duration-300 group-hover:text-ink-900 xl:col-span-7">
+            搜索、路线或 AI 不可用？
           </p>
-        </div>
-        <span className="inline-flex shrink-0 items-center gap-1.5 text-sm text-ink-900">
-          <span className="font-display">去检测</span>
-          <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" strokeWidth={1.5} />
-        </span>
-      </Link>
+          <div className="flex items-end justify-between gap-8 xl:col-span-5">
+            <p className="max-w-sm text-[13.5px] leading-[1.8] text-ink-500">
+              一键检测高德 Key、AI 模型与天地图的配置，并给出修复步骤。
+            </p>
+            <span className="inline-flex shrink-0 items-center gap-2 text-[13px] text-ink-900">
+              去检测
+              <ArrowRight className="size-4 text-ink-500 transition-colors duration-300 group-hover:text-ink-900" strokeWidth={1.25} />
+            </span>
+          </div>
+        </Link>
+      </section>
     </div>
   )
 }

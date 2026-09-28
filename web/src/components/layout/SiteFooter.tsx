@@ -2,10 +2,11 @@ import { Link } from 'react-router'
 import { useSite } from '@/hooks/useSite'
 import { cn } from '@/lib/cn'
 
-const linkCls = 'transition-colors hover:text-ink-900'
+// 手机上链接行高 40px，方便点按
+const linkCls = 'inline-flex h-10 items-center transition-colors duration-300 hover:text-ink-900 md:h-auto'
 
 /**
- * 页脚：版权、用户协议 / 隐私政策，以及管理员填写的 ICP 备案号和公安联网备案号
+ * 页脚：超大字标、一行安静的链接（用户协议 / 隐私政策），以及管理员填写的 ICP 备案号和公安联网备案号
  * （工信部要求在网站首页底部显示备案号并链接到备案管理系统）。compact 用于登录页等没有边框和留白的场合
  */
 export function SiteFooter({ className, compact }: { className?: string; compact?: boolean }) {
@@ -19,20 +20,17 @@ export function SiteFooter({ className, compact }: { className?: string; compact
   const year = new Date().getFullYear()
 
   const legal = (
-    <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+    <>
       <Link to="/legal/terms" className={linkCls}>
         用户协议
       </Link>
-      <span aria-hidden className="text-ink-300">
-        /
-      </span>
       <Link to="/legal/privacy" className={linkCls}>
         隐私政策
       </Link>
-    </p>
+    </>
   )
   const beian = (icp || police) && (
-    <p className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 md:justify-start">
+    <>
       {icp && (
         <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" className={linkCls}>
           {icp}
@@ -43,37 +41,45 @@ export function SiteFooter({ className, compact }: { className?: string; compact
           {police}
         </a>
       )}
-    </p>
+    </>
   )
 
   if (compact)
     return (
-      <footer className={cn('w-full space-y-1.5 text-center text-[11.5px] tracking-[0.12em] text-ink-400', className)}>
+      <footer className={cn('w-full space-y-2 text-center text-[12px] tracking-[0.08em] text-ink-400', className)}>
+        <p className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1">{legal}</p>
+        {beian && <p className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1">{beian}</p>}
         <p>
-          <span className="font-num">©</span> <span className="font-num">{year}</span> {name}
+          <span className="font-num">© {year}</span> {name}
         </p>
-        {legal}
-        {beian}
       </footer>
     )
 
   return (
     // w-full：在布局的纵向 flex 里 mx-auto 会让页脚收缩成内容宽度
-    <footer className={cn('mx-auto w-full max-w-6xl px-4 md:px-6', className)}>
-      <div className="flex flex-col items-center gap-3 border-t border-ink-200 py-7 text-[11.5px] tracking-[0.12em] text-ink-400 md:flex-row md:items-center md:justify-between">
-        <div className="flex flex-col items-center gap-1.5 md:items-start">
-          <p className="flex items-baseline gap-2">
-            <span className="font-num text-[14px] tracking-normal text-ink-700 italic">{name}</span>
-            <span className="eyebrow !tracking-[0.3em]">旅迹 · 手账</span>
-          </p>
-          {beian}
-        </div>
-        <div className="flex flex-col items-center gap-1 md:items-end">
+    <footer className={cn('mx-auto w-full max-w-[90rem] px-4 md:px-8', className)}>
+      <div className="grid gap-y-8 border-t border-ink-200 pt-4 pb-10 text-[13px] md:grid-cols-12 md:gap-x-8 md:pb-16">
+        {/* 说明文字对：亮 + 灰 */}
+        <p className="md:col-span-5">
+          <span className="block text-ink-900">{name} · 旅迹</span>
+          <span className="caption block">记录每一次出发，把走过的地方都点亮。</span>
+        </p>
+        <nav aria-label="站点信息" className="flex flex-wrap gap-x-6 gap-y-2 text-ink-500 md:col-span-4">
           {legal}
-          <p>
-            <span className="font-num">© {year}</span> {name} · 记录每一次出发
-          </p>
-        </div>
+          {beian}
+        </nav>
+        <p className="font-num text-ink-400 md:col-span-3 md:text-right">
+          © {year} {name}
+        </p>
+      </div>
+      {/* 超大字标：几乎占满整行宽度，字母下伸部分被页面底边轻轻裁掉 */}
+      <div aria-hidden className="overflow-hidden select-none">
+        <p
+          className="font-display -mb-[0.08em] text-center leading-[0.95] tracking-[-0.02em] whitespace-nowrap text-ink-900"
+          style={{ fontSize: `min(${Math.min(21, 150 / Math.max(name.length, 1))}vw, ${Math.min(19, 133 / Math.max(name.length, 1))}rem)` }}
+        >
+          {name}
+        </p>
       </div>
     </footer>
   )

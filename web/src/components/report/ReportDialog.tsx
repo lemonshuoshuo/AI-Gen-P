@@ -43,7 +43,8 @@ export function ReportDialog({ target, onClose }: { target: ReportTarget | null;
       }
     >
       <p className="text-[13.5px] leading-relaxed text-ink-500">说明遇到的问题，管理员核实后会处理。举报内容不会告知对方。</p>
-      <div className="mt-4 flex flex-wrap gap-1.5" role="group" aria-label="常见原因">
+      <p className="eyebrow mt-6">Reason · 常见原因</p>
+      <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="常见原因">
         {presets.map((r) => {
           const on = reason.includes(r)
           return (
@@ -53,8 +54,8 @@ export function ReportDialog({ target, onClose }: { target: ReportTarget | null;
               aria-pressed={on}
               onClick={() => pick(r)}
               className={cn(
-                'h-7 rounded-md border px-2.5 text-xs tracking-wide transition-colors',
-                on ? 'border-ink-900 bg-ink-900 text-paper' : 'border-ink-200 text-ink-600 hover:border-ink-400 hover:text-ink-900',
+                'h-9 rounded-full border px-3.5 text-[13px] tracking-wide transition-colors duration-300',
+                on ? 'border-ink-900 bg-ink-900 text-paper' : 'border-ink-200 text-ink-500 hover:border-ink-500 hover:text-ink-900',
               )}
             >
               {r}
@@ -63,7 +64,7 @@ export function ReportDialog({ target, onClose }: { target: ReportTarget | null;
         })}
       </div>
       <Textarea
-        className="mt-3"
+        className="mt-5"
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         maxLength={500}

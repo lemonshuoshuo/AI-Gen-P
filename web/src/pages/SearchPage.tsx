@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import { api } from '@/api'
-import { MoreButton, SectionHead } from '@/components/editorial'
+import { LabelRow, MoreButton, SectionHead, pad2 } from '@/components/editorial'
 import { PlaceRow } from '@/components/place/PlaceCard'
 import { TripGrid, TripGridSkeleton } from '@/components/trip/TripCard'
 import { Empty, LoadError } from '@/components/ui'
@@ -34,51 +34,49 @@ export default function SearchPage() {
   const items = flattenPages(trips.data?.pages)
 
   return (
-    <div className="mx-auto max-w-6xl px-4 pt-8 pb-16 md:px-6 md:pt-12">
-      <p className="eyebrow">Search · 搜索</p>
+    <div className="mx-auto max-w-[90rem] px-4 pt-12 pb-24 md:px-8 md:pt-20 md:pb-32">
+      <LabelRow label="Search · 搜索" count={tag ? `#${tag}` : q ? `「${q}」` : undefined} />
       <form
         role="search"
         onSubmit={(e) => {
           e.preventDefault()
           if (kw.trim()) setParams({ q: kw.trim() })
         }}
-        className="mt-3 flex max-w-3xl items-center gap-3 border-b-2 border-ink-900 transition-colors focus-within:border-brand-500"
+        className="animate-slide-up mt-12 flex items-end gap-4 border-b border-ink-300 pb-2 transition-colors duration-300 focus-within:border-ink-900 md:mt-20"
       >
         <input
           value={kw}
           onChange={(e) => setKw(e.target.value)}
           placeholder="想去哪儿？"
           aria-label="搜索旅程、城市、标签、打卡地"
-          className="font-display h-14 min-w-0 flex-1 bg-transparent text-[26px] text-ink-900 outline-none placeholder:text-ink-300 md:h-16 md:text-[34px]"
+          className="text-display-lg min-w-0 flex-1 bg-transparent py-2 text-ink-900 outline-none placeholder:text-ink-400"
           autoFocus
         />
         <button
           type="submit"
           aria-label="搜索"
-          className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-ink-700 transition-colors hover:bg-ink-900/5 hover:text-ink-900"
+          className="mb-1 inline-flex size-12 shrink-0 items-center justify-center rounded-full border border-ink-900/20 text-ink-800 transition-colors duration-300 hover:border-ink-900/60 hover:text-ink-900 md:size-14"
         >
-          <Search className="size-5" strokeWidth={1.5} />
+          <Search className="size-5" strokeWidth={1.25} />
         </button>
       </form>
       {tag ? (
-        <p className="mt-3 text-sm text-ink-500">
-          标签 <span className="font-display text-ink-900">#{tag}</span>
+        <p className="mt-4 text-[13px] text-ink-500">
+          标签 <span className="text-ink-900">#{tag}</span>
         </p>
       ) : (
-        <p className="mt-3 text-sm text-ink-400">旅程、城市、标签、打卡地，都可以搜</p>
+        <p className="caption mt-4">旅程、城市、标签、打卡地，都可以搜</p>
       )}
 
       {!has ? (
-        <section className="mt-12 max-w-3xl" aria-labelledby="suggest-title">
-          <p id="suggest-title" className="eyebrow">
-            Try · 不妨试试
-          </p>
-          <ul className="mt-3 flex flex-wrap items-baseline gap-y-2">
+        <section className="mt-24 md:mt-36" aria-labelledby="suggest-title">
+          <LabelRow id="suggest-title" label="Try · 不妨试试" count={pad2(suggestions.length)} />
+          <ul className="mt-8 flex flex-wrap items-baseline gap-y-3 md:mt-12">
             {suggestions.map((w) => (
-              <li key={w} className="flex items-baseline after:mx-3 after:text-ink-300 after:content-['/'] last:after:content-none">
+              <li key={w} className="flex items-baseline after:mx-4 after:text-[1.5rem] after:text-ink-300 after:content-['/'] last:after:content-none md:after:mx-6">
                 <Link
                   to={`/search?q=${encodeURIComponent(w)}`}
-                  className="font-display text-[22px] text-ink-700 underline decoration-transparent underline-offset-[6px] transition-colors hover:text-ink-900 hover:decoration-ink-900 md:text-[26px]"
+                  className="text-display-md inline-block py-1.5 text-ink-500 transition-colors duration-300 hover:text-ink-900"
                 >
                   {w}
                 </Link>
@@ -89,38 +87,33 @@ export default function SearchPage() {
       ) : (
         <>
           {!!places.data?.items.length && (
-            <section className="mt-12" aria-labelledby="places-title">
+            <section className="mt-24 md:mt-36" aria-labelledby="places-title">
               <SectionHead
                 id="places-title"
                 eyebrow="Places · 相关打卡地"
+                count={places.data.total}
                 title="打卡地"
                 extra={
-                  <Link to={`/places?q=${encodeURIComponent(q)}`} className="pb-0.5 text-xs text-ink-400 transition-colors hover:text-ink-900">
+                  <Link
+                    to={`/places?q=${encodeURIComponent(q)}`}
+                    className="inline-flex h-10 items-center text-[13px] text-ink-500 transition-colors hover:text-ink-900 md:h-8"
+                  >
                     全部 →
                   </Link>
                 }
               />
-              <ul className="grid border-b border-ink-200 md:grid-cols-2 md:gap-x-10">
+              <ul className="mt-8 grid border-b border-ink-200 md:mt-12 lg:grid-cols-2 lg:gap-x-8">
                 {places.data.items.map((p) => (
-                  <li key={p.id} className="border-b border-ink-200 last:border-b-0 md:[&:nth-last-child(2):nth-child(odd)]:border-b-0">
+                  <li key={p.id} className="border-t border-ink-200">
                     <PlaceRow place={p} variant="compact" />
                   </li>
                 ))}
               </ul>
             </section>
           )}
-          <section className="mt-12" aria-labelledby="trips-title">
-            <SectionHead
-              id="trips-title"
-              eyebrow="Journeys · 相关旅程"
-              title={
-                <>
-                  旅程
-                  {trips.data && <span className="font-num ml-2 text-base text-ink-400">{trips.data.pages[0].total}</span>}
-                </>
-              }
-            />
-            <div className="mt-7">
+          <section className="mt-24 md:mt-36" aria-labelledby="trips-title">
+            <SectionHead id="trips-title" eyebrow="Journeys · 相关旅程" count={trips.data?.pages[0].total} title="旅程" />
+            <div className="mt-10 md:mt-16">
               {trips.isLoading ? (
                 <TripGridSkeleton n={4} />
               ) : trips.isLoadingError ? (

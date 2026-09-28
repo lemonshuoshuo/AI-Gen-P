@@ -12,7 +12,7 @@ import { RouteLines } from '@/components/map/layers'
 import { hexToRgb, useDeckOverlay } from '@/components/three/deck'
 import { angleLerp, buildRoute, distanceAt, legBounds, pointAt, type PlacedStop, type ReplayStop, type RouteModel } from '@/components/three/replay'
 import { ShareDialog } from '@/components/trip/ShareDialog'
-import { Avatar, Empty, LoadError, PageLoader, VerdictBadge, buttonClass } from '@/components/ui'
+import { Avatar, Button, Empty, LoadError, PageLoader, VerdictBadge, buttonClass } from '@/components/ui'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { invalidateTripLists } from '@/lib/cache'
 import { cn } from '@/lib/cn'
@@ -450,20 +450,20 @@ function Scrubber({
     return model.timeline.filter((x) => x.stop != null && !seen.has(x.stop) && seen.add(x.stop)).map((x) => x.t / model.duration)
   }, [model])
   const k = Math.min(1, time / (model.duration || 1))
-  const accent = love ? 'bg-[#dcb0bb]' : 'bg-gold'
+  const accent = love ? 'bg-[#e0b6c0]' : 'bg-gold'
   return (
-    <div className="relative h-6 flex-1">
-      <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-white/18" />
-      <div className={cn('absolute top-1/2 left-0 h-[1.5px] -translate-y-1/2', accent)} style={{ width: `${k * 100}%` }} />
+    <div className="relative h-10 flex-1">
+      <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-white/15" />
+      <div className={cn('absolute top-1/2 left-0 h-px -translate-y-1/2', accent)} style={{ width: `${k * 100}%` }} />
       {ticks.map((x, i) => (
         <span
           key={i}
-          className={cn('absolute top-1/2 h-2 w-px -translate-y-1/2', i < reached ? accent : 'bg-white/30')}
+          className={cn('absolute top-1/2 h-2.5 w-px -translate-y-1/2', i < reached ? accent : 'bg-white/25')}
           style={{ left: `${x * 100}%` }}
         />
       ))}
       <span
-        className={cn('pointer-events-none absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full ring-4', accent, love ? 'ring-[#dcb0bb]/20' : 'ring-gold/20')}
+        className={cn('pointer-events-none absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-[6px]', accent, love ? 'ring-[#e0b6c0]/15' : 'ring-gold/15')}
         style={{ left: `${k * 100}%` }}
       />
       <input
@@ -473,9 +473,10 @@ function Scrubber({
         step={0.01}
         value={time}
         onChange={(e) => onSeek(Number(e.target.value))}
-        className="absolute inset-0 w-full cursor-pointer opacity-0"
+        className="peer absolute inset-0 w-full cursor-pointer opacity-0"
         aria-label="进度"
       />
+      <span className="pointer-events-none absolute inset-x-0 -inset-y-0.5 hidden rounded-sm ring-1 ring-white/40 peer-focus-visible:block" />
     </div>
   )
 }
@@ -624,11 +625,13 @@ export default function ReplayPage() {
     setPlaying((p) => !p)
   }
 
+  const [kmNow, kmTotal] = [formatKm(d / 1000).replace(/ ?(公里|米)$/, ''), formatKm(model.total / 1000)]
+
   return (
-    <div className="bg-night fixed inset-0 overflow-hidden text-paper">
+    <div className="bg-night fixed inset-0 overflow-hidden text-white">
       {/* 地图版权信息抬到底部控制条上方，不遮住倍速按钮 */}
       <BaseMap
-        className="absolute inset-0 [&_.maplibregl-ctrl-bottom-right]:bottom-[calc(4.75rem+env(safe-area-inset-bottom))]"
+        className="absolute inset-0 [&_.maplibregl-ctrl-bottom-right]:bottom-[calc(5.25rem+env(safe-area-inset-bottom))]"
         kind="dark"
         navigation={false}
         center={model.coords[0]}
@@ -648,127 +651,116 @@ export default function ReplayPage() {
         />
       </BaseMap>
 
-      {/* 顶部 */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-[#0c1314]/90 via-[#0c1314]/50 to-transparent px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-14 sm:px-6">
-        <div className="pointer-events-auto mx-auto flex max-w-6xl items-start gap-3">
+      {/* 上下两道暗角：让照片般的画面上的小字看得清 */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-[#0b1112]/90 via-[#0b1112]/45 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[46vh] bg-gradient-to-t from-[#0b1112]/95 via-[#0b1112]/55 to-transparent" />
+
+      {/* 顶部：片名 */}
+      <div className="animate-fade-in absolute inset-x-0 top-0 px-4 pt-[max(env(safe-area-inset-top),1rem)] sm:px-8 sm:pt-7">
+        <div className="flex items-start gap-4">
           <div className="min-w-0 flex-1">
-            {together && me && partner && (
-              <div className="mb-2.5 flex items-center">
-                <Avatar user={me} size={26} className="ring-1 ring-white/30" />
-                <span className="font-num z-10 -mx-1 flex size-5 items-center justify-center rounded-full bg-[#4f3d62] text-[11px] text-white/85 italic ring-1 ring-white/25">
-                  &amp;
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              {together && me && partner && (
+                <span className="flex items-center">
+                  <Avatar user={me} size={22} className="ring-1 ring-white/25" />
+                  <span className="font-display z-10 -mx-0.5 text-[15px] leading-none text-[#e0b6c0] italic">&amp;</span>
+                  <Avatar user={partner} size={22} className="ring-1 ring-white/25" />
                 </span>
-                <Avatar user={partner} size={26} className="ring-1 ring-white/30" />
-              </div>
-            )}
-            <p className={cn('eyebrow', love ? '!text-[#dcb0bb]' : '!text-gold/90')}>{eyebrow}</p>
-            <h1 className="mt-1.5 truncate text-[22px] leading-tight text-paper sm:text-[30px]">{title}</h1>
-            <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-white/55">
-              {subtitle && <span className="font-num">{subtitle}</span>}
+              )}
+              <span className={cn('eyebrow', love ? '!text-[#e0b6c0]' : '!text-gold')}>{eyebrow}</span>
+              {subtitle && <span className="font-num text-[13px] text-white/50">{subtitle}</span>}
+            </p>
+            <h1 className="font-display mt-2 truncate text-[1.75rem] leading-[1.1] font-normal text-white sm:mt-3 sm:text-[2.75rem]">{title}</h1>
+            <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-white/50">
               <span>
-                <span className="font-num text-white/80">{formatKm(d / 1000).replace(/ ?(公里|米)$/, '')}</span>
-                <span className="text-white/35"> / </span>
-                <span className="font-num">{formatKm(model.total / 1000)}</span>
+                <span className="font-num text-[13px] text-white/85">{kmNow}</span>
+                <span className="text-white/30"> / </span>
+                <span className="font-num text-[13px]">{kmTotal}</span>
               </span>
-              {plan && <span className="text-white/40">按计划顺序直线连接</span>}
-              {data.planned && <span className="text-white/40">虚线为计划路线</span>}
+              {plan && <span>按计划顺序直线连接</span>}
+              {data.planned && <span>虚线为计划路线</span>}
             </p>
           </div>
           <Link
             to={backTo}
             onClick={goBack}
-            className="flex size-9 shrink-0 items-center justify-center rounded-full text-white/80 ring-1 ring-white/20 backdrop-blur transition-colors hover:bg-white/10 hover:text-white"
+            className="glass flex size-10 shrink-0 items-center justify-center rounded-full border border-white/15 text-white/80 transition-colors hover:border-white/40 hover:text-white"
             aria-label={plan ? '退出预览' : '退出回放'}
           >
-            <X className="size-[18px]" strokeWidth={1.6} />
+            <X className="size-[18px]" strokeWidth={1.4} />
           </Link>
         </div>
       </div>
 
-      {/* 当前地点卡片 */}
+      {/* 当前地点：照片 + 说明文字对（片中字幕式，不装进卡片） */}
       {current && !done && (
         <div
           key={current.key}
-          className="glass-dark animate-slide-up absolute bottom-[calc(7rem+env(safe-area-inset-bottom))] left-1/2 w-[min(92vw,400px)] -translate-x-1/2 overflow-hidden rounded-xl ring-1 ring-white/12"
+          className="animate-slide-up pointer-events-none absolute inset-x-4 bottom-[calc(6.25rem+env(safe-area-inset-bottom))] flex items-end gap-4 sm:right-auto sm:bottom-[calc(7.5rem+env(safe-area-inset-bottom))] sm:left-8 sm:max-w-[36rem] sm:gap-5"
         >
-          <div className="flex gap-3.5 p-3.5">
-            {current.photo ? (
-              <img src={current.photo} alt="" className="size-[5.25rem] shrink-0 rounded-md object-cover ring-1 ring-white/10" />
-            ) : (
-              <div className={cn('font-num w-12 shrink-0 pt-0.5 text-[2.1rem] leading-none font-light', love ? 'text-[#dcb0bb]' : 'text-gold')}>
-                {String(current.index + 1).padStart(2, '0')}
-              </div>
-            )}
-            <div className={cn('min-w-0 flex-1', !current.photo && 'border-l border-white/10 pl-3.5')}>
-              <p className="eyebrow flex items-center gap-1.5 !text-white/45">
-                <span className="size-1.5 shrink-0 rounded-full" style={{ background: current.color }} />
-                {current.photo && <span className="font-num">No. {String(current.index + 1).padStart(2, '0')}</span>}
-                {current.photo && <span className="text-white/25">·</span>}
-                <span className="truncate normal-case">{current.tag ?? `第 ${current.index + 1} 站`}</span>
-              </p>
-              <h3 className="mt-1.5 truncate text-[18px] leading-snug text-paper">{current.name}</h3>
-              {current.sub && <p className="mt-0.5 truncate text-xs text-white/55">{current.sub}</p>}
-              {current.verdict && <VerdictBadge verdict={current.verdict as never} className="mt-1.5 !bg-white/5" />}
-            </div>
-          </div>
-          {current.note && (
-            <p className="line-clamp-2 border-t border-white/10 px-3.5 py-2.5 text-[13px] leading-relaxed text-white/70">{current.note}</p>
+          {current.photo && (
+            <img
+              src={current.photo}
+              alt=""
+              className="h-28 w-[5.6rem] shrink-0 rounded-sm object-cover ring-1 ring-white/12 sm:h-40 sm:w-32"
+            />
           )}
+          <div className="min-w-0 pb-0.5">
+            <p className="eyebrow flex items-center gap-2 !text-white/55">
+              <span className="size-1.5 shrink-0 rounded-full" style={{ background: current.color }} />
+              <span className="font-num">No. {String(current.index + 1).padStart(2, '0')}</span>
+              <span className="text-white/25">·</span>
+              <span className="truncate normal-case">{current.tag ?? `第 ${current.index + 1} 站`}</span>
+            </p>
+            <h2 className="font-display mt-2 line-clamp-2 text-[2rem] leading-[1.05] font-normal text-white sm:text-[3.25rem]">{current.name}</h2>
+            {current.sub && <p className="mt-2 truncate text-[13px] text-white/60">{current.sub}</p>}
+            {current.verdict && <VerdictBadge verdict={current.verdict as never} className="mt-2 !bg-black/30" />}
+            {current.note && <p className="mt-2 line-clamp-2 max-w-md text-[13px] leading-relaxed text-white/70">{current.note}</p>}
+          </div>
         </div>
       )}
 
-      {/* 结束 */}
+      {/* 结束：片尾字幕 */}
       {done && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#0c1314]/55 p-6 backdrop-blur-[2px]">
-          <div className="glass-dark animate-slide-up w-full max-w-sm rounded-xl p-6 text-center ring-1 ring-white/12">
-            <p className={cn('eyebrow', love ? '!text-[#dcb0bb]' : '!text-gold/90')}>
+        <div className="animate-fade-in absolute inset-0 flex items-center justify-center bg-[#0b1112]/72 p-6 backdrop-blur-[3px]">
+          <div className="animate-slide-up w-full max-w-xl text-center">
+            <p className={cn('eyebrow', love ? '!text-[#e0b6c0]' : '!text-gold')}>
               {plan ? 'Preview · 预览完毕' : together ? 'To be continued · 未完待续' : 'Fin · 回放结束'}
             </p>
-            <h2 className="mt-2 text-[22px] text-paper">{plan ? '路线看完了' : together ? '我们的足迹还在继续' : '旅程回放结束'}</h2>
-            <div className="mt-5 grid grid-cols-2 border-y border-white/10">
-              <div className="py-4">
-                <div className="font-num text-[2rem] leading-none font-medium">{model.stops.length}</div>
-                <div className="mt-1.5 text-xs text-white/50">个地点</div>
+            <h2 className="text-display-lg mt-5 font-normal text-balance text-white">{title}</h2>
+            <p className="mt-3 text-[13px] text-white/55">{plan ? '路线看完了' : together ? '我们的足迹还在继续' : '旅程回放结束'}</p>
+            <div className="mx-auto mt-10 grid max-w-sm grid-cols-2 border-t border-white/12">
+              <div className="pt-4">
+                <div className="text-xs text-white/50">地点</div>
+                <div className="mt-3 flex items-baseline justify-center gap-1">
+                  <span className="font-num text-6xl leading-[0.85] font-light text-white">{model.stops.length}</span>
+                  <span className="text-xs text-white/45">个</span>
+                </div>
               </div>
-              <div className="border-l border-white/10 py-4">
-                <div className="font-num text-[2rem] leading-none font-medium">{formatKm(model.total / 1000).replace(/ ?(公里|米)$/, '')}</div>
-                <div className="mt-1.5 text-xs text-white/50">{model.total < 1000 ? '米' : '公里'}{plan && '（直线）'}</div>
+              <div className="border-l border-white/12 pt-4">
+                <div className="text-xs text-white/50">里程{plan && '（直线）'}</div>
+                <div className="mt-3 flex items-baseline justify-center gap-1">
+                  <span className="font-num text-6xl leading-[0.85] font-light text-white">{formatKm(model.total / 1000).replace(/ ?(公里|米)$/, '')}</span>
+                  <span className="text-xs text-white/45">{model.total < 1000 ? '米' : '公里'}</span>
+                </div>
               </div>
             </div>
-            <div className="mt-6 flex flex-wrap justify-center gap-2">
-              <button
-                type="button"
-                onClick={restart}
-                className="flex h-10 items-center gap-1.5 rounded-lg bg-paper px-4 text-sm font-medium text-ink-900 transition-colors hover:bg-surface"
-              >
-                <RotateCcw className="size-4" strokeWidth={1.75} />
+            <div className="mt-12 flex flex-wrap justify-center gap-2">
+              <Button icon={<RotateCcw className="size-4" strokeWidth={1.5} />} onClick={restart}>
                 再看一次
-              </button>
+              </Button>
               {!together && !plan && trip && (
-                <button
-                  type="button"
-                  onClick={() => setShare(true)}
-                  className="flex h-10 items-center gap-1.5 rounded-lg px-4 text-sm font-medium text-white/85 ring-1 ring-white/25 transition-colors hover:bg-white/10"
-                >
-                  <Share2 className="size-4" strokeWidth={1.75} />
+                <Button variant="outline" icon={<Share2 className="size-4" strokeWidth={1.5} />} onClick={() => setShare(true)}>
                   分享
-                </button>
+                </Button>
               )}
               {plan && trip?.can_edit ? (
-                <Link
-                  to={`/trips/${id}/edit`}
-                  onClick={goBack}
-                  className="flex h-10 items-center gap-1.5 rounded-lg px-4 text-sm font-medium text-white/85 ring-1 ring-white/25 transition-colors hover:bg-white/10"
-                >
-                  <PenLine className="size-4" strokeWidth={1.75} />
+                <Link to={`/trips/${id}/edit`} onClick={goBack} className={buttonClass({ variant: 'outline' })}>
+                  <PenLine className="size-4" strokeWidth={1.5} />
                   继续编辑
                 </Link>
               ) : (
-                <Link
-                  to={backTo}
-                  onClick={goBack}
-                  className="flex h-10 items-center rounded-lg px-4 text-sm font-medium text-white/70 transition-colors hover:text-white"
-                >
+                <Link to={backTo} onClick={goBack} className={buttonClass({ variant: 'ghost' })}>
                   返回
                 </Link>
               )}
@@ -777,32 +769,32 @@ export default function ReplayPage() {
         </div>
       )}
 
-      {/* 控制条 */}
-      <div className="pb-safe absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#0c1314]/90 via-[#0c1314]/55 to-transparent px-4 pt-12 sm:px-6">
-        <div className="mx-auto flex max-w-2xl items-center gap-4 pb-5">
+      {/* 控制条：播放、进度（每一站一道刻度）、倍速 */}
+      <div className="pb-safe absolute inset-x-0 bottom-0 px-4 sm:px-8">
+        <div className="flex items-center gap-4 pb-4 sm:gap-6 sm:pb-6">
           <button
             type="button"
             onClick={togglePlay}
-            className="flex size-11 shrink-0 items-center justify-center rounded-full bg-paper text-ink-900 transition-colors hover:bg-surface"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full bg-ink-900 text-paper transition-colors hover:bg-white"
             aria-label={playing && !done ? '暂停' : '播放'}
           >
-            {playing && !done ? <Pause className="size-[18px]" strokeWidth={1.75} /> : <Play className="ml-0.5 size-[18px]" strokeWidth={1.75} />}
+            {playing && !done ? <Pause className="size-4 fill-current" strokeWidth={1.5} /> : <Play className="ml-0.5 size-4 fill-current" strokeWidth={1.5} />}
           </button>
           <div className="min-w-0 flex-1">
-            <div className="mb-0.5 flex items-baseline gap-3 text-[11px] text-white/45">
+            <div className="flex items-baseline gap-3 text-[11px] text-white/45">
               <span className="shrink-0">
-                <span className="font-num text-[13px] text-white/85">{String(reachedCount).padStart(2, '0')}</span>
+                <span className="font-num text-[13px] text-white/90">{String(reachedCount).padStart(2, '0')}</span>
                 <span className="font-num"> / {String(model.stops.length).padStart(2, '0')}</span>
               </span>
-              <span className="min-w-0 flex-1 truncate">{intro ? '全程' : current ? current.name : '出发'}</span>
-              <span className="font-num shrink-0">{formatKm(model.total / 1000)}</span>
+              <span className="min-w-0 flex-1 truncate text-white/60">{intro ? '全程' : current ? current.name : '出发'}</span>
+              <span className="font-num shrink-0">{kmTotal}</span>
             </div>
             <Scrubber model={model} time={time} onSeek={seek} reached={reachedCount} love={love} />
           </div>
           <button
             type="button"
             onClick={() => setSpeed((s) => (s === 1 ? 2 : s === 2 ? 4 : 1))}
-            className="font-num h-8 w-11 shrink-0 rounded-lg text-[13px] text-white/85 ring-1 ring-white/20 transition-colors hover:bg-white/10"
+            className="font-num flex size-11 shrink-0 items-center justify-center rounded-full border border-white/15 text-[15px] text-white/85 transition-colors hover:border-white/40 hover:text-white"
             aria-label="播放速度"
           >
             {speed}×

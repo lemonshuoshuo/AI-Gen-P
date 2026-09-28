@@ -146,7 +146,7 @@ export function PlaceSearch({
     >
       <div className="relative flex items-center gap-2">
         <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-400" strokeWidth={1.75} />
+          <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-ink-400" strokeWidth={1.5} />
           <input
             ref={inputRef}
             value={kw}
@@ -166,7 +166,7 @@ export function PlaceSearch({
             }}
             placeholder={placeholder}
             aria-label="搜索地点"
-            className="h-11 w-full rounded-lg border border-ink-200 bg-surface pr-9 pl-9 text-sm text-ink-900 outline-none transition placeholder:text-ink-300 focus:border-ink-900 focus:ring-2 focus:ring-ink-900/5"
+            className="h-12 w-full rounded-md border border-ink-200 bg-surface pr-10 pl-11 text-[15px] text-ink-900 outline-none transition-colors duration-300 placeholder:text-ink-400 hover:border-ink-300 focus:border-ink-600"
           />
           {loading ? (
             <Loader2 className="absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin text-ink-400" strokeWidth={1.75} />
@@ -175,7 +175,7 @@ export function PlaceSearch({
               <button
                 type="button"
                 onClick={clear}
-                className="absolute top-1/2 right-2.5 -translate-y-1/2 rounded-full p-0.5 text-ink-400 hover:text-ink-900"
+                className="absolute top-1/2 right-1.5 flex size-9 -translate-y-1/2 items-center justify-center rounded-full text-ink-400 hover:text-ink-900"
                 aria-label="清空"
               >
                 <X className="size-4" strokeWidth={1.75} />
@@ -184,7 +184,7 @@ export function PlaceSearch({
           )}
         </div>
         {sheet && (
-          <button type="button" onClick={closeSheet} className="shrink-0 px-1 text-sm text-ink-600">
+          <button type="button" onClick={closeSheet} className="h-10 shrink-0 px-1 text-sm text-ink-600">
             取消
           </button>
         )}
@@ -205,13 +205,13 @@ export function PlaceSearch({
               'overflow-y-auto',
               sheet
                 ? 'pb-safe mt-3 min-h-0 flex-1 overscroll-contain'
-                : 'animate-fade-in absolute inset-x-0 z-40 mt-1.5 max-h-96 rounded-xl bg-surface py-1 shadow-float',
+                : 'animate-fade-in absolute inset-x-0 z-40 mt-2 max-h-[26rem] rounded-xl border border-ink-900/10 bg-surface-2 py-1.5 shadow-float',
             )}
           >
             {community.length > 0 && (
               <>
                 <p className="eyebrow px-4 pt-2.5 pb-1">Community · 社区打卡地</p>
-                <ul className="divide-y divide-ink-100">
+                <ul className="divide-y divide-ink-200">
                   {community.map((p) => {
                     const rate = recommendRate(p)
                     const avoid = isAvoided(p)
@@ -236,15 +236,15 @@ export function PlaceSearch({
                               p,
                             )
                           }
-                          className="group flex w-full items-start gap-3 px-4 py-2.5 text-left transition-colors hover:bg-ink-50"
+                          className="group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-ink-100"
                         >
                           <MapPin className="mt-1 size-4 shrink-0 text-emerald-600" strokeWidth={1.5} />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <span className="font-display truncate text-[15px] text-ink-900 group-hover:text-brand-700">{p.name}</span>
+                              <span className="font-display truncate text-[16px] text-ink-900">{p.name}</span>
                               <CategoryChip category={p.category} className="shrink-0 whitespace-nowrap" />
                               {avoid && (
-                                <span className="shrink-0 rounded-sm bg-brand-50 px-1 text-[11px] font-medium whitespace-nowrap text-brand-600 ring-1 ring-brand-200 ring-inset">
+                                <span className="shrink-0 rounded-full border border-brand-300 px-1.5 text-[11px] whitespace-nowrap text-brand-700">
                                   ✕ {p.avoid_count} 人踩雷
                                 </span>
                               )}
@@ -270,20 +270,20 @@ export function PlaceSearch({
               </>
             )}
             {(geoItems.length > 0 || failed || localOnly || amapError) && geoHeading && (
-              <p className={cn('eyebrow px-4 pt-2.5 pb-1', community.length > 0 && 'mt-1 border-t border-ink-100')}>{geoHeading}</p>
+              <p className={cn('eyebrow px-4 pt-2.5 pb-1', community.length > 0 && 'mt-1 border-t border-ink-200')}>{geoHeading}</p>
             )}
             {failed ? (
               <button
                 type="button"
                 onClick={() => setAttempt((a) => a + 1)}
-                className="w-full px-4 py-2.5 text-left text-sm text-brand-600 hover:bg-brand-50"
+                className="w-full px-4 py-3 text-left text-sm text-brand-700 hover:bg-ink-100"
               >
                 {failed}，点此重试
               </button>
             ) : amapError ? (
               // 服务端给出了高德失败的具体原因（如 Key 平台类型不对）：原样显示，比笼统的「只能搜城市」更有用
-              <p className="mx-4 my-2 flex gap-2 border-l-2 border-amber-400 bg-amber-50/70 py-2 pr-2 pl-2.5 text-xs leading-relaxed text-amber-800">
-                <Info className="mt-px size-3.5 shrink-0" strokeWidth={1.75} />
+              <p className="mx-4 my-2.5 flex gap-2 border-l border-amber-500 py-1 pl-3 text-xs leading-relaxed text-ink-700">
+                <Info className="mt-px size-3.5 shrink-0 text-amber-600" strokeWidth={1.5} />
                 <span>
                   高德地点搜索暂不可用：{amapError}
                   {source === 'local'
@@ -295,7 +295,7 @@ export function PlaceSearch({
               </p>
             ) : (
               localOnly && (
-                <p className="mx-4 my-2 border-l-2 border-amber-400 py-1 pl-2.5 text-xs leading-relaxed text-amber-800">
+                <p className="mx-4 my-2.5 border-l border-amber-500 py-1 pl-3 text-xs leading-relaxed text-ink-700">
                   {site?.amap_search
                     ? '地点搜索暂时不可用，只显示了城市结果；具体地点可稍后再搜，或直接在地图上点选。'
                     : `这里只能搜到城市；具体店铺、景点请直接在地图上点选。${isAdmin(user) ? '（管理员：配置高德 Web 服务 Key 后可搜索具体地点）' : ''}`}
@@ -303,9 +303,9 @@ export function PlaceSearch({
               )
             )}
             {!failed && !loading && items.length === 0 && community.length === 0 && (
-              <p className="px-4 py-3 text-sm text-ink-400">没有找到相关地点，可以换个关键词，或直接在地图上点选</p>
+              <p className="px-4 py-3 text-sm text-ink-500">没有找到相关地点，可以换个关键词，或直接在地图上点选</p>
             )}
-            <ul className="divide-y divide-ink-100">
+            <ul className="divide-y divide-ink-200">
               {geoItems.map((it, i) => {
                 const avoid = isAvoided(it.place)
                 return (
@@ -313,12 +313,12 @@ export function PlaceSearch({
                     <button
                       type="button"
                       onClick={() => pick(it, source ?? 'amap', it.place)}
-                      className="group flex w-full items-start gap-3 px-4 py-2.5 text-left transition-colors hover:bg-ink-50"
+                      className="group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-ink-100"
                     >
                       <MapPin className="mt-1 size-4 shrink-0 text-ink-400 group-hover:text-brand-500" strokeWidth={1.5} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="font-display truncate text-[15px] text-ink-900 group-hover:text-brand-700">{it.name}</span>
+                          <span className="font-display truncate text-[16px] text-ink-900">{it.name}</span>
                           {it.category && <CategoryChip category={it.category} className="shrink-0 whitespace-nowrap" />}
                         </div>
                         {/* 社区统计放在第二行：手机上名称不会被挤得太短 */}

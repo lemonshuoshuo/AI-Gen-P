@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarHeart, Copy, Heart, HeartCrack, PenLine, Plus, Send, Settings2 } from 'lucide-react'
@@ -9,7 +9,6 @@ import { TripGrid, TripGridSkeleton } from '@/components/trip/TripCard'
 import {
   Avatar,
   Button,
-  Card,
   Empty,
   Field,
   Input,
@@ -20,7 +19,6 @@ import {
   PageLoader,
   Switch,
   UserName,
-  buttonClass,
 } from '@/components/ui'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useSite } from '@/hooks/useSite'
@@ -33,6 +31,32 @@ import { useAuth } from '@/stores/auth'
 // 共同足迹地图（maplibre + deck.gl）只在绑定情侣空间后显示：按需加载，还没绑定时只看到邀请表单
 const loadFootprintsView = () => import('@/components/three/FootprintsView')
 const FootprintsView = lazy(() => loadFootprintsView().then((m) => ({ default: m.FootprintsView })))
+
+/** 细线标签行：一条 border-t，左侧小标签 + 灰色计数，右侧操作 */
+function LabelRow({ label, count, extra }: { label: string; count?: ReactNode; extra?: ReactNode }) {
+  return (
+    <div className="flex min-h-12 flex-wrap items-center justify-between gap-x-6 gap-y-1 border-t border-ink-200 pt-3 pb-1">
+      <p className="flex min-w-0 items-baseline gap-3">
+        <span className="eyebrow !text-ink-800">{label}</span>
+        {count != null && <span className="text-[13px] text-ink-400">{count}</span>}
+      </p>
+      {extra}
+    </div>
+  )
+}
+
+/** 两个相交的细线圆 + 胭脂色的「&」：情侣空间的标记 */
+function UnionMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 140 90" className={className} fill="none" stroke="currentColor" aria-hidden>
+      <circle cx={45} cy={45} r={43} strokeWidth={0.8} />
+      <circle cx={95} cy={45} r={43} strokeWidth={0.8} />
+      <text x={70} y={56} textAnchor="middle" fill="var(--color-pink-600)" stroke="none" fontFamily="var(--font-display)" fontStyle="italic" fontWeight={300} fontSize={30}>
+        &amp;
+      </text>
+    </svg>
+  )
+}
 
 function Invites({ info, refresh }: { info: PartnerInfo; refresh: () => void }) {
   const me = useAuth((s) => s.user)!
@@ -71,129 +95,141 @@ function Invites({ info, refresh }: { info: PartnerInfo; refresh: () => void }) 
     else toast.error('复制失败，请手动复制')
   }
   return (
-    <div className="mx-auto max-w-lg space-y-5">
-      <div className="bg-love-gradient relative overflow-hidden rounded-2xl px-6 pt-6 pb-7 text-white">
-        <div className="flex items-center gap-3">
-          <span className="flex size-9 items-center justify-center rounded-full ring-1 ring-white/35">
-            <Heart className="size-4" strokeWidth={1.5} />
-          </span>
-          <p className="eyebrow !text-white/60">Together · 我们</p>
+    <div className="mx-auto max-w-[90rem] px-4 pt-10 pb-24 md:px-8 md:pt-16 md:pb-36">
+      <header className="animate-slide-up">
+        <LabelRow label="Together · 我们" count="情侣空间" />
+      </header>
+      <div className="mt-12 grid gap-x-8 gap-y-16 md:mt-20 lg:grid-cols-12">
+        <div className="animate-slide-up lg:col-span-6 [animation-delay:80ms] [animation-fill-mode:backwards]">
+          <UnionMark className="w-28 text-ink-400 md:w-36" />
+          <h1 className="text-display-xl mt-10 font-normal md:mt-14">我们一起走过的地方</h1>
+          <p className="mt-8 max-w-md text-[15px] leading-[1.8] text-ink-900">和 TA 绑定情侣空间，一起的旅程会汇成共同的足迹地图。</p>
+          <p className="caption mt-1 max-w-md leading-[1.8]">点亮你们一起去过的城市，还能 3D 回放你们走过的每一段路。</p>
         </div>
-        <h1 className="mt-4 text-[26px] leading-tight">我们一起走过的地方</h1>
-        <p className="mt-2 text-sm leading-relaxed text-white/75">
-          和 TA 绑定情侣空间：一起的旅程会汇成共同的足迹地图，点亮你们一起去过的城市，还能 3D 回放你们的每一段路。
-        </p>
-      </div>
 
-      {info.invites.incoming.map((inv) => (
-        <Card key={inv.id} className="p-4">
-          <div className="flex items-center gap-3">
-            <Avatar user={inv.from} size={44} />
-            <div className="min-w-0 flex-1">
-              <UserName user={inv.from} />
-              <div className="text-xs text-ink-400">{fromNow(inv.created_at)} 邀请你绑定情侣空间</div>
-            </div>
-          </div>
-          {inv.message && (
-            <p className="font-display mt-3 border-l-2 border-pink-300 py-0.5 pl-3 text-[15px] leading-relaxed text-ink-700">“{inv.message}”</p>
+        <div className="animate-slide-up space-y-14 lg:col-span-5 lg:col-start-8 [animation-delay:160ms] [animation-fill-mode:backwards]">
+          {info.invites.incoming.length > 0 && (
+            <section>
+              <LabelRow label="Received · 收到的邀请" count={<span className="font-num">{info.invites.incoming.length}</span>} />
+              <ul className="divide-y divide-ink-200">
+                {info.invites.incoming.map((inv) => (
+                  <li key={inv.id} className="py-5">
+                    <div className="flex items-center gap-3">
+                      <Avatar user={inv.from} size={44} />
+                      <div className="min-w-0 flex-1">
+                        <UserName user={inv.from} className="text-[15px] text-ink-900" />
+                        <div className="caption">{fromNow(inv.created_at)} 邀请你绑定情侣空间</div>
+                      </div>
+                    </div>
+                    {inv.message && (
+                      <p className="font-display mt-4 border-l border-pink-500 py-0.5 pl-4 text-lg leading-relaxed text-ink-800">“{inv.message}”</p>
+                    )}
+                    <div className="mt-4 flex justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        disabled={!!busy}
+                        loading={busy === `decline-${inv.id}`}
+                        onClick={() => act(`decline-${inv.id}`, () => api.partner.decline(inv.id), '已拒绝')}
+                      >
+                        婉拒
+                      </Button>
+                      <Button
+                        variant="love"
+                        icon={<Heart className="size-4" strokeWidth={1.5} />}
+                        disabled={!!busy}
+                        loading={busy === `accept-${inv.id}`}
+                        onClick={() => act(`accept-${inv.id}`, () => api.partner.accept(inv.id), '绑定成功')}
+                      >
+                        接受
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
-          <div className="mt-3 flex justify-end gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={!!busy}
-              loading={busy === `decline-${inv.id}`}
-              onClick={() => act(`decline-${inv.id}`, () => api.partner.decline(inv.id), '已拒绝')}
-            >
-              婉拒
-            </Button>
-            <Button
-              variant="love"
-              size="sm"
-              icon={<Heart className="size-4" strokeWidth={1.75} />}
-              disabled={!!busy}
-              loading={busy === `accept-${inv.id}`}
-              onClick={() => act(`accept-${inv.id}`, () => api.partner.accept(inv.id), '绑定成功')}
-            >
-              接受
-            </Button>
-          </div>
-        </Card>
-      ))}
 
-      {linked && (
-        <p className="rounded-lg border border-pink-200 bg-pink-50/60 px-4 py-3 text-sm leading-relaxed text-pink-800">
-          {linkedInvited
-            ? `@${linked} 已经邀请你了，点上面的「接受」就绑定啦`
-            : `@${linked} 邀请你绑定情侣空间，点「发送邀请」，TA 确认后就绑定啦`}
-        </p>
-      )}
+          {linked && (
+            <p className="border-l border-pink-500 py-1 pl-4 text-[13.5px] leading-relaxed text-ink-700">
+              <span className="eyebrow mr-2 !text-pink-600">Invite</span>
+              {linkedInvited
+                ? `@${linked} 已经邀请你了，点上面的「接受」就绑定啦`
+                : `@${linked} 邀请你绑定情侣空间，点「发送邀请」，TA 确认后就绑定啦`}
+            </p>
+          )}
 
-      <Card className="space-y-3 p-5">
-        <div>
-          <p className="eyebrow">Invite · 邀请</p>
-          <h3 className="mt-1 text-[17px]">邀请 TA</h3>
+          <section>
+            <LabelRow label="Invite · 邀请 TA" />
+            <div className="mt-6 space-y-5">
+              <Field label="对方的用户名">
+                <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="输入 TA 的用户名，或把下方邀请链接发给 TA" />
+              </Field>
+              <Field label="想说的话（可选）">
+                <Input value={message} onChange={(e) => setMessage(e.target.value)} maxLength={100} placeholder="以后的旅行，都一起记录吧" />
+              </Field>
+              <Button
+                block
+                size="lg"
+                variant="love"
+                loading={busy === 'send'}
+                disabled={!username.trim() || !!busy}
+                icon={<Send className="size-4" strokeWidth={1.5} />}
+                onClick={async () => {
+                  // 只在发送成功后清空：用户名打错（用户不存在）时保留输入，改一下就能重发
+                  if (await act('send', () => api.partner.invite(username.trim(), message.trim() || undefined), '邀请已发送，等 TA 接受吧')) {
+                    setUsername('')
+                    setMessage('')
+                    // 邀请链接已用过：去掉地址里的 invite，提示随之消失
+                    if (params.has('invite')) {
+                      const next = new URLSearchParams(params)
+                      next.delete('invite')
+                      setParams(next, { replace: true })
+                    }
+                  }
+                }}
+              >
+                发送邀请
+              </Button>
+            </div>
+          </section>
+
+          <section>
+            <LabelRow label="Link · 邀请链接" count={`@${me.username}`} />
+            <p className="mt-4 text-[15px] text-ink-900">把邀请链接发给 TA</p>
+            <p className="caption mt-0.5">TA 打开链接、注册或登录后点「发送邀请」，你在通知里接受就绑定啦</p>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <Input readOnly value={inviteUrl} onFocus={(e) => e.target.select()} aria-label="邀请链接" className="font-num" />
+              <Button variant="outline" icon={<Copy className="size-4" strokeWidth={1.5} />} onClick={copyInvite}>
+                复制邀请链接
+              </Button>
+            </div>
+          </section>
+
+          {info.invites.outgoing.length > 0 && (
+            <section>
+              <LabelRow label="Sent · 已发出" count={<span className="font-num">{info.invites.outgoing.length}</span>} />
+              <ul className="divide-y divide-ink-200">
+                {info.invites.outgoing.map((inv) => (
+                  <li key={inv.id} className="flex items-center gap-3 py-4">
+                    <Avatar user={inv.to} size={36} />
+                    <div className="min-w-0 flex-1 text-[13.5px] text-ink-500">
+                      已邀请 <span className="font-display text-base text-ink-900">{inv.to.nickname || inv.to.username}</span>，等待对方接受
+                    </div>
+                    <Button
+                      variant="ghost"
+                      disabled={!!busy}
+                      loading={busy === `cancel-${inv.id}`}
+                      onClick={() => act(`cancel-${inv.id}`, () => api.partner.cancel(inv.id), '已撤回')}
+                    >
+                      撤回
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </div>
-        <Field label="对方的用户名">
-          <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="输入 TA 的用户名，或把下方邀请链接发给 TA" />
-        </Field>
-        <Field label="想说的话（可选）">
-          <Input value={message} onChange={(e) => setMessage(e.target.value)} maxLength={100} placeholder="以后的旅行，都一起记录吧" />
-        </Field>
-        <Button
-          block
-          variant="love"
-          loading={busy === 'send'}
-          disabled={!username.trim() || !!busy}
-          icon={<Send className="size-4" strokeWidth={1.75} />}
-          onClick={async () => {
-            // 只在发送成功后清空：用户名打错（用户不存在）时保留输入，改一下就能重发
-            if (await act('send', () => api.partner.invite(username.trim(), message.trim() || undefined), '邀请已发送，等 TA 接受吧')) {
-              setUsername('')
-              setMessage('')
-              // 邀请链接已用过：去掉地址里的 invite，提示随之消失
-              if (params.has('invite')) {
-                const next = new URLSearchParams(params)
-                next.delete('invite')
-                setParams(next, { replace: true })
-              }
-            }
-          }}
-        >
-          发送邀请
-        </Button>
-        <div className="space-y-2 border-t border-ink-200 pt-4">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-            <h4 className="font-display text-[15px] text-ink-900">把邀请链接发给 TA</h4>
-            <span className="text-xs text-ink-400">我的用户名 @{me.username}</span>
-          </div>
-          <div className="flex gap-2">
-            <Input readOnly value={inviteUrl} onFocus={(e) => e.target.select()} aria-label="邀请链接" />
-            <Button variant="outline" icon={<Copy className="size-4" strokeWidth={1.75} />} onClick={copyInvite}>
-              复制邀请链接
-            </Button>
-          </div>
-          <p className="text-xs text-ink-400">TA 打开链接、注册或登录后点「发送邀请」，你在通知里接受就绑定啦</p>
-        </div>
-      </Card>
-
-      {info.invites.outgoing.map((inv) => (
-        <Card key={inv.id} className="flex items-center gap-3 p-4">
-          <Avatar user={inv.to} size={36} />
-          <div className="min-w-0 flex-1 text-sm text-ink-600">
-            已邀请 <span className="font-display text-ink-900">{inv.to.nickname || inv.to.username}</span>，等待对方接受
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={!!busy}
-            loading={busy === `cancel-${inv.id}`}
-            onClick={() => act(`cancel-${inv.id}`, () => api.partner.cancel(inv.id), '已撤回')}
-          >
-            撤回
-          </Button>
-        </Card>
-      ))}
+      </div>
     </div>
   )
 }
@@ -341,12 +377,7 @@ export default function TogetherPage() {
     qc.invalidateQueries({ queryKey: ['partner-trips'] })
   }
 
-  if (!partner)
-    return (
-      <div className="px-4 py-6">
-        <Invites info={info} refresh={refresh} />
-      </div>
-    )
+  if (!partner) return <Invites info={info} refresh={refresh} />
 
   const days = info.since ? dayjs().startOf('day').diff(dayjs(info.since), 'day') + 1 : null
   const sharedTrips = flattenPages(tripsQ.data?.pages)
@@ -368,128 +399,159 @@ export default function TogetherPage() {
     }
   }
 
+  const meName = me.nickname || me.username
+  const partnerName = partner.nickname || partner.username
+  const settings = (
+    <Menu
+      trigger={(t, open) => (
+        <button
+          type="button"
+          onClick={t}
+          aria-expanded={open}
+          className="-mr-2 inline-flex h-10 items-center gap-1.5 rounded-full px-3 text-[13px] text-ink-500 transition-colors hover:text-ink-900"
+        >
+          <Settings2 className="size-3.5" strokeWidth={1.4} />
+          设置
+        </button>
+      )}
+    >
+      {(close) => (
+        <>
+          <MenuItem icon={<PenLine className="size-4" />} onClick={() => (close(), setEditing(true))}>
+            编辑名称、纪念日和公开设置
+          </MenuItem>
+          <MenuItem icon={<HeartCrack className="size-4" />} danger onClick={() => (close(), setUnbinding(true))}>
+            解除绑定
+          </MenuItem>
+        </>
+      )}
+    </Menu>
+  )
+
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
-      {/* 卡片本身不裁剪：「设置」菜单要能超出卡片 */}
-      <div className="bg-love-gradient relative rounded-2xl px-5 py-6 text-white sm:px-8 sm:py-8">
-        {/* 手机上头像和「设置」一行，标题单独一行（否则标题被挤成一两个字一行） */}
-        <div className="relative flex flex-wrap items-center gap-x-6 gap-y-4">
-          <div className="flex items-center">
-            <Avatar user={me} size={56} ring />
-            <span className="font-num z-10 -mx-1.5 flex size-8 items-center justify-center rounded-full bg-[#5d3653] text-[17px] text-white/90 italic ring-1 ring-white/30">
-              &amp;
-            </span>
-            <Avatar user={partner} size={56} ring />
-          </div>
-          <div className="order-last w-full min-w-0 sm:order-none sm:w-auto sm:flex-1">
-            <p className="eyebrow !text-white/55">Together · 我们</p>
-            <h1 className="mt-1.5 text-[26px] leading-tight sm:text-[32px]">{info.title || '我们一起走过的地方'}</h1>
-            <p className="mt-1.5 text-sm text-white/75">
-              {me.nickname || me.username} &amp; {partner.nickname || partner.username}
-            </p>
-          </div>
-          {days != null && days > 0 && (
-            <div className="order-last flex items-baseline gap-1.5 sm:order-none sm:border-l sm:border-white/20 sm:pl-6">
-              <span className="text-xs text-white/60">在一起</span>
-              <span className="font-num text-[2.25rem] leading-none font-medium tracking-tight">{days}</span>
-              <span className="text-xs text-white/60">天</span>
+    <div className="mx-auto max-w-[90rem] px-4 pt-10 pb-24 md:px-8 md:pt-16 md:pb-36">
+      <header className="animate-slide-up">
+        <LabelRow
+          label="Together · 我们"
+          count={
+            <>
+              {meName} <span className="font-display text-pink-600 italic">&amp;</span> {partnerName}
+            </>
+          }
+          extra={settings}
+        />
+        <div className="mt-12 grid gap-x-8 gap-y-12 md:mt-20 lg:grid-cols-12 lg:items-end">
+          <div className="min-w-0 lg:col-span-8">
+            <div className="flex items-center">
+              <Avatar user={me} size={44} ring />
+              <span className="font-display z-10 -mx-1 flex size-7 items-center justify-center rounded-full bg-paper text-lg text-pink-600 italic ring-1 ring-ink-200">
+                &amp;
+              </span>
+              <Avatar user={partner} size={44} ring />
             </div>
-          )}
-          <div className="ml-auto">
-            <Menu
-              trigger={(t, open) => (
-                <button
-                  type="button"
-                  onClick={t}
-                  aria-expanded={open}
-                  className="flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] text-white/85 ring-1 ring-white/25 transition-colors hover:bg-white/10 hover:text-white"
-                >
-                  <Settings2 className="size-3.5" strokeWidth={1.6} />
-                  设置
-                </button>
-              )}
-            >
-              {(close) => (
-                <>
-                  <MenuItem icon={<PenLine className="size-4" />} onClick={() => (close(), setEditing(true))}>
-                    编辑名称、纪念日和公开设置
-                  </MenuItem>
-                  <MenuItem icon={<HeartCrack className="size-4" />} danger onClick={() => (close(), setUnbinding(true))}>
-                    解除绑定
-                  </MenuItem>
-                </>
-              )}
-            </Menu>
+            <h1 className="text-display-xl mt-8 font-normal text-balance md:mt-10">{info.title || '我们一起走过的地方'}</h1>
+          </div>
+          <div className="lg:col-span-4 lg:pb-2">
+            {days != null && days > 0 ? (
+              <div className="border-t border-ink-200 pt-3 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-8">
+                <p className="flex items-baseline justify-between gap-3">
+                  <span className="flex items-center gap-2 text-[13px] text-ink-900">
+                    <span className="size-1.5 rounded-full bg-pink-500" aria-hidden />
+                    在一起
+                  </span>
+                  <span className="eyebrow">Days together</span>
+                </p>
+                <p className="mt-6 flex items-baseline gap-2 md:mt-8">
+                  <span className="font-num text-[clamp(4.5rem,10vw,8.5rem)] leading-[0.8] font-light tracking-[-0.02em] text-ink-900">{days}</span>
+                  <span className="text-xs text-ink-500">天</span>
+                </p>
+                <p className="caption font-num mt-4">since {dayjs(info.since).format('YYYY.MM.DD')}</p>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="inline-flex h-10 items-center gap-2 text-[13px] text-ink-900 underline decoration-ink-300 underline-offset-4 transition-colors hover:decoration-ink-900"
+              >
+                <CalendarHeart className="size-4 text-pink-600" strokeWidth={1.4} />
+                设置在一起的纪念日
+              </button>
+            )}
           </div>
         </div>
-        {!info.since && (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="relative mt-5 flex items-center gap-1.5 text-[13px] text-white/80 underline decoration-white/30 underline-offset-4 hover:text-white"
-          >
-            <CalendarHeart className="size-4" strokeWidth={1.5} />
-            设置在一起的纪念日
-          </button>
-        )}
-      </div>
+      </header>
 
       {fpQ.isLoading ? (
-        <div className="mt-6 h-[52vh] min-h-80 animate-pulse rounded-xl bg-ink-100 sm:h-[62vh]" />
+        <div className="mt-16 h-[62vh] min-h-80 animate-pulse bg-ink-100 md:mt-24" />
       ) : fpQ.isLoadingError ? (
         <LoadError className="py-8" title="足迹加载失败" error={fpQ.error} onRetry={() => fpQ.refetch()} />
       ) : fpQ.data && (
         <>
-          <FootprintStats data={fpQ.data} className="mt-6" accent="text-pink-500" />
-          <div className="mt-6">
+          <FootprintStats data={fpQ.data} className="animate-slide-up mt-16 md:mt-24 [animation-delay:120ms] [animation-fill-mode:backwards]" accent="text-pink-500" />
+          <section className="mt-10 md:mt-16" aria-label="共同足迹">
             {fpQ.data.stats.waypoints === 0 ? (
-              <Empty
-                icon={<Heart className="size-11 text-pink-300" />}
-                title="还没有一起的足迹"
-                desc="创建旅程时打开「和 TA 一起」，你们的打卡就会出现在这里"
-                action={
-                  <Button variant="love" icon={<Plus className="size-4" strokeWidth={1.75} />} onClick={() => nav('/trips/new')}>
-                    规划一次一起的旅行
-                  </Button>
-                }
-              />
+              <div className="border-t border-ink-200">
+                <Empty
+                  icon={<Heart className="size-10 text-pink-500" />}
+                  title="还没有一起的足迹"
+                  desc="创建旅程时打开「和 TA 一起」，你们的打卡就会出现在这里"
+                  action={
+                    <Button variant="love" icon={<Plus className="size-4" strokeWidth={1.5} />} onClick={() => nav('/trips/new')}>
+                      规划一次一起的旅行
+                    </Button>
+                  }
+                />
+              </div>
             ) : (
-              <Suspense fallback={<PageLoader />}>
-                <FootprintsView data={fpQ.data} theme="love" replayTo="/together/replay" />
+              <Suspense fallback={<div className="h-[68svh] min-h-[26rem] animate-pulse border-t border-ink-200 bg-ink-100 md:h-[80vh]" />}>
+                <FootprintsView
+                  data={fpQ.data}
+                  theme="love"
+                  replayTo="/together/replay"
+                  label="Atlas · 共同足迹"
+                  bleed
+                  height="h-[68svh] min-h-[26rem] md:h-[80vh] md:min-h-[36rem]"
+                />
               </Suspense>
             )}
-          </div>
+          </section>
         </>
       )}
 
-      <div className="mt-12 mb-4 flex items-end justify-between gap-3">
-        <div>
-          <p className="eyebrow">Trips · 旅程</p>
-          <h2 className="mt-1.5 text-[22px]">一起的旅程</h2>
-        </div>
-        <Link to="/trips/new" className={buttonClass({ size: 'sm', variant: 'love' })}>
-          <Plus className="size-3.5" strokeWidth={1.75} />
-          新旅程
-        </Link>
-      </div>
-      {tripsQ.isLoading ? (
-        <TripGridSkeleton n={2} />
-      ) : tripsQ.isLoadingError ? (
-        <LoadError className="py-8" error={tripsQ.error} onRetry={() => tripsQ.refetch()} />
-      ) : sharedTrips.length ? (
-        <>
-          <TripGrid trips={sharedTrips} />
-          {tripsQ.hasNextPage && (
-            <div className="mt-6 flex justify-center">
-              <Button variant="outline" loading={tripsQ.isFetchingNextPage} onClick={() => tripsQ.fetchNextPage()}>
-                加载更多
-              </Button>
-            </div>
-          )}
-        </>
-      ) : (
-        <p className="text-sm text-ink-400">还没有一起的旅程</p>
-      )}
+      <section className="mt-24 md:mt-36">
+        <LabelRow
+          label="Trips · 旅程"
+          count={sharedTrips.length ? <><span className="font-num">{tripsQ.data?.pages[0]?.total ?? sharedTrips.length}</span> 段</> : undefined}
+          extra={
+            <Link
+              to="/trips/new"
+              className="inline-flex h-10 items-center gap-1.5 text-[13px] text-ink-900 underline decoration-ink-300 underline-offset-4 transition-colors hover:decoration-ink-900"
+            >
+              <Plus className="size-3.5" strokeWidth={1.5} />
+              新旅程
+            </Link>
+          }
+        />
+        <h2 className="text-display-md mt-8 mb-10 font-normal md:mt-12 md:mb-14">一起的旅程</h2>
+        {tripsQ.isLoading ? (
+          <TripGridSkeleton n={2} />
+        ) : tripsQ.isLoadingError ? (
+          <LoadError className="py-8" error={tripsQ.error} onRetry={() => tripsQ.refetch()} />
+        ) : sharedTrips.length ? (
+          <>
+            <TripGrid trips={sharedTrips} />
+            {tripsQ.hasNextPage && (
+              <div className="mt-12 flex justify-center">
+                <Button variant="outline" loading={tripsQ.isFetchingNextPage} onClick={() => tripsQ.fetchNextPage()}>
+                  加载更多
+                </Button>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="caption">还没有一起的旅程</p>
+        )}
+      </section>
 
       {editing && <EditSpace info={info} onClose={() => setEditing(false)} onSaved={refresh} />}
       {unbinding && <UnbindDialog onClose={() => setUnbinding(false)} onUnbind={unbind} />}

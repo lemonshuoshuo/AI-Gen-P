@@ -18,9 +18,10 @@ export default function FavoritesPage() {
   const total = q.data?.pages[0]?.total
 
   return (
-    <div className="mx-auto max-w-6xl px-4 pt-8 pb-16 md:px-6 md:pt-12">
+    <div className="mx-auto max-w-[90rem] px-4 pt-12 pb-24 md:px-8 md:pt-20 md:pb-32">
       <PageHead
         eyebrow="Saved · 收藏夹"
+        meta={total ? `${total} 段` : undefined}
         title="我的收藏"
         dek={
           total ? (
@@ -32,7 +33,7 @@ export default function FavoritesPage() {
           )
         }
       />
-      <div className="mt-8 border-t border-ink-200 pt-8">
+      <div className="mt-16 md:mt-24">
         {q.isLoading ? (
           <TripGridSkeleton />
         ) : q.isLoadingError ? (
@@ -44,7 +45,7 @@ export default function FavoritesPage() {
             desc="在旅程详情页点「收藏」，就能在这里找到它"
             action={
               <Link to="/" className={buttonClass()}>
-                <Compass className="size-4" strokeWidth={1.75} />
+                <Compass className="size-4" strokeWidth={1.5} />
                 去发现
               </Link>
             }

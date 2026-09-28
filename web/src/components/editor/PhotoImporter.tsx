@@ -134,14 +134,14 @@ export function PhotoImporter({
           type="button"
           disabled={!!preparing}
           onClick={() => input.current?.click()}
-          className={`group flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-ink-300 bg-white/60 text-ink-500 transition-colors hover:border-ink-900 hover:bg-surface hover:text-ink-900 ${compact ? 'py-5' : 'py-10'}`}
+          className={`group flex w-full flex-col items-center justify-center gap-3 rounded-sm border border-dashed border-ink-300 text-ink-500 transition-colors duration-300 hover:border-ink-700 hover:bg-surface hover:text-ink-900 ${compact ? 'py-7' : 'py-14'}`}
         >
-          <ImagePlus className="size-7 text-ink-400 transition-colors group-hover:text-ink-900" strokeWidth={1.25} />
-          <span className="font-display text-[15px] text-ink-900">
+          <ImagePlus className="size-7 text-ink-400 transition-colors group-hover:text-ink-900" strokeWidth={1} />
+          <span className={`font-display text-ink-900 ${compact ? 'text-[18px]' : 'text-[24px]'}`}>
             {preparing ? `正在读取照片 ${preparing.done}/${preparing.total}…` : '选择照片（可多选）'}
           </span>
           {!compact && (
-            <span className="max-w-xs text-center text-xs text-ink-400">
+            <span className="max-w-xs text-center text-xs leading-relaxed text-ink-500">
               会读取照片里的拍摄地点和时间，自动生成足迹。支持 JPG / PNG / HEIC
               {isWeChat() && (
                 <span className="mt-1 block text-amber-700">微信内选择的照片可能会被去掉位置信息，建议点右上角「···」选择「在浏览器打开」后再上传</span>
@@ -150,13 +150,13 @@ export function PhotoImporter({
           )}
         </button>
       ) : (
-        <div className="rounded-xl border border-ink-200 bg-surface p-3.5">
-          <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-6">
+        <div className="border-y border-ink-200 py-4">
+          <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
             {items.map((p) => (
-              <div key={p.previewUrl} className="relative aspect-square overflow-hidden rounded-md bg-ink-100">
+              <div key={p.previewUrl} className="relative aspect-square overflow-hidden bg-ink-100">
                 <img src={p.previewUrl} alt="" loading="lazy" decoding="async" className="size-full object-cover" />
                 {p.lng != null && (
-                  <span className="absolute right-1 bottom-1 rounded-full bg-ink-900/80 p-0.5 text-paper" title="带位置信息">
+                  <span className="absolute right-1 bottom-1 rounded-full bg-black/60 p-0.5 text-white" title="带位置信息">
                     <MapPin className="size-2.5" strokeWidth={2} />
                   </span>
                 )}
@@ -164,7 +164,7 @@ export function PhotoImporter({
                   <button
                     type="button"
                     onClick={() => removeOne(p)}
-                    className="absolute top-0.5 right-0.5 rounded-full bg-ink-900/60 p-0.5 text-paper hover:bg-ink-900/80"
+                    className="absolute top-1 right-1 flex size-7 items-center justify-center rounded-full bg-black/55 text-white hover:bg-black/75"
                     aria-label="移除这张"
                   >
                     <X className="size-3" strokeWidth={1.75} />
@@ -176,8 +176,9 @@ export function PhotoImporter({
           {retry ? (
             <p className="mt-3 text-sm text-amber-700">还有 {items.length} 张未上传成功，可重试或移除</p>
           ) : (
-            <p className="mt-3 text-sm text-ink-600">
-              共 <span className="font-num">{items.length}</span> 张，其中 <span className="font-num font-medium text-ink-900">{withGps}</span> 张带位置信息
+            <p className="mt-4 text-sm text-ink-600">
+              共 <span className="font-num text-[16px] text-ink-900">{items.length}</span> 张，其中{' '}
+              <span className="font-num text-[16px] text-ink-900">{withGps}</span> 张带位置信息
             </p>
           )}
           {withGps < items.length &&
@@ -191,11 +192,11 @@ export function PhotoImporter({
           <div className="mt-3">
             <Switch checked={auto} onChange={setAuto} label="根据照片位置自动生成打卡点（300 米内自动合并）" />
           </div>
-          <div className="mt-3 flex justify-end gap-2">
-            <Button variant="ghost" size="sm" disabled={!!uploading} onClick={clear}>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" disabled={!!uploading} onClick={clear}>
               {retry ? '移除' : '取消'}
             </Button>
-            <Button size="sm" loading={!!uploading} icon={<Upload className="size-4" strokeWidth={1.75} />} onClick={upload}>
+            <Button loading={!!uploading} icon={<Upload className="size-4" strokeWidth={1.5} />} onClick={upload}>
               {uploading ? `上传中 ${uploading.done}/${uploading.total}` : retry ? `重试 ${items.length} 张` : `上传 ${items.length} 张`}
             </Button>
           </div>

@@ -67,9 +67,9 @@ async function addAtlasFallback(map: MLMap, kind: () => BaseKind) {
   }
 }
 
-/** 地图上的细线纸质小按钮（底图切换、定位、全程等） */
+/** 地图上的细线小胶囊（底图切换、定位、全程等）：近黑玻璃 + 细亮线；手机上高 40px 方便手指点 */
 export const mapChipClass =
-  'flex h-8 items-center justify-center gap-1.5 rounded-lg border border-ink-900/10 bg-white/90 px-2.5 text-xs font-medium tracking-wide text-ink-700 shadow-card backdrop-blur transition-colors hover:border-ink-900/25 hover:text-ink-900 disabled:opacity-45'
+  'glass flex h-10 items-center justify-center gap-1.5 rounded-full border border-white/15 px-3.5 text-xs font-medium tracking-[0.04em] text-ink-800 transition-colors duration-300 hover:border-white/40 hover:text-ink-900 disabled:opacity-45 sm:h-9'
 
 export function BaseMap({
   className,
@@ -191,13 +191,13 @@ export function BaseMap({
               className={mapChipClass}
               title="切换底图"
             >
-              <Layers className="size-3.5" strokeWidth={1.6} />
+              <Layers className="size-3.5" strokeWidth={1.4} />
               {baseKind === 'satellite' ? '卫星' : baseKind === 'dark' ? '夜间' : '标准'}
             </button>
           )}
           {locate && (
-            <button type="button" onClick={doLocate} className={cn(mapChipClass, 'w-8 px-0')} title="定位到当前位置" aria-label="定位到当前位置">
-              <LocateFixed className="size-4" strokeWidth={1.6} />
+            <button type="button" onClick={doLocate} className={cn(mapChipClass, 'w-10 px-0 sm:w-9')} title="定位到当前位置" aria-label="定位到当前位置">
+              <LocateFixed className="size-4" strokeWidth={1.4} />
             </button>
           )}
         </div>

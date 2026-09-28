@@ -30,10 +30,10 @@ let unsupported = false
 export const geoPickUnsupported = () => unsupported
 
 // 朱砂十字准星：外圈脉冲、内圈细线、四个刻度和中心点
-const V = '#bd462b'
+const V = '#cf6041'
 const PIN_HTML = `<div style="position:relative;width:36px;height:36px;pointer-events:none">
   <span class="animate-pulse-ring" style="position:absolute;inset:6px;border-radius:999px;border:1.5px solid ${V}"></span>
-  <span style="position:absolute;inset:10px;border-radius:999px;border:1.5px solid ${V};background:rgba(189,70,43,.1)"></span>
+  <span style="position:absolute;inset:10px;border-radius:999px;border:1.5px solid ${V};background:rgba(207,96,65,.12)"></span>
   <span style="position:absolute;left:17.5px;top:0;width:1px;height:8px;background:${V}"></span>
   <span style="position:absolute;left:17.5px;bottom:0;width:1px;height:8px;background:${V}"></span>
   <span style="position:absolute;top:17.5px;left:0;width:8px;height:1px;background:${V}"></span>
@@ -217,40 +217,40 @@ export function MapPicker({
       aria-modal="false"
       aria-labelledby={titleId}
       className={cn(
-        'flex flex-col bg-surface shadow-float',
+        'flex flex-col border border-ink-900/10 bg-surface-2 shadow-float',
         desktop
-          ? 'animate-fade-in absolute top-[3.75rem] left-3 z-20 max-h-[calc(100%-5rem)] w-[344px] max-w-[calc(100%-1.5rem)] rounded-xl'
-          : 'animate-slide-up fixed inset-x-0 bottom-0 z-40 max-h-[52dvh] rounded-t-2xl pb-[env(safe-area-inset-bottom)]',
+          ? 'animate-fade-in absolute top-[4.25rem] left-4 z-20 max-h-[calc(100%-5.5rem)] w-[344px] max-w-[calc(100%-2rem)] rounded-xl'
+          : 'animate-slide-up fixed inset-x-0 bottom-0 z-40 max-h-[52dvh] rounded-t-xl border-x-0 border-b-0 pb-[env(safe-area-inset-bottom)]',
       )}
     >
-      {!desktop && <div aria-hidden className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-ink-200" />}
-      <div className="flex items-start gap-3 px-4 pt-3 pb-3">
+      {!desktop && <div aria-hidden className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-ink-300" />}
+      <div className="flex items-start gap-3 px-5 pt-4 pb-4">
         <div className="min-w-0 flex-1">
           <p className="eyebrow">Pick · 选点</p>
-          <h3 id={titleId} className="mt-1 truncate text-[17px] leading-snug text-ink-900">
+          <h3 id={titleId} className="mt-2 truncate text-[22px] leading-snug text-ink-900">
             {where}
           </h3>
-          <p className="font-num mt-0.5 truncate text-[11px] tracking-wider text-ink-400">
+          <p className="font-num mt-1 truncate text-[13px] tracking-wide text-ink-500">
             {r?.address.address ? `${r.address.address}` : coords}
           </p>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="-mr-1.5 rounded-full p-1.5 text-ink-400 transition-colors hover:bg-ink-900/5 hover:text-ink-900"
+          className="-mr-2 flex size-10 items-center justify-center rounded-full text-ink-500 transition-colors hover:bg-ink-900/[0.06] hover:text-ink-900"
           aria-label="关闭选点"
         >
-          <X className="size-5" strokeWidth={1.5} />
+          <X className="size-5" strokeWidth={1.25} />
         </button>
       </div>
       {q.isFetching ? <IndeterminateLine label="正在识别附近的地点" /> : <div className="h-px shrink-0 bg-ink-200" />}
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {q.isPending && !q.error && (
-          <p className="px-4 py-5 text-sm text-ink-400">正在识别附近的景区、店铺和社区地点…</p>
+          <p className="px-5 py-5 text-sm text-ink-500">正在识别附近的景区、店铺和社区地点…</p>
         )}
         {q.error && !isNotFound(q.error) && (
-          <div className="space-y-3 px-4 py-4">
+          <div className="space-y-3 px-5 py-4">
             <p className="text-sm leading-relaxed text-ink-600">{errorMessage(q.error)}</p>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => q.refetch()}>
@@ -265,13 +265,13 @@ export function MapPicker({
         {r && (
           <>
             {r.amap_error && (
-              <p className="mx-4 mt-3 flex gap-2 border-l-2 border-amber-400 bg-amber-50/70 py-2 pr-2 pl-2.5 text-xs leading-relaxed text-amber-800">
-                <Info className="mt-px size-3.5 shrink-0" strokeWidth={1.75} />
+              <p className="mx-5 mt-4 flex gap-2 border-l border-amber-500 py-1 pl-3 text-xs leading-relaxed text-ink-700">
+                <Info className="mt-px size-3.5 shrink-0 text-amber-600" strokeWidth={1.5} />
                 <span>高德地点服务暂不可用：{sentence(r.amap_error)}</span>
               </p>
             )}
             {named.length === 0 && (
-              <p className="px-4 pt-3 text-xs leading-relaxed text-ink-400">
+              <p className="px-5 pt-4 text-xs leading-relaxed text-ink-500">
                 附近没有识别到景区或店铺。
                 {zoom < 13 ? '把地图放大到街道后再点，会更准确；' : ''}也可以直接用这个位置，稍后在编辑框里写上名字。
                 {r.source === 'local' && !r.amap_error && isAdmin(user) && (
@@ -279,7 +279,7 @@ export function MapPicker({
                 )}
               </p>
             )}
-            <ul className="divide-y divide-ink-100 py-1" onMouseLeave={() => setHover(null)}>
+            <ul className="divide-y divide-ink-200 py-1" onMouseLeave={() => setHover(null)}>
               {cands.map((c, i) => (
                 <li key={`${c.kind}-${c.amap_id || c.place_id || c.name}-${i}`}>
                   <CandidateRow c={c} onChoose={() => choose(c)} onPreview={(on) => setHover(on ? c : null)} />
@@ -287,7 +287,7 @@ export function MapPicker({
               ))}
             </ul>
             {(r.source === 'tianditu' || r.source === 'local') && (
-              <p className="eyebrow border-t border-ink-100 px-4 py-2 !text-[10px]">
+              <p className="eyebrow border-t border-ink-200 px-5 py-2.5 !text-[10px]">
                 {r.source === 'tianditu' ? 'Tianditu · 候选来自天地图' : 'Offline · 社区与离线数据'}
               </p>
             )}
@@ -308,16 +308,17 @@ function CandidateRow({
   onChoose: () => void
   onPreview: (on: boolean) => void
 }) {
-  const rowCls = 'group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-ink-50 focus-visible:bg-ink-50'
+  const rowCls =
+    'group flex w-full items-start gap-3 px-5 py-3.5 text-left transition-colors duration-300 hover:bg-ink-100 focus-visible:bg-ink-100'
   if (c.kind === 'address')
     return (
       <button type="button" onClick={onChoose} onMouseEnter={() => onPreview(false)} className={rowCls}>
-        <Crosshair className="mt-0.5 size-4 shrink-0 text-brand-500" strokeWidth={1.5} />
+        <Crosshair className="mt-0.5 size-4 shrink-0 text-brand-500" strokeWidth={1.25} />
         <span className="min-w-0 flex-1">
-          <span className="block text-sm text-ink-900">
-            就用这个位置<span className="text-ink-400">（街道）</span>
+          <span className="block text-[14px] text-ink-900">
+            就用这个位置<span className="text-ink-500">（街道）</span>
           </span>
-          {(c.name || c.address) && <span className="mt-0.5 block truncate text-xs text-ink-400">{c.name || c.address}</span>}
+          {(c.name || c.address) && <span className="mt-0.5 block truncate text-xs text-ink-500">{c.name || c.address}</span>}
         </span>
       </button>
     )
@@ -333,28 +334,28 @@ function CandidateRow({
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-2">
           {c.kind === 'aoi' && (
-            <span className="shrink-0 rounded-sm border border-brand-300 px-1 py-px text-[10.5px] leading-none tracking-wide text-brand-600">
+            <span className="shrink-0 rounded-full border border-brand-300 px-1.5 py-0.5 text-[10.5px] leading-none tracking-wide text-brand-700">
               景区/区域
             </span>
           )}
           {c.kind === 'place' && (
-            <span className="shrink-0 rounded-sm border border-emerald-300 px-1 py-px text-[10.5px] leading-none tracking-wide text-emerald-700">
+            <span className="shrink-0 rounded-full border border-emerald-400 px-1.5 py-0.5 text-[10.5px] leading-none tracking-wide text-emerald-700">
               社区地点
             </span>
           )}
-          <span className="font-display truncate text-[15px] leading-snug text-ink-900 group-hover:text-brand-700">{c.name}</span>
+          <span className="font-display truncate text-[17px] leading-snug text-ink-900">{c.name}</span>
         </span>
-        <span className="mt-1 flex min-w-0 items-center gap-2 text-xs text-ink-400">
+        <span className="mt-1 flex min-w-0 items-center gap-2 text-xs text-ink-500">
           {c.category && <CategoryChip category={c.category} className="shrink-0" />}
           {c.address && <span className="truncate">{c.address}</span>}
         </span>
         {c.place && <PlaceStatsBadge stats={c.place} className="mt-1 !py-0 text-[11px]" />}
       </span>
       {c.kind === 'aoi' ? (
-        <span className="mt-0.5 shrink-0 text-[11px] tracking-wide text-ink-400">所在范围</span>
+        <span className="mt-0.5 shrink-0 text-[11px] tracking-wide text-ink-500">所在范围</span>
       ) : (
         c.distance_m > 0 && (
-          <span className="font-num mt-0.5 shrink-0 text-xs text-ink-400">{formatDistance(c.distance_m)}</span>
+          <span className="font-num mt-0.5 shrink-0 text-[13px] text-ink-500">{formatDistance(c.distance_m)}</span>
         )
       )}
     </button>

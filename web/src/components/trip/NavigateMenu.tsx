@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ArrowUpRight, Copy, Navigation } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button, Modal, Segmented } from '@/components/ui'
+import { cn } from '@/lib/cn'
 import { copyText } from '@/lib/clipboard'
 import { defaultNavMode, isIOS, isWeChat, navModes, navProviders, rememberNavMode, type NavMode, type NavTarget } from '@/lib/nav'
 
@@ -11,6 +12,7 @@ export function NavigateMenu({
   label = '导航',
   variant = 'secondary',
   distanceM,
+  className,
 }: {
   target: NavTarget
   size?: 'xs' | 'sm' | 'md'
@@ -18,6 +20,7 @@ export function NavigateMenu({
   variant?: 'secondary' | 'outline' | 'primary' | 'ghost'
   /** 当前位置到目的地的距离（米）：用来选默认的出行方式 */
   distanceM?: number | null
+  className?: string
 }) {
   const [open, setOpen] = useState(false)
   const [picked, setPicked] = useState<NavMode | null>(null)
@@ -38,8 +41,8 @@ export function NavigateMenu({
       <Button
         size={size}
         variant={variant}
-        className={variant === 'ghost' ? 'text-ink-500 hover:text-ink-900' : undefined}
-        icon={<Navigation className="size-3.5" strokeWidth={1.75} />}
+        className={cn(variant === 'ghost' && 'text-ink-500 hover:text-ink-900', className)}
+        icon={<Navigation className="size-3.5" strokeWidth={1.5} />}
         onClick={() => setOpen(true)}
       >
         {label}

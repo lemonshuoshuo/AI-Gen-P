@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api'
+import { LabelRow } from '@/components/editorial'
 import { Markdown } from '@/components/Markdown'
 import { Empty, LoadError, PageLoader, Spinner } from '@/components/ui'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
@@ -27,26 +28,32 @@ export default function LegalPage() {
   if (q.isError) return <LoadError className="min-h-[60vh]" error={q.error} onRetry={() => q.refetch()} />
   const other: LegalDoc = doc === 'terms' ? 'privacy' : 'terms'
   return (
-    <article className="mx-auto max-w-2xl px-4 pt-8 pb-16 md:px-6 md:pt-12">
-      <div className="flex items-center justify-between gap-4 pb-2.5">
-        <p className="eyebrow">Legal · {legalTitle[doc]}</p>
-        <Link to={`/legal/${other}`} className="eyebrow transition-colors hover:!text-ink-900">
-          {legalTitle[other]} →
-        </Link>
-      </div>
-      <div className="border-t-2 border-ink-900 pt-8">
-        {/* 正文以一级标题开头：去掉第一个元素的上边距（.prose-trip 的样式不在 Tailwind 层里，需要 !） */}
-        <div className="prose-trip text-[15px] [&>:first-child]:!mt-0 [&>h1:first-child]:!mb-6 [&>h1:first-child]:!text-[28px] [&>h1:first-child]:!leading-tight md:[&>h1:first-child]:!text-[36px]">
+    <article className="mx-auto max-w-[90rem] px-4 pt-12 pb-24 md:px-8 md:pt-20 md:pb-32">
+      <LabelRow
+        label={`Legal · ${legalTitle[doc]}`}
+        extra={
+          <Link to={`/legal/${other}`} className="inline-flex h-10 items-center text-[13px] text-ink-500 transition-colors hover:text-ink-900 md:h-8">
+            {legalTitle[other]} →
+          </Link>
+        }
+      />
+      <div className="mt-12 grid gap-x-8 gap-y-10 md:mt-20 lg:grid-cols-12">
+        {/* 左栏：说明文字对 + 另一份文件（宽屏吸顶） */}
+        <aside className="lg:sticky lg:top-24 lg:col-span-4 lg:self-start">
+          <p className="text-[13px] text-ink-900">{legalTitle[doc]}</p>
+          <p className="caption">使用本站前请仔细阅读</p>
+          <p className="caption mt-6">
+            另见
+            <Link to={`/legal/${other}`} className="mx-0.5 text-ink-900 underline decoration-ink-300 underline-offset-4 hover:decoration-ink-900">
+              《{legalTitle[other]}》
+            </Link>
+          </p>
+        </aside>
+        {/* 正文以一级标题开头：一级标题放大成展示字号，去掉上边距（.prose-trip 的样式不在 Tailwind 层里，需要 !） */}
+        <div className="animate-slide-up prose-trip max-w-2xl text-[15px] lg:col-span-8 [&>:first-child]:!mt-0 [&>h1:first-child]:!mb-12 [&>h1:first-child]:!text-[clamp(2.25rem,5.4vw,4.25rem)] [&>h1:first-child]:!leading-[1.05] [&>h1:first-child]:!font-normal [&_h2]:!mt-12 [&_h2]:!font-normal">
           <Markdown fallback={<Spinner />}>{q.data?.content ?? ''}</Markdown>
         </div>
       </div>
-      <p className="mt-12 border-t border-ink-200 pt-4 text-xs text-ink-400">
-        另见
-        <Link to={`/legal/${other}`} className="mx-0.5 text-ink-700 underline decoration-ink-300 underline-offset-4 hover:decoration-ink-900">
-          《{legalTitle[other]}》
-        </Link>
-        。
-      </p>
     </article>
   )
 }

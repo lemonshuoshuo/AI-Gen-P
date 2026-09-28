@@ -4,7 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { Heart, Map as MapIcon, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type Phase, type TripCard, type UserBrief, type Visibility } from '@/api'
-import { FilterLinks, MoreButton, PageHead, cityShort, mineralOf } from '@/components/editorial'
+import { FilterLinks, LabelRow, MoreButton, PageHead, cityShort } from '@/components/editorial'
 import { TripGrid, TripGridSkeleton } from '@/components/trip/TripCard'
 import { Avatar, Button, Empty, LoadError } from '@/components/ui'
 import { fromNow } from '@/lib/format'
@@ -13,17 +13,16 @@ import { flattenPages } from '@/lib/pages'
 
 type TripInvite = { trip: TripCard; from: UserBrief; created_at: string }
 
-/** 邀请行里的小封面：有照片用照片，没有时是矿物色块 + 城市名 */
+/** 邀请行里的小封面：有照片用照片，没有时是近黑底上的宋体城市名 */
 function MiniCover({ trip }: { trip: TripCard }) {
-  const m = mineralOf(trip.id)
   return (
-    <div className="relative size-14 shrink-0 overflow-hidden rounded-md" style={{ background: m.bg, color: m.fg }}>
+    <div className="relative aspect-[4/5] w-14 shrink-0 overflow-hidden bg-surface text-ink-900 sm:w-16">
       {trip.cover_url ? (
         <img src={trip.cover_thumb_url || trip.cover_url} alt="" loading="lazy" className="size-full object-cover" />
       ) : (
-        <span className="font-display absolute bottom-1.5 left-2 text-[15px] leading-none">{cityShort(trip.cities?.[0] ?? '') || '旅'}</span>
+        <span className="font-display absolute bottom-2 left-2 text-[1.35rem] leading-none">{cityShort(trip.cities?.[0] ?? '').slice(0, 2) || '旅'}</span>
       )}
-      <span aria-hidden className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-ink-900/10 ring-inset" />
+      <span aria-hidden className="pointer-events-none absolute inset-0 ring-1 ring-ink-200 ring-inset" />
     </div>
   )
 }
@@ -42,24 +41,24 @@ function InviteRow({ inv }: { inv: TripInvite }) {
   })
   const from = inv.from.nickname || inv.from.username
   return (
-    <li className="flex items-center gap-3.5 py-3.5">
+    <li className="flex items-center gap-4 py-5 sm:gap-6">
       <MiniCover trip={inv.trip} />
       <div className="min-w-0 flex-1">
-        <Link to={`/trips/${inv.trip.id}`} className="font-display line-clamp-1 text-[16px] text-ink-900 transition-colors hover:text-brand-700">
+        <Link to={`/trips/${inv.trip.id}`} className="font-display line-clamp-1 text-[1.3rem] text-ink-900 transition-colors hover:text-ink-600 md:text-[1.5rem]">
           {inv.trip.title}
         </Link>
-        <div className="mt-1 flex items-center gap-1.5 text-xs text-ink-400">
-          <Avatar user={inv.from} size={16} />
+        <div className="caption mt-1.5 flex items-center gap-2">
+          <Avatar user={inv.from} size={18} />
           <span className="truncate">
-            <span className="text-ink-700">{from}</span> 邀请你一起编辑 · {fromNow(inv.created_at)}
+            <span className="text-ink-900">{from}</span> 邀请你一起编辑 · {fromNow(inv.created_at)}
           </span>
         </div>
       </div>
-      <div className="flex shrink-0 flex-col gap-1.5 sm:flex-row">
-        <Button size="sm" loading={m.isPending && m.variables} disabled={m.isPending} onClick={() => m.mutate(true)}>
+      <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+        <Button loading={m.isPending && m.variables} disabled={m.isPending} onClick={() => m.mutate(true)}>
           接受
         </Button>
-        <Button size="sm" variant="ghost" loading={m.isPending && !m.variables} disabled={m.isPending} onClick={() => m.mutate(false)}>
+        <Button variant="ghost" loading={m.isPending && !m.variables} disabled={m.isPending} onClick={() => m.mutate(false)}>
           拒绝
         </Button>
       </div>
@@ -85,9 +84,10 @@ export default function MyTripsPage() {
   const partnerInvites = invites.data?.partner_invites ?? []
 
   return (
-    <div className="mx-auto max-w-6xl px-4 pt-8 pb-16 md:px-6 md:pt-12">
+    <div className="mx-auto max-w-[90rem] px-4 pt-12 pb-24 md:px-8 md:pt-20 md:pb-32">
       <PageHead
         eyebrow="My Journeys · 我的旅程"
+        meta={total != null && !filtered ? `${total} 段` : undefined}
         title="我的旅程"
         dek={
           total != null && !filtered ? (
@@ -99,7 +99,7 @@ export default function MyTripsPage() {
           )
         }
         actions={
-          <Button icon={<Plus className="size-4" strokeWidth={1.75} />} onClick={() => nav('/trips/new')}>
+          <Button size="lg" icon={<Plus className="size-4" strokeWidth={1.5} />} onClick={() => nav('/trips/new')}>
             新建旅程
           </Button>
         }
@@ -108,9 +108,9 @@ export default function MyTripsPage() {
       {partnerInvites.length > 0 && (
         <Link
           to="/together"
-          className="group mt-8 flex items-center gap-3 border-l-2 border-pink-500 bg-white/55 py-3 pr-4 pl-4 text-sm text-ink-700"
+          className="group mt-14 flex min-h-12 items-center gap-3 border-y border-ink-200 py-3 text-sm text-ink-700 md:mt-20"
         >
-          <Heart className="size-4 shrink-0 text-pink-500" strokeWidth={1.75} />
+          <Heart className="size-4 shrink-0 text-pink-500" strokeWidth={1.5} />
           <span className="min-w-0 flex-1 truncate">
             <span className="text-ink-900">{partnerInvites[0].from.nickname || partnerInvites[0].from.username}</span> 邀请你绑定情侣空间
           </span>
@@ -119,13 +119,9 @@ export default function MyTripsPage() {
       )}
 
       {tripInvites.length > 0 && (
-        <section className="mt-8" aria-labelledby="invites-title">
-          <div className="border-b border-ink-900 pb-2">
-            <p id="invites-title" className="eyebrow">
-              Invitations · 待处理的邀请 <span className="font-num">{tripInvites.length}</span>
-            </p>
-          </div>
-          <ul className="max-w-3xl divide-y divide-ink-200 border-b border-ink-200">
+        <section className="mt-14 md:mt-20" aria-labelledby="invites-title">
+          <LabelRow id="invites-title" label="Invitations · 待处理的邀请" count={tripInvites.length} />
+          <ul className="max-w-4xl divide-y divide-ink-200 border-b border-ink-200">
             {tripInvites.map((inv) => (
               <InviteRow key={inv.trip.id} inv={inv} />
             ))}
@@ -133,7 +129,7 @@ export default function MyTripsPage() {
         </section>
       )}
 
-      <div className="mt-10 flex flex-col gap-2 border-b border-ink-200 pb-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-10">
+      <div className="mt-16 flex flex-col gap-1 border-t border-ink-200 pt-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-10 md:mt-24">
         <FilterLinks<Phase | ''>
           label="阶段"
           value={phase}
@@ -151,7 +147,7 @@ export default function MyTripsPage() {
         />
       </div>
 
-      <div className="mt-8">
+      <div className="mt-10 md:mt-14">
         {q.isLoading ? (
           <TripGridSkeleton />
         ) : q.isLoadingError ? (
@@ -165,7 +161,7 @@ export default function MyTripsPage() {
               title="还没有旅程"
               desc="规划一条路线，或者记录一次说走就走的旅行"
               action={
-                <Button icon={<Plus className="size-4" strokeWidth={1.75} />} onClick={() => nav('/trips/new')}>
+                <Button icon={<Plus className="size-4" strokeWidth={1.5} />} onClick={() => nav('/trips/new')}>
                   创建第一段旅程
                 </Button>
               }

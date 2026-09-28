@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import {
+  ArrowUpRight,
   Bell,
   BellOff,
   Bookmark,
@@ -19,9 +20,9 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, ApiError, errorMessage, type Notification, type NotificationType, type Paged } from '@/api'
-import { Avatar, Button, Empty, LoadError, PageLoader, TabBar } from '@/components/ui'
+import { Avatar, Button, Empty, LoadError, PageLoader } from '@/components/ui'
 import { cn } from '@/lib/cn'
-import { fromNow } from '@/lib/format'
+import { dayjs, fromNow } from '@/lib/format'
 import { flattenPages } from '@/lib/pages'
 
 type Filter = 'all' | 'unread'
@@ -42,8 +43,8 @@ const typeIcon: Record<NotificationType, LucideIcon> = {
   system: Megaphone,
 }
 
-/** 人名、旅程名、地点名：宋体 */
-const B = ({ children }: { children: ReactNode }) => <span className="font-display font-semibold text-ink-900">{children}</span>
+/** 人名、旅程名、地点名：象牙白宋体（只加载了 400 字重，不加粗） */
+const B = ({ children }: { children: ReactNode }) => <span className="font-display text-ink-900">{children}</span>
 
 /** 通知的中文描述 */
 function describe(n: Notification): ReactNode {
@@ -106,20 +107,35 @@ function targetOf(n: Notification): string | null {
   return null
 }
 
+/** 类型的小标签：西文 + 中文 */
+const typeLabel: Record<NotificationType, string> = {
+  comment: 'Comment · 评论',
+  reply: 'Reply · 回复',
+  like: 'Like · 点赞',
+  favorite: 'Saved · 收藏',
+  fork: 'Fork · 引用',
+  follow: 'Follow · 关注',
+  trip_invite: 'Invite · 邀请',
+  partner_invite: 'Together · 情侣',
+  partner_accept: 'Together · 情侣',
+  featured: 'Featured · 精选',
+  system: 'System · 系统',
+}
+
 function NoticeAvatar({ n }: { n: Notification }) {
   const Icon = typeIcon[n.type] ?? typeIcon.system
   // 系统 / 精选通知没有发起人：细线圆框 + 图标
   if (!n.actor)
     return (
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-full border border-ink-200 bg-surface text-ink-600">
-        <Icon className="size-[18px]" strokeWidth={1.5} />
+      <span className="flex size-11 shrink-0 items-center justify-center rounded-full border border-ink-200 text-ink-600">
+        <Icon className="size-[18px]" strokeWidth={1.25} />
       </span>
     )
   return (
-    <span className="relative size-10 shrink-0">
-      <Avatar user={n.actor} size={40} />
-      <span className="absolute -right-1 -bottom-1 flex size-5 items-center justify-center rounded-full border border-ink-200 bg-surface text-ink-600 ring-2 ring-paper">
-        <Icon className="size-2.5" strokeWidth={2} />
+    <span className="relative size-11 shrink-0">
+      <Avatar user={n.actor} size={44} />
+      <span className="absolute -right-1 -bottom-1 flex size-5 items-center justify-center rounded-full border border-ink-200 bg-paper text-ink-600">
+        <Icon className="size-2.5" strokeWidth={1.75} />
       </span>
     </span>
   )
@@ -145,20 +161,20 @@ function InviteActions({ tripId, onDone }: { tripId: number; onDone: () => void 
   })
   if (result === 'accepted')
     return (
-      <div className="mt-2 text-xs text-emerald-700">
+      <div className="mt-4 text-[13px] text-emerald-700">
         已接受 ·{' '}
-        <Link to={`/trips/${tripId}`} className="underline underline-offset-4">
+        <Link to={`/trips/${tripId}`} className="text-ink-900 underline decoration-ink-300 underline-offset-4 hover:decoration-ink-900">
           查看旅程
         </Link>
       </div>
     )
-  if (result === 'declined') return <div className="mt-2 text-xs text-ink-400">已拒绝</div>
+  if (result === 'declined') return <div className="mt-4 text-[13px] text-ink-400">已拒绝</div>
   return (
-    <div className="mt-2.5 flex gap-2">
-      <Button size="xs" variant="outline" loading={m.isPending && !m.variables} disabled={m.isPending} onClick={() => m.mutate(false)}>
+    <div className="mt-4 flex gap-2">
+      <Button size="sm" variant="outline" loading={m.isPending && !m.variables} disabled={m.isPending} onClick={() => m.mutate(false)}>
         拒绝
       </Button>
-      <Button size="xs" loading={m.isPending && m.variables} disabled={m.isPending} onClick={() => m.mutate(true)}>
+      <Button size="sm" loading={m.isPending && m.variables} disabled={m.isPending} onClick={() => m.mutate(true)}>
         接受
       </Button>
     </div>
@@ -168,30 +184,79 @@ function InviteActions({ tripId, onDone }: { tripId: number; onDone: () => void 
 function NoticeItem({ n, onOpen, onRead }: { n: Notification; onOpen: () => void; onRead: () => void }) {
   // 只有仍待处理的旅程邀请才显示接受 / 拒绝
   const actionable = n.type === 'trip_invite' && !!n.trip && !!n.invite_pending
+  const clickable = !actionable && !!targetOf(n)
+  const d = dayjs(n.created_at)
   const body = (
     <>
-      {/* 未读：左侧页边一粒朱砂小点，不给整行铺底色 */}
-      {!n.read && (
-        <span className="absolute top-[1.625rem] left-0.5 size-1.5 rounded-full bg-brand-500" aria-hidden />
-      )}
-      <NoticeAvatar n={n} />
-      <div className="min-w-0 flex-1">
-        <p className={cn('line-clamp-3 text-[15px] leading-relaxed break-words', n.read ? 'text-ink-600' : 'text-ink-800')}>
-          {!n.read && <span className="sr-only">未读：</span>}
-          {describe(n)}
+      {/* 左栏：时间（亮）+ 相对时间（灰）；未读是一粒朱砂小点，不给整行铺底色 */}
+      <div className="flex items-baseline gap-3 max-md:col-span-2 md:col-span-2 md:block">
+        <p className="flex items-center gap-2.5 text-[13px] text-ink-900">
+          <span
+            className={cn('size-1.5 shrink-0 rounded-full', n.read ? 'bg-transparent' : 'bg-brand-500')}
+            aria-hidden
+          />
+          <span className="font-num text-[15px]">{d.format(d.isSame(dayjs(), 'year') ? 'MM.DD HH:mm' : 'YYYY.MM.DD')}</span>
         </p>
-        <div className="font-num mt-1 text-xs text-ink-400">{fromNow(n.created_at)}</div>
-        {actionable && n.trip && <InviteActions tripId={n.trip.id} onDone={onRead} />}
+        <p className="caption md:mt-0.5 md:pl-4">{fromNow(n.created_at)}</p>
+        <p className="eyebrow ml-auto md:hidden">{typeLabel[n.type] ?? typeLabel.system}</p>
+      </div>
+      <div className="flex min-w-0 gap-4 max-md:col-span-2 md:col-span-7 md:gap-5">
+        <NoticeAvatar n={n} />
+        <div className="min-w-0 flex-1">
+          <p
+            className={cn(
+              'font-display line-clamp-3 text-[17px] leading-[1.7] break-words transition-colors duration-300 md:text-[20px]',
+              n.read ? 'text-ink-500' : 'text-ink-700',
+              clickable && 'group-hover:text-ink-800',
+            )}
+          >
+            {!n.read && <span className="sr-only">未读：</span>}
+            {describe(n)}
+          </p>
+          {actionable && n.trip && <InviteActions tripId={n.trip.id} onDone={onRead} />}
+        </div>
+      </div>
+      <div className="hidden items-start justify-end gap-6 pt-1 md:col-span-3 md:flex">
+        <span className="eyebrow">{typeLabel[n.type] ?? typeLabel.system}</span>
+        {clickable && (
+          <ArrowUpRight
+            className="size-4 shrink-0 text-ink-300 transition-colors duration-300 group-hover:text-ink-900"
+            strokeWidth={1.25}
+          />
+        )}
       </div>
     </>
   )
-  const cls = 'relative flex w-full gap-3.5 py-4 pr-1 pl-5 text-left transition-colors'
+  const cls = 'group grid w-full grid-cols-2 gap-x-8 gap-y-4 py-7 text-left md:grid-cols-12 md:py-9'
   // 待处理的旅程邀请包含操作按钮，不整体可点
   if (actionable) return <div className={cls}>{body}</div>
   return (
-    <button type="button" onClick={onOpen} className={cn(cls, 'hover:bg-white/55')}>
+    <button type="button" onClick={onOpen} className={cls}>
       {body}
     </button>
+  )
+}
+
+/** 按日期分组：今天 / 昨天 / 近 7 天 / 按月 */
+function groupOf(t: string): { key: string; label: string } {
+  const d = dayjs(t)
+  const now = dayjs()
+  if (d.isSame(now, 'day')) return { key: 'today', label: 'Today · 今天' }
+  if (d.isSame(now.subtract(1, 'day'), 'day')) return { key: 'yesterday', label: 'Yesterday · 昨天' }
+  if (now.diff(d, 'day') < 7) return { key: 'week', label: 'This week · 近 7 天' }
+  return { key: d.format('YYYY-MM'), label: d.format('YYYY.MM') }
+}
+
+/** 细线标签行：一条 border-t，左侧 eyebrow + 灰色计数，右侧补充 */
+function LabelRow({ label, count, extra }: { label: ReactNode; count?: ReactNode; extra?: ReactNode }) {
+  return (
+    <div className="flex min-h-12 flex-wrap items-center justify-between gap-x-6 gap-y-1 border-t border-ink-200 pt-3 pb-1">
+      <p className="flex min-w-0 items-baseline gap-3">
+        <span className="eyebrow !text-ink-800">{label}</span>
+        {count != null && <span className="font-num text-[13px] text-ink-400">{count}</span>}
+      </p>
+      {extra}
+    </div>
   )
 }
 
@@ -212,6 +277,15 @@ export default function NotificationsPage() {
     select: (d) => d.count,
   })
   const items = flattenPages(q.data?.pages)
+  const total = q.data?.pages[0]?.total
+
+  const groups: { key: string; label: string; items: Notification[] }[] = []
+  for (const n of items) {
+    const g = groupOf(n.created_at)
+    const last = groups[groups.length - 1]
+    if (last?.key === g.key) last.items.push(n)
+    else groups.push({ ...g, items: [n] })
+  }
 
   /** 在本地缓存中标记已读（未读筛选下保留条目，避免列表跳动） */
   const markLocal = (ids?: number[]) => {
@@ -255,71 +329,116 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 pt-6 pb-12 md:pt-10">
-      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
-        <div>
-          <p className="eyebrow">Notifications · 通知</p>
-          <h1 className="mt-2 text-[28px] leading-[1.15] text-ink-900 md:text-[34px]">通知</h1>
-          <p className="mt-2 text-sm text-ink-500">
-            {unread > 0 ? (
-              <>
-                <span className="font-num text-base text-brand-600">{unread}</span> 条未读
-              </>
-            ) : (
-              '全部已读'
-            )}
-          </p>
+    <div className="mx-auto max-w-[90rem] px-4 pt-10 pb-24 md:px-8 md:pt-20 md:pb-32">
+      {/* 页头：细线标签行 + 大号宋体标题；右栏是未读数（大号细字）与「全部已读」 */}
+      <header className="animate-slide-up">
+        <LabelRow
+          label="Notifications · 通知"
+          extra={total != null && filter === 'all' && <span className="font-num text-[13px] text-ink-400">{total} 条</span>}
+        />
+        <div className="mt-10 grid gap-x-8 gap-y-8 md:mt-16 lg:grid-cols-12 lg:items-end">
+          <h1 className="text-display-lg font-normal max-sm:text-[3.25rem] lg:col-span-7">通知</h1>
+          <div className="flex items-end justify-between gap-6 lg:col-span-4 lg:col-start-9 lg:pb-2">
+            <p className="flex items-baseline gap-3">
+              <span className="font-num text-[3.5rem] leading-[0.85] font-light text-ink-900 md:text-[4.5rem]">{unread}</span>
+              <span className="text-[13px] text-ink-500">{unread > 0 ? '条未读' : '全部已读'}</span>
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              icon={<CheckCheck className="size-4" strokeWidth={1.5} />}
+              disabled={unread === 0}
+              loading={readAll.isPending}
+              onClick={() => readAll.mutate()}
+              className="max-sm:h-10"
+            >
+              全部已读
+            </Button>
+          </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          icon={<CheckCheck className="size-4" strokeWidth={1.75} />}
-          disabled={unread === 0}
-          loading={readAll.isPending}
-          onClick={() => readAll.mutate()}
-        >
-          全部已读
-        </Button>
       </header>
 
-      <TabBar<Filter>
-        className="mt-7"
-        value={filter}
-        onChange={setFilter}
-        options={[
-          { value: 'all', label: '全部' },
-          { value: 'unread', label: '未读' },
-        ]}
-      />
+      {/* 文字筛选：当前项象牙白下划线 */}
+      <div role="group" aria-label="筛选" className="mt-16 flex items-center text-[13.5px] md:mt-24">
+        <span aria-hidden className="eyebrow mr-3">
+          Show
+        </span>
+        {(
+          [
+            ['all', '全部'],
+            ['unread', '未读'],
+          ] as const
+        ).map(([v, label], i) => (
+          <span key={v} className="flex items-center">
+            {i > 0 && (
+              <span aria-hidden className="text-ink-300">
+                /
+              </span>
+            )}
+            <button
+              type="button"
+              aria-pressed={filter === v}
+              onClick={() => setFilter(v)}
+              className={cn(
+                'inline-flex h-10 items-center px-2 tracking-wide transition-colors duration-300',
+                filter === v
+                  ? 'text-ink-900 underline decoration-ink-900 decoration-1 underline-offset-[7px]'
+                  : 'text-ink-400 hover:text-ink-900',
+              )}
+            >
+              {label}
+            </button>
+          </span>
+        ))}
+      </div>
 
-      <div>
+      <div className="mt-6 md:mt-8">
         {q.isLoading ? (
-          <PageLoader />
+          <div className="border-t border-ink-200">
+            <PageLoader />
+          </div>
         ) : q.isLoadingError ? (
-          <LoadError title="通知加载失败" error={q.error} onRetry={() => q.refetch()} />
+          <div className="border-t border-ink-200">
+            <LoadError title="通知加载失败" error={q.error} onRetry={() => q.refetch()} />
+          </div>
         ) : items.length === 0 ? (
-          <Empty
-            icon={filter === 'unread' ? <BellOff className="size-10" /> : <Bell className="size-10" />}
-            title={filter === 'unread' ? '没有未读通知' : '还没有通知'}
-            desc="有人评论、点赞、关注你或邀请你一起旅行时，会在这里提醒你"
-          />
+          <div className="border-t border-ink-200">
+            <Empty
+              className="py-24"
+              icon={filter === 'unread' ? <BellOff className="size-9" /> : <Bell className="size-9" />}
+              title={filter === 'unread' ? '没有未读通知' : '还没有通知'}
+              desc="有人评论、点赞、关注你或邀请你一起旅行时，会在这里提醒你"
+            />
+          </div>
         ) : (
-          <>
-            <ul className="divide-y divide-ink-200 border-b border-ink-200">
-              {items.map((n) => (
-                <li key={n.id}>
-                  <NoticeItem n={n} onOpen={() => open(n)} onRead={() => readOne(n)} />
-                </li>
-              ))}
-            </ul>
+          <div className="space-y-14 md:space-y-20">
+            {groups.map((g) => (
+              <section key={g.key} className="animate-fade-in">
+                <LabelRow label={g.label} count={String(g.items.length).padStart(2, '0')} />
+                <ul className="mt-2 divide-y divide-ink-200 border-b border-ink-200">
+                  {g.items.map((n) => (
+                    <li key={n.id}>
+                      <NoticeItem n={n} onOpen={() => open(n)} onRead={() => readOne(n)} />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
             {q.hasNextPage && (
-              <div className="mt-6 flex justify-center">
-                <Button variant="outline" loading={q.isFetchingNextPage} onClick={() => q.fetchNextPage()}>
-                  加载更多
-                </Button>
+              <div className="flex items-center gap-5">
+                <span className="h-px flex-1 bg-ink-200" />
+                <button
+                  type="button"
+                  onClick={() => q.fetchNextPage()}
+                  disabled={q.isFetchingNextPage}
+                  className="inline-flex h-10 items-center gap-2 rounded-full border border-ink-900/20 px-6 text-[13px] tracking-[0.08em] text-ink-800 transition-colors duration-300 hover:border-ink-900/60 hover:text-ink-900 disabled:opacity-50"
+                >
+                  {q.isFetchingNextPage ? '加载中…' : '加载更多'}
+                </button>
+                <span className="h-px flex-1 bg-ink-200" />
               </div>
             )}
-          </>
+          </div>
         )}
       </div>
     </div>

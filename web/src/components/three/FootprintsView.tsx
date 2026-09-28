@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
-import { Globe2, List, Map as MapIcon, Play } from 'lucide-react'
+import { Play } from 'lucide-react'
 import type { Footprints } from '@/api/types'
 import { BaseMap, useMap } from '@/components/map/BaseMap'
 import { removeLayers, upsertSource } from '@/components/map/layers'
-import { Segmented, buttonClass } from '@/components/ui'
+import { buttonClass } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { FootprintMap, mapGestureOptions } from './FootprintMap'
 import { litPalettes, type LitTheme } from './LitProvinces'
@@ -73,6 +73,7 @@ function GlobeLayers({ data, theme }: { data: Footprints; theme: LitTheme }) {
   return null
 }
 
+/** 城市清单：像字体样张那样一行一个省——左侧细小的序号和计数，右侧大号宋体省名，下面一行城市 */
 function CityList({ data }: { data: Footprints }) {
   const byProvince = useMemo(() => {
     const m = new Map<string, Footprints['cities']>()
@@ -84,23 +85,29 @@ function CityList({ data }: { data: Footprints }) {
   }, [data.cities, data.provinces])
   if (!byProvince.length) return <p className="py-10 text-center text-sm text-ink-400">还没有足迹</p>
   return (
-    <div className="divide-y divide-ink-200 border-y border-ink-200">
+    <div className="border-b border-ink-200">
       {byProvince.map(({ prov, cities, count }, i) => (
-        <div key={prov} className="grid gap-x-6 gap-y-2 py-4 sm:grid-cols-[12rem_1fr]">
-          <div className="flex items-baseline gap-3">
-            <span className="font-num w-6 text-xs text-ink-300">{String(i + 1).padStart(2, '0')}</span>
-            <span className="font-display text-[17px] text-ink-900">{prov}</span>
-            <span className="text-xs text-ink-400">
-              <span className="font-num text-ink-600">{cities.length}</span> 城 · <span className="font-num text-ink-600">{count}</span> 处
+        <div
+          key={prov}
+          style={{ animationDelay: `${Math.min(i, 8) * 60}ms`, animationFillMode: 'backwards' }}
+          className="animate-slide-up grid gap-x-8 gap-y-3 border-t border-ink-200 pt-3 pb-7 md:grid-cols-12 md:pb-9"
+        >
+          <p className="flex items-baseline gap-3 text-xs text-ink-500 md:col-span-3 md:flex-col md:gap-1">
+            <span className="font-num text-[13px] text-ink-900">{String(i + 1).padStart(2, '0')}</span>
+            <span>
+              <span className="font-num text-ink-700">{cities.length}</span> 座城市 · <span className="font-num text-ink-700">{count}</span> 处足迹
             </span>
-          </div>
-          <div className="flex flex-wrap gap-1.5 pl-9 sm:pl-0">
-            {cities.map((c) => (
-              <span key={c.code} className="inline-flex items-center gap-1.5 rounded-sm border border-ink-200 px-2 py-0.5 text-[13px] text-ink-700">
-                {c.name}
-                <span className="font-num text-xs text-ink-400">{c.count}</span>
-              </span>
-            ))}
+          </p>
+          <div className="min-w-0 md:col-span-9">
+            <p className="font-display text-[2.5rem] leading-none text-ink-900 md:text-[3.75rem]">{prov.replace(/(省|市|自治区|壮族自治区|回族自治区|维吾尔自治区|特别行政区)$/, '') || prov}</p>
+            <p className="mt-4 flex flex-wrap gap-x-5 gap-y-1.5 text-[13px] text-ink-700">
+              {cities.map((c) => (
+                <span key={c.code} className="inline-flex items-baseline gap-1.5">
+                  {c.name}
+                  <span className="font-num text-xs text-ink-400">{c.count}</span>
+                </span>
+              ))}
+            </p>
           </div>
         </div>
       ))}
@@ -108,55 +115,91 @@ function CityList({ data }: { data: Footprints }) {
   )
 }
 
+const modes: { value: Mode; label: ReactNode }[] = [
+  { value: 'map', label: <span><span className="hidden sm:inline">足迹</span>地图</span> },
+  { value: 'globe', label: <span><span className="hidden sm:inline">足迹</span>地球</span> },
+  { value: 'list', label: <span><span className="hidden sm:inline">城市</span>清单</span> },
+]
+
 export function FootprintsView({
   data,
   theme = 'sunset',
   replayTo,
   height = 'h-[52vh] min-h-80 sm:h-[62vh]',
+  label = 'Atlas · 足迹地图',
+  bleed,
 }: {
   data: Footprints
   theme?: LitTheme
   replayTo?: string
   height?: string
+  /** 标签行左侧的小标签 */
+  label?: ReactNode
+  /** 地图出血到页面边缘（页面容器是 px-4 md:px-8） */
+  bleed?: boolean
 }) {
   const [mode, setMode] = useState<Mode>('map')
-  const icon = 'size-3.5'
+  const love = theme === 'love'
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <Segmented<Mode>
-          value={mode}
-          onChange={setMode}
-          options={[
-            { value: 'map', label: <span className="flex items-center gap-1.5"><MapIcon className={icon} strokeWidth={1.6} /><span><span className="hidden sm:inline">足迹</span>地图</span></span> },
-            { value: 'globe', label: <span className="flex items-center gap-1.5"><Globe2 className={icon} strokeWidth={1.6} /><span><span className="hidden sm:inline">足迹</span>地球</span></span> },
-            { value: 'list', label: <span className="flex items-center gap-1.5"><List className={icon} strokeWidth={1.6} /><span><span className="hidden sm:inline">城市</span>清单</span></span> },
-          ]}
-        />
-        {replayTo && data.trips.length > 0 && (
-          <Link to={replayTo} className={buttonClass({ size: 'sm', variant: theme === 'love' ? 'love' : 'outline' })}>
-            <Play className="size-3.5" strokeWidth={1.6} />
-            3D 回放
-          </Link>
-        )}
+      {/* 细线标签行：左侧标签 + 计数，右侧文字切换和回放 */}
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-ink-200 pt-2 pb-3 md:pb-4">
+        <p className="flex min-w-0 items-baseline gap-3 py-2">
+          <span className="eyebrow !text-ink-800">{label}</span>
+          <span className="text-[13px] text-ink-400">
+            <span className="font-num">{data.stats.provinces}</span> 省 · <span className="font-num">{data.stats.cities}</span> 城
+          </span>
+        </p>
+        <div className="flex items-center gap-x-4 gap-y-2 max-sm:w-full max-sm:justify-between">
+          <div role="group" aria-label="足迹视图" className="flex items-center text-[13px]">
+            {modes.map((o, i) => (
+              <Fragment key={o.value}>
+                {i > 0 && (
+                  <span aria-hidden className="text-ink-300">
+                    /
+                  </span>
+                )}
+                <button
+                  type="button"
+                  aria-pressed={mode === o.value}
+                  onClick={() => setMode(o.value)}
+                  className={cn(
+                    'inline-flex h-10 items-center px-2.5 tracking-wide whitespace-nowrap transition-colors duration-300 md:h-9',
+                    mode === o.value ? 'text-ink-900 underline decoration-1 underline-offset-[7px]' : 'text-ink-400 hover:text-ink-900',
+                  )}
+                >
+                  {o.label}
+                </button>
+              </Fragment>
+            ))}
+          </div>
+          {replayTo && data.trips.length > 0 && (
+            <Link to={replayTo} className={buttonClass({ size: 'md', variant: 'outline', className: 'md:h-9' })}>
+              <Play className={cn('size-3.5', love ? 'fill-pink-600 text-pink-600' : 'fill-current')} strokeWidth={1.4} />
+              3D 回放
+            </Link>
+          )}
+        </div>
       </div>
 
-      {mode === 'map' && <FootprintMap data={data} theme={theme} className={height} />}
-      {mode === 'globe' && (
-        <div className={cn('bg-night relative overflow-hidden rounded-xl', height)}>
-          <BaseMap className="absolute inset-0" kind="dark" globe center={[110, 30]} zoom={1.6} options={mapGestureOptions}>
-            <GlobeLayers data={data} theme={theme} />
-          </BaseMap>
-          <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-3 rounded-lg bg-[#0c1314]/55 px-3 py-2 text-xs text-white/65 ring-1 ring-white/10 backdrop-blur">
-            <span className="eyebrow !text-white/45">Globe · 地球</span>
-            <span className="h-3 w-px bg-white/15" />
-            <span>
-              <b className="font-num text-gold text-[13px] font-medium">{data.stats.trips}</b> 段旅程
-              <b className="font-num text-gold ml-2 text-[13px] font-medium">{data.stats.waypoints}</b> 处足迹
-            </span>
+      <div className={cn(bleed && mode !== 'list' && '-mx-4 md:-mx-8')}>
+        {mode === 'map' && <FootprintMap data={data} theme={theme} className={height} />}
+        {mode === 'globe' && (
+          <div className={cn('bg-night animate-fade-in relative overflow-hidden', height)}>
+            <BaseMap className="absolute inset-0" kind="dark" globe center={[110, 30]} zoom={1.6} options={mapGestureOptions}>
+              <GlobeLayers data={data} theme={theme} />
+            </BaseMap>
+            <div className="pointer-events-none absolute bottom-0 left-0 z-10 h-40 w-[min(100%,28rem)] bg-[radial-gradient(ellipse_at_bottom_left,rgb(0_0_0/0.6),transparent_70%)]" />
+            <div className="pointer-events-none absolute bottom-4 left-4 z-10 md:bottom-6 md:left-8">
+              <p className="eyebrow !text-white/50">Globe · 地球</p>
+              <p className="mt-1.5 text-[13px] text-white/70">
+                <span className="font-num text-xl font-light text-white">{data.stats.trips}</span> 段旅程
+                <span className="font-num ml-3 text-xl font-light text-white">{data.stats.waypoints}</span> 处足迹
+              </p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
       {mode === 'list' && <CityList data={data} />}
     </div>
   )

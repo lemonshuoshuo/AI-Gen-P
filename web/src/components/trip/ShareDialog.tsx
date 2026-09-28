@@ -22,7 +22,7 @@ function ShareBody({ url, title, text, children }: { url: string; title: string;
   useEffect(() => {
     let cancelled = false
     import('qrcode')
-      .then(({ default: QRCode }) => QRCode.toDataURL(url, { margin: 1, width: 360, color: { dark: '#1b1a17', light: '#fffdf9' } }))
+      .then(({ default: QRCode }) => QRCode.toDataURL(url, { margin: 1, width: 360, color: { dark: '#0b0b0a', light: '#f2eee6' } }))
       .then((d) => !cancelled && setQr(d))
       .catch(() => !cancelled && setQr(''))
     return () => {
@@ -43,35 +43,35 @@ function ShareBody({ url, title, text, children }: { url: string; title: string;
   }
   return (
     <div className="space-y-4">
-      {/* 票根式：左边二维码，虚线齿孔，右边标题 */}
-      <div className="flex items-stretch overflow-hidden rounded-lg border border-ink-200 bg-paper">
-        <div className="flex shrink-0 items-center justify-center p-3">
+      {/* 票根式：左边二维码（象牙白底才扫得出），细虚线齿孔，右边标题 */}
+      <div className="flex items-stretch rounded-md border border-ink-200">
+        <div className="flex shrink-0 items-center justify-center p-3.5">
           {qr ? (
-            <img src={qr} alt="二维码" className="size-28 rounded-sm ring-1 ring-ink-900/10 sm:size-32" />
+            <img src={qr} alt="二维码" className="size-28 rounded-sm sm:size-32" />
           ) : (
             <div className="size-28 animate-pulse rounded-sm bg-ink-100 sm:size-32" aria-hidden />
           )}
         </div>
-        <div className="relative flex min-w-0 flex-1 flex-col justify-between border-l border-dashed border-ink-300 py-3.5 pr-4 pl-4">
-          <span aria-hidden className="absolute -top-2 -left-2 size-4 rounded-full border border-ink-200 bg-surface" />
-          <span aria-hidden className="absolute -bottom-2 -left-2 size-4 rounded-full border border-ink-200 bg-surface" />
+        <div className="relative flex min-w-0 flex-1 flex-col justify-between border-l border-dashed border-ink-300 py-4 pr-4 pl-5">
+          <span aria-hidden className="absolute -top-2 -left-2 size-4 rounded-full border border-ink-200 bg-surface [clip-path:inset(50%_0_0_0)]" />
+          <span aria-hidden className="absolute -bottom-2 -left-2 size-4 rounded-full border border-ink-200 bg-surface [clip-path:inset(0_0_50%_0)]" />
           <div className="min-w-0">
             <p className="eyebrow">Scan · 扫码打开</p>
-            <p className="font-display mt-1.5 line-clamp-2 text-[16px] leading-snug text-ink-900">{title}</p>
-            {text && <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-ink-500">{text}</p>}
+            <p className="font-display mt-2 line-clamp-2 text-[1.3rem] leading-snug text-ink-900">{title}</p>
+            {text && <p className="caption mt-1 line-clamp-2">{text}</p>}
           </div>
-          <p className="mt-2 text-[11.5px] text-ink-400">微信扫一扫，或长按保存二维码</p>
+          <p className="caption mt-3 text-[12px]">微信扫一扫，或长按保存二维码</p>
         </div>
       </div>
       <div className="flex gap-2">
-        <Input readOnly value={url} onFocus={(e) => e.target.select()} aria-label="分享链接" className="font-num text-[13px] text-ink-600" />
-        <Button onClick={copy} icon={<Copy className="size-4" strokeWidth={1.75} />}>
+        <Input readOnly value={url} onFocus={(e) => e.target.select()} aria-label="分享链接" className="text-[13px] text-ink-600" />
+        <Button onClick={copy} icon={<Copy className="size-4" strokeWidth={1.5} />}>
           复制
         </Button>
       </div>
       <div className="flex flex-wrap gap-2">
         {'share' in navigator && (
-          <Button variant="outline" size="sm" onClick={native} icon={<Share2 className="size-4" strokeWidth={1.75} />}>
+          <Button variant="outline" onClick={native} icon={<Share2 className="size-4" strokeWidth={1.5} />}>
             系统分享
           </Button>
         )}
@@ -194,34 +194,34 @@ export function ShareDialog({
       <Modal open={open} onClose={onClose} title="分享旅程">
         {trip.visibility === 'private' ? (
           trip.is_owner && onUpdated ? (
-            <div className="space-y-3">
+            <div className="space-y-5">
               <Note tone="amber" label="Private">
                 这段旅程目前是「私密」的，只有你和共同作者能看到。选一种方式开启分享：
               </Note>
               <div>
                 <Button
                   block
-                  icon={<Link2 className="size-4" strokeWidth={1.75} />}
+                  icon={<Link2 className="size-4" strokeWidth={1.5} />}
                   loading={saving === 'unlisted'}
                   disabled={!!saving}
                   onClick={() => changeVisibility('unlisted')}
                 >
                   设为「链接可见」并分享
                 </Button>
-                <p className="mt-1 text-center text-xs text-ink-400">{visibilities.unlisted.desc}</p>
+                <p className="caption mt-2 text-center text-[12px]">{visibilities.unlisted.desc}</p>
               </div>
               <div>
                 <Button
                   block
                   variant="outline"
-                  icon={<Globe className="size-4" strokeWidth={1.75} />}
+                  icon={<Globe className="size-4" strokeWidth={1.5} />}
                   loading={saving === 'public'}
                   disabled={!!saving}
                   onClick={() => changeVisibility('public')}
                 >
                   公开到发现广场
                 </Button>
-                <p className="mt-1 text-center text-xs text-ink-400">所有人可见，别人可以一键引用你的路线；照片和轨迹也会公开</p>
+                <p className="caption mt-2 text-center text-[12px]">所有人可见，别人可以一键引用你的路线；照片和轨迹也会公开</p>
               </div>
             </div>
           ) : (
@@ -237,9 +237,12 @@ export function ShareDialog({
           </Note>
         ) : (
           <div className="space-y-4">
-            <p className="text-[13px] leading-relaxed text-ink-500">
-              <span className="eyebrow mr-2">Visibility</span>
-              <span className="text-ink-900">{visibilities[trip.visibility].label}</span> · {visibilities[trip.visibility].desc}
+            <p className="border-b border-ink-200 pb-4">
+              <span className="block text-[13px] text-ink-900">
+                <span className="eyebrow mr-2">Visibility</span>
+                {visibilities[trip.visibility].label}
+              </span>
+              <span className="caption block">{visibilities[trip.visibility].desc}</span>
             </p>
             {trip.visibility === 'public' && trip.status === 'pending' && (
               <Note tone="amber" label="Pending">
@@ -247,21 +250,20 @@ export function ShareDialog({
               </Note>
             )}
             <ShareBody url={url} title={trip.title} text={trip.summary || '来看看这段旅程'}>
-              <Button variant="outline" size="sm" onClick={openPoster} icon={<ImageIcon className="size-4" strokeWidth={1.75} />}>
+              <Button variant="outline" onClick={openPoster} icon={<ImageIcon className="size-4" strokeWidth={1.5} />}>
                 生成分享海报
               </Button>
               {trip.is_owner && trip.visibility === 'unlisted' && (
-                <Button variant="ghost" size="sm" onClick={reset} icon={<RefreshCw className="size-4" strokeWidth={1.75} />}>
+                <Button variant="ghost" onClick={reset} icon={<RefreshCw className="size-4" strokeWidth={1.5} />}>
                   重置分享链接
                 </Button>
               )}
               {trip.is_owner && trip.visibility === 'unlisted' && onUpdated && (
                 <Button
                   variant="ghost"
-                  size="sm"
                   loading={saving === 'public'}
                   onClick={() => changeVisibility('public')}
-                  icon={<Globe className="size-4" strokeWidth={1.75} />}
+                  icon={<Globe className="size-4" strokeWidth={1.5} />}
                 >
                   公开到发现广场
                 </Button>

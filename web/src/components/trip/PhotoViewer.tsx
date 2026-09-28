@@ -33,52 +33,58 @@ export function PhotoViewer({
   const p = photos[i]
   const where = captionOf?.(p)
   const navBtn =
-    'absolute top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/30 text-white/80 transition-colors hover:border-white/40 hover:text-white'
+    'absolute top-1/2 flex size-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/35 text-white/80 backdrop-blur transition-colors duration-300 hover:border-white/50 hover:text-white'
   return createPortal(
     <div
       role="dialog"
       aria-modal="true"
       aria-label="查看照片"
-      className="animate-fade-in fixed inset-0 z-[120] flex flex-col bg-[#0c1314]/[0.97] text-white"
+      className="animate-fade-in fixed inset-0 z-[120] flex flex-col bg-paper/[0.97] text-white"
       onClick={onClose}
     >
-      <div className="flex items-center justify-between px-4 py-3">
-        <span className="font-num text-sm tracking-widest text-white/55">
-          {String(i + 1).padStart(2, '0')} <span className="text-white/25">/</span> {String(photos.length).padStart(2, '0')}
+      <div className="flex items-center justify-between px-4 py-3 md:px-8 md:py-5">
+        <span className="font-num text-[15px] tracking-[0.12em] text-white/60">
+          {String(i + 1).padStart(2, '0')} <span className="text-white/30">/</span> {String(photos.length).padStart(2, '0')}
         </span>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-full p-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+          className="-mr-2 flex size-11 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white"
           aria-label="关闭"
         >
-          <X className="size-6" strokeWidth={1.5} />
+          <X className="size-6" strokeWidth={1.25} />
         </button>
       </div>
-      <div className="relative flex min-h-0 flex-1 items-center justify-center px-2" onClick={(e) => e.stopPropagation()}>
-        <img src={p.url} alt={p.caption} className="max-h-full max-w-full rounded-md object-contain" />
+      <div className="relative flex min-h-0 flex-1 items-center justify-center px-2 md:px-20" onClick={(e) => e.stopPropagation()}>
+        <img key={p.id} src={p.url} alt={p.caption} className="animate-fade-in max-h-full max-w-full object-contain" />
         {i > 0 && (
           <button type="button" onClick={() => setI(i - 1)} className={`${navBtn} left-3`} aria-label="上一张">
-            <ChevronLeft className="size-6" strokeWidth={1.5} />
+            <ChevronLeft className="size-6" strokeWidth={1.25} />
           </button>
         )}
         {i < photos.length - 1 && (
           <button type="button" onClick={() => setI(i + 1)} className={`${navBtn} right-3`} aria-label="下一张">
-            <ChevronRight className="size-6" strokeWidth={1.5} />
+            <ChevronRight className="size-6" strokeWidth={1.25} />
           </button>
         )}
       </div>
-      <div className="px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-center" onClick={(e) => e.stopPropagation()}>
-        {p.caption && <p className="font-display mb-1.5 text-[15px] text-white/90">{p.caption}</p>}
-        <p className="text-xs tracking-wide text-white/50">
-          {where && (
+      {/* 说明文字对：第一行亮、第二行灰 */}
+      <div
+        className="px-4 pt-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-[13px] leading-[1.5] md:px-8 md:pb-7"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-white">
+          {p.caption || where || '\u00a0'}
+        </p>
+        <p className="text-white/55">
+          {p.caption && where && (
             <>
-              <MapPin className="mr-1 inline size-3.5 align-[-2px]" strokeWidth={1.5} />
+              <MapPin className="mr-1 inline size-3.5 align-[-2px]" strokeWidth={1.25} />
               {where}
               {p.taken_at && <span className="mx-2 text-white/25">·</span>}
             </>
           )}
-          {p.taken_at && <span className="font-num">{fmtTime(p.taken_at, 'YYYY.MM.DD HH:mm')}</span>}
+          {p.taken_at && <span className="font-num text-[14px]">{fmtTime(p.taken_at, 'YYYY.MM.DD HH:mm')}</span>}
         </p>
       </div>
     </div>,

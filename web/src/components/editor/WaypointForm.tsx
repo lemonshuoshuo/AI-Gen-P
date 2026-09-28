@@ -40,10 +40,11 @@ export function WaypointForm({
   const showExperience = phase !== 'planning' || w.status === 'visited'
 
   return (
-    <div className="space-y-3.5 rounded-xl border border-ink-200 bg-ink-50/70 p-3.5" onClick={(e) => e.stopPropagation()}>
-      <div className="grid grid-cols-2 gap-2">
+    // 不带外框：放在编辑行 / 弹窗里，由外层决定底色和分隔线
+    <div className="space-y-5" onClick={(e) => e.stopPropagation()}>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-4">
         <Field label="名称" className="col-span-2">
-          <Input value={f.name} onChange={(e) => set('name', e.target.value)} maxLength={80} />
+          <Input value={f.name} onChange={(e) => set('name', e.target.value)} maxLength={80} className="font-display h-11 text-[17px]" />
         </Field>
         <Field label="分类">
           <Select value={f.category} onChange={(e) => set('category', e.target.value as Category)}>
@@ -104,7 +105,7 @@ export function WaypointForm({
       {showExperience && (
         <>
           <div>
-            <span className="mb-1.5 block text-[13px] font-medium tracking-wide text-ink-600">体验如何</span>
+            <span className="mb-2 block text-xs font-medium tracking-[0.06em] text-ink-500">体验如何</span>
             <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="体验如何">
               {(Object.keys(verdicts) as Exclude<Verdict, ''>[]).map((v) => {
                 const on = f.verdict === v
@@ -117,10 +118,10 @@ export function WaypointForm({
                     aria-checked={on}
                     onClick={() => set('verdict', on ? '' : v)}
                     className={cn(
-                      'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm tracking-wide transition-colors',
-                      on ? 'font-medium' : 'border-ink-200 bg-surface text-ink-500 hover:border-ink-400 hover:text-ink-900',
+                      'inline-flex h-10 items-center gap-2 rounded-full border px-4 text-[13.5px] tracking-wide transition-colors duration-300',
+                      on ? 'font-medium' : 'border-ink-200 text-ink-500 hover:border-ink-500 hover:text-ink-900',
                     )}
-                    style={on ? { color: c, borderColor: c + '80', background: c + '12' } : undefined}
+                    style={on ? { color: c, borderColor: c + '99', background: c + '14' } : undefined}
                   >
                     <span className="text-[11px] leading-none">{verdicts[v].mark}</span>
                     {verdicts[v].label}
@@ -129,18 +130,18 @@ export function WaypointForm({
               })}
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2 text-[13px] tracking-wide text-ink-600">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+            <div className="flex items-center gap-2 text-xs font-medium tracking-[0.06em] text-ink-500">
               评分 <Stars value={f.rating} onChange={(v) => set('rating', v)} size={20} />
             </div>
-            <label className="flex items-center gap-2 text-[13px] tracking-wide text-ink-600">
+            <label className="flex items-center gap-2 text-xs font-medium tracking-[0.06em] text-ink-500">
               人均 ¥
               <Input
                 type="number"
                 min={0}
                 value={f.cost || ''}
                 onChange={(e) => set('cost', Number(e.target.value) || 0)}
-                className="h-8 w-24"
+                className="font-num h-9 w-24 text-[15px]"
               />
             </label>
           </div>
@@ -156,12 +157,11 @@ export function WaypointForm({
           }
         />
       </Field>
-      <div className="flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={onCancel}>
+      <div className="flex justify-end gap-2 pt-1">
+        <Button variant="ghost" onClick={onCancel}>
           取消
         </Button>
         <Button
-          size="sm"
           loading={saving}
           onClick={() =>
             onSave({

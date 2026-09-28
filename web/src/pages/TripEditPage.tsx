@@ -142,10 +142,11 @@ function FlyTo({ target }: { target: LngLat | null }) {
   return null
 }
 
+/** 地图上的胶囊按钮：玻璃底 + 细线；按下时为象牙白实心 */
 const mapChip = (on: boolean) =>
   cn(
-    'inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] tracking-wide shadow-card transition-colors',
-    on ? 'bg-ink-900 text-paper hover:bg-ink-700' : 'glass text-ink-800 hover:text-ink-900',
+    'inline-flex h-10 items-center gap-1.5 rounded-full border px-4 text-[13px] tracking-[0.02em] transition-colors duration-300',
+    on ? 'border-ink-900 bg-ink-900 text-paper hover:bg-ink-700' : 'glass border-ink-900/15 text-ink-800 hover:border-ink-900/45 hover:text-ink-900',
   )
 
 /** 地图左上角：点选地点、3D 视角（倾斜地图看路线的起伏走向） */
@@ -169,10 +170,10 @@ function MapTools({ pickMode, picking, onTogglePick }: { pickMode: boolean; pick
     map.easeTo(next ? { pitch: 55, bearing: -15, duration: 1100 } : { pitch: 0, bearing: 0, duration: 900 })
   }
   return (
-    <div className="absolute top-3 left-3 z-10 flex max-w-[calc(100%-7.5rem)] flex-col items-start gap-2">
+    <div className="absolute top-4 left-4 z-10 flex max-w-[calc(100%-7.5rem)] flex-col items-start gap-2">
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={onTogglePick} aria-pressed={pickMode} className={mapChip(pickMode)}>
-          {pickMode ? <X className="size-4" strokeWidth={1.75} /> : <Crosshair className="size-4" strokeWidth={1.75} />}
+          {pickMode ? <X className="size-4" strokeWidth={1.5} /> : <Crosshair className="size-4" strokeWidth={1.5} />}
           {pickMode ? '取消点选' : '在地图上点选'}
         </button>
         <button
@@ -182,13 +183,13 @@ function MapTools({ pickMode, picking, onTogglePick }: { pickMode: boolean; pick
           title={tilted ? '回到平面视角' : '倾斜地图，立体地看路线'}
           className={mapChip(tilted)}
         >
-          <Mountain className="size-4" strokeWidth={1.75} />
+          <Mountain className="size-4" strokeWidth={1.5} />
           3D 视角
         </button>
       </div>
       {/* 宽屏上候选面板会盖住这条提示：选了位置后不再显示 */}
       {pickMode && !(picking && desktop) && (
-        <p className="glass animate-fade-in rounded-lg px-3 py-1.5 text-xs leading-relaxed text-ink-700 shadow-card">
+        <p className="glass animate-fade-in max-w-xs rounded-2xl border border-ink-900/15 px-4 py-2 text-xs leading-relaxed text-ink-700">
           {picking ? '点地图上的其他位置，可以重新选择' : '点击地图上的景点、店铺或任意位置，会列出那里可选的地点'}
         </p>
       )}
@@ -233,47 +234,51 @@ function SortableRow({
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        'relative transition-colors',
-        (selected || editing) && 'bg-surface',
-        isDragging && 'z-10 rounded-lg bg-surface shadow-float',
+        'relative transition-colors duration-300',
+        selected || editing ? 'bg-surface' : 'hover:bg-surface/60',
+        isDragging && 'z-10 bg-surface-2 shadow-float',
       )}
     >
-      {selected && <span aria-hidden className="absolute top-2 bottom-2 left-0 w-[2px] rounded-full bg-brand-500" />}
+      {/* 选中：左侧一条象牙白细线 */}
+      <span
+        aria-hidden
+        className={cn('absolute inset-y-0 left-0 w-px bg-ink-900 transition-opacity duration-300', selected ? 'opacity-100' : 'opacity-0')}
+      />
       {leg && (
-        <div className="flex items-center gap-1.5 pt-2 pr-3 pl-[3.6rem] text-[11px] text-ink-300">
-          <span className="shrink-0">距上一站</span>
+        <div className="flex items-center gap-2 pt-3 pr-4 pl-[5.875rem] text-[11px] text-ink-400 md:pr-8 md:pl-[6.75rem]">
+          <span className="h-3 w-px shrink-0 bg-ink-300" aria-hidden />
           <LegLine leg={leg} />
         </div>
       )}
-      <div className="flex items-center gap-2.5 py-3 pr-1.5 pl-1" onClick={onSelect}>
+      <div className="flex items-center gap-2 py-3.5 pr-2 pl-1.5 md:gap-3 md:pr-6 md:pl-5" onClick={onSelect}>
         <button
           type="button"
           {...attributes}
           {...listeners}
-          className="cursor-grab touch-none rounded p-1 text-ink-300 transition-colors hover:text-ink-700 active:cursor-grabbing"
+          className="flex size-10 shrink-0 cursor-grab touch-none items-center justify-center rounded-full text-ink-300 transition-colors hover:text-ink-700 active:cursor-grabbing md:size-8"
           aria-label="拖动排序"
           onClick={(e) => e.stopPropagation()}
         >
-          <GripVertical className="size-4" strokeWidth={1.5} />
+          <GripVertical className="size-4" strokeWidth={1.25} />
         </button>
-        <WaypointNumber w={w} label={String(index + 1)} />
-        <div className="min-w-0 flex-1">
+        <WaypointNumber
+          w={w}
+          label={String(index + 1)}
+          className={cn(selected && 'shadow-[0_0_0_3px_var(--color-surface),0_0_0_4px_var(--color-ink-900)]')}
+        />
+        <div className="min-w-0 flex-1 pl-1">
           {/* 名称做成按钮，键盘也能选中；回车 / 空格触发的点击冒泡到整行的 onSelect */}
           <button
             type="button"
             className={cn(
-              'font-display block w-full truncate text-left text-[15.5px] leading-snug text-ink-900',
-              w.status === 'skipped' && 'text-ink-400 line-through decoration-ink-300',
+              'font-display block w-full truncate text-left text-[18px] leading-snug text-ink-900 md:text-[19px]',
+              w.status === 'skipped' && 'text-ink-400 line-through decoration-ink-300 decoration-1',
             )}
           >
             {w.name || '未命名地点'}
           </button>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] tracking-wide">
-            {w.day > 0 && (
-              <span className="font-num text-ink-500">
-                第 {w.day} 天
-              </span>
-            )}
+          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] tracking-wide">
+            {w.day > 0 && <span className="eyebrow !text-[10px] !text-ink-500">Day {String(w.day).padStart(2, '0')}</span>}
             <CategoryChip category={w.category} className="text-[11px]" />
             {phase !== 'planning' && w.planned && <span className={statusTone}>{st.label}</span>}
             {!w.planned && <span className="text-violet-600">计划外</span>}
@@ -286,29 +291,42 @@ function SortableRow({
           onClick={(e) => (e.stopPropagation(), onEdit(!editing))}
           aria-expanded={editing}
           className={cn(
-            'h-7 shrink-0 rounded-md px-2.5 text-xs tracking-wide transition-colors',
-            editing ? 'bg-ink-900 text-paper' : 'text-ink-500 hover:bg-ink-900/5 hover:text-ink-900',
+            'h-10 shrink-0 rounded-full border px-3.5 text-xs tracking-[0.04em] transition-colors duration-300 md:h-8',
+            editing ? 'border-ink-900 bg-ink-900 text-paper' : 'border-transparent text-ink-500 hover:border-ink-300 hover:text-ink-900',
           )}
         >
           {editing ? '收起' : '编辑'}
         </button>
         <button
           type="button"
-          className="shrink-0 rounded-md p-1.5 text-ink-300 transition-colors hover:bg-brand-50 hover:text-brand-600"
+          className="flex size-10 shrink-0 items-center justify-center rounded-full text-ink-400 transition-colors hover:bg-brand-50 hover:text-brand-600 md:size-8"
           onClick={(e) => {
             e.stopPropagation()
             onDelete()
           }}
           aria-label={`删除「${w.name || '未命名地点'}」`}
         >
-          <Trash2 className="size-4" strokeWidth={1.5} />
+          <Trash2 className="size-4" strokeWidth={1.25} />
         </button>
       </div>
       {editing && (
-        <div className="px-2 pb-3">
+        <div className="animate-fade-in mx-4 border-t border-ink-200 pt-5 pb-6 md:mx-8">
           <WaypointForm w={w} phase={phase} maxDay={maxDay} saving={saving} onCancel={() => onEdit(false)} onSave={onSave} />
         </div>
       )}
+    </div>
+  )
+}
+
+/** 面板里的小节头：一条细线 + 一行小字（左标签、右计数） */
+function PanelHead({ eyebrow, count, aside }: { eyebrow: string; count?: ReactNode; aside?: ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-t border-ink-200 pt-3.5 pb-1">
+      <p className="flex items-baseline gap-3">
+        <span className="eyebrow !text-ink-900">{eyebrow}</span>
+        {count != null && <span className="caption !text-xs">{count}</span>}
+      </p>
+      {aside && <div className="caption shrink-0 !text-xs">{aside}</div>}
     </div>
   )
 }
@@ -363,11 +381,16 @@ function InfoPanel({ trip, onSaved }: { trip: TripDetail; onSaved: (t: TripDetai
     }
   }
   return (
-    <div className="space-y-7">
-      <section className="space-y-4">
-        <p className="eyebrow">Basics · 基本信息</p>
+    <div className="space-y-10">
+      <section className="space-y-5">
+        <PanelHead eyebrow="Basics · 基本信息" />
         <Field label="标题">
-          <Input value={f.title} onChange={(e) => set('title', e.target.value)} maxLength={100} className="font-display text-base" />
+          <Input
+            value={f.title}
+            onChange={(e) => set('title', e.target.value)}
+            maxLength={100}
+            className="font-display h-12 text-[19px]"
+          />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="开始日期">
@@ -386,8 +409,8 @@ function InfoPanel({ trip, onSaved }: { trip: TripDetail; onSaved: (t: TripDetai
         </Field>
       </section>
       {trip.is_owner && (
-        <section className="space-y-4 border-t border-ink-200 pt-6">
-          <p className="eyebrow">Sharing · 谁能看到</p>
+        <section className="space-y-5">
+          <PanelHead eyebrow="Sharing · 谁能看到" />
           <Field
             label="谁可以看"
             hint={
@@ -422,10 +445,15 @@ function InfoPanel({ trip, onSaved }: { trip: TripDetail; onSaved: (t: TripDetai
           </Field>
         </section>
       )}
-      <section className="space-y-4 border-t border-ink-200 pt-6">
-        <p className="eyebrow">Journal · 游记</p>
+      <section className="space-y-5">
+        <PanelHead eyebrow="Journal · 游记" />
         <Field label="一句话简介">
-          <Textarea value={f.summary} onChange={(e) => set('summary', e.target.value)} maxLength={500} className="min-h-16" />
+          <Textarea
+            value={f.summary}
+            onChange={(e) => set('summary', e.target.value)}
+            maxLength={500}
+            className="font-display min-h-20 text-[16px]"
+          />
         </Field>
         <Field label="游记正文" hint="支持 Markdown：## 标题、**加粗**、- 列表">
           <Textarea
@@ -439,9 +467,11 @@ function InfoPanel({ trip, onSaved }: { trip: TripDetail; onSaved: (t: TripDetai
           <Input value={f.tags} onChange={(e) => set('tags', e.target.value)} />
         </Field>
       </section>
-      <Button block loading={saving} onClick={save}>
-        保存旅程信息
-      </Button>
+      <div className="sticky bottom-0 -mx-4 border-t border-ink-200 bg-paper/90 px-4 py-4 backdrop-blur md:-mx-8 md:px-8">
+        <Button block loading={saving} onClick={save}>
+          保存旅程信息
+        </Button>
+      </div>
     </div>
   )
 }
@@ -478,31 +508,34 @@ function PhotosPanel({ trip, refresh }: { trip: TripDetail; refresh: () => void 
   }
   const sorted = [...trip.waypoints].sort(bySeq)
   return (
-    <div className="space-y-5">
+    <div className="space-y-8">
       <PhotoImporter tripId={trip.id} onDone={refresh} defaultAuto={trip.phase !== 'planning'} compact={trip.photos.length > 0} />
       {trip.photos.length > 0 && (
         <>
-          <p className="eyebrow">
-            Photos · 照片 <span className="font-num ml-1 text-ink-500">{trip.photos.length}</span>
-          </p>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-3">
+          <PanelHead eyebrow="Photos · 照片" count={`${trip.photos.length} 张`} />
+          <div className="grid grid-cols-2 gap-x-3 gap-y-6">
             {trip.photos.map((p) => {
               const isCover = trip.cover_url === p.url
               return (
                 <figure key={p.id} className="min-w-0">
-                  <div className="relative aspect-square overflow-hidden rounded-md bg-ink-100 ring-1 ring-ink-900/5">
-                    <img src={p.thumb_url} alt="" loading="lazy" className="size-full object-cover" />
+                  <div className="group relative aspect-[4/5] overflow-hidden bg-ink-100">
+                    <img
+                      src={p.thumb_url}
+                      alt=""
+                      loading="lazy"
+                      className="size-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03]"
+                    />
                     {isCover && (
-                      <span className="absolute top-1.5 left-1.5 rounded-sm bg-ink-900/85 px-1.5 py-0.5 text-[10px] tracking-widest text-paper">
-                        封面
+                      <span className="eyebrow absolute top-2 left-2 rounded-full bg-black/55 px-2 py-0.5 !text-[10px] !text-white backdrop-blur">
+                        Cover · 封面
                       </span>
                     )}
                   </div>
-                  <figcaption className="mt-1.5 space-y-1">
+                  <figcaption className="mt-2.5 space-y-1.5">
                     <Select
                       value={p.waypoint_id ?? 0}
                       onChange={(e) => assign(p.id, Number(e.target.value))}
-                      className="h-7 rounded-md pl-2 text-xs"
+                      className="h-9 rounded-md pl-2.5 text-xs"
                       aria-label="关联打卡点"
                     >
                       <option value={0}>未关联打卡点</option>
@@ -517,18 +550,18 @@ function PhotosPanel({ trip, refresh }: { trip: TripDetail; refresh: () => void 
                         type="button"
                         disabled={isCover}
                         onClick={() => setCover(p.url)}
-                        className="flex items-center gap-1 text-xs text-ink-500 transition-colors hover:text-ink-900 disabled:text-ink-300"
+                        className="flex h-9 items-center gap-1.5 text-xs text-ink-500 transition-colors hover:text-ink-900 disabled:text-ink-400"
                       >
-                        <Star className="size-3" strokeWidth={1.75} />
+                        <Star className={cn('size-3.5', isCover && 'fill-ink-400')} strokeWidth={1.5} />
                         {isCover ? '当前封面' : '设为封面'}
                       </button>
                       <button
                         type="button"
                         onClick={() => remove(p.id)}
-                        className="rounded p-0.5 text-ink-300 transition-colors hover:text-brand-600"
+                        className="-mr-2 flex size-9 items-center justify-center rounded-full text-ink-400 transition-colors hover:text-brand-600"
                         aria-label="删除照片"
                       >
-                        <Trash2 className="size-3.5" strokeWidth={1.5} />
+                        <Trash2 className="size-3.5" strokeWidth={1.25} />
                       </button>
                     </div>
                   </figcaption>
@@ -595,35 +628,35 @@ function MembersPanel({ trip }: { trip: TripDetail }) {
   const partner = me?.partner
   const partnerIn = partner && members.some((m) => m.user.id === partner.id)
   return (
-    <div className="space-y-5">
-      <p className="text-sm leading-relaxed text-ink-500">共同作者可以一起编辑路线、打卡、上传照片。和情侣一起的旅程会出现在「我们」的足迹里。</p>
+    <div className="space-y-8">
+      <p className="text-[14px] leading-[1.8] text-ink-500">共同作者可以一起编辑路线、打卡、上传照片。和情侣一起的旅程会出现在「我们」的足迹里。</p>
       {trip.is_owner && partner && !partnerIn && (
         <button
           type="button"
           onClick={() => invite(partner.username)}
-          className="group flex w-full items-center gap-3 rounded-xl border border-pink-200 bg-pink-50/60 p-3 text-left text-pink-800 transition-colors hover:border-pink-400"
+          className="group flex w-full items-center gap-4 border-y border-ink-200 py-4 text-left transition-colors hover:border-pink-400"
         >
-          <Avatar user={partner} size={36} ring />
-          <span className="flex-1 text-sm">
-            把 <span className="font-display text-[15px] text-pink-900">{partner.nickname || partner.username}</span> 加入这段旅程
+          <Avatar user={partner} size={40} />
+          <span className="flex-1 text-[14px] text-ink-700">
+            把 <span className="font-display text-[18px] text-ink-900">{partner.nickname || partner.username}</span> 加入这段旅程
           </span>
-          <Heart className="size-4 text-pink-500 transition-colors group-hover:fill-pink-500" strokeWidth={1.75} />
+          <Heart className="size-4 text-pink-500 transition-colors group-hover:fill-pink-500" strokeWidth={1.5} />
         </button>
       )}
       {trip.is_owner && (
         <div className="flex gap-2">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="输入对方用户名" aria-label="用户名" />
-          <Button disabled={!name.trim()} onClick={() => invite(name.trim())} icon={<UserPlus className="size-4" strokeWidth={1.75} />}>
+          <Button disabled={!name.trim()} onClick={() => invite(name.trim())} icon={<UserPlus className="size-4" strokeWidth={1.5} />}>
             邀请
           </Button>
         </div>
       )}
       <div>
-        <p className="eyebrow mb-1">Members · 成员</p>
-        <ul className="divide-y divide-ink-200 border-y border-ink-200">
+        <PanelHead eyebrow="Members · 成员" count={members.length ? `${members.length} 人` : undefined} />
+        <ul className="divide-y divide-ink-200 border-b border-ink-200">
           {members.map((m) => (
-            <li key={m.user.id} className="flex items-center gap-3 py-3">
-              <Avatar user={m.user} size={36} />
+            <li key={m.user.id} className="flex items-center gap-4 py-4">
+              <Avatar user={m.user} size={40} />
               <div className="min-w-0 flex-1">
                 <UserName user={m.user} />
                 <div className="mt-0.5 text-xs tracking-wide text-ink-400">
@@ -631,7 +664,7 @@ function MembersPanel({ trip }: { trip: TripDetail }) {
                 </div>
               </div>
               {m.role !== 'owner' && (trip.is_owner || m.user.id === me?.id) && (
-                <Button size="xs" variant="ghost" onClick={() => remove(m)}>
+                <Button size="sm" variant="outline" onClick={() => remove(m)}>
                   {m.user.id === me?.id ? '退出' : '移除'}
                 </Button>
               )}
@@ -820,7 +853,7 @@ export default function TripEditPage() {
     }
   }
 
-  const count = (n: number) => (n ? <span className="font-num ml-1 text-[13px] text-ink-400">{n}</span> : null)
+  const count = (n: number) => (n ? <span className="font-num ml-1.5 text-[14px] text-ink-400">{n}</span> : null)
   const tabs: { value: Panel; label: ReactNode }[] = [
     { value: 'route', label: <>路线{count(order.length)}</> },
     { value: 'info', label: '信息' },
@@ -832,7 +865,7 @@ export default function TripEditPage() {
   const canPreview = order.length >= 2
 
   return (
-    <div className="md:grid md:h-full md:grid-cols-[minmax(400px,460px)_1fr]">
+    <div className="md:grid md:h-full md:grid-cols-[minmax(400px,500px)_1fr]">
       <div className="sticky top-15 z-20 border-b border-ink-200 md:static md:order-2 md:h-full md:border-b-0">
         {/* 手机上展开编辑框时地图变矮，给表单留出空间 */}
         <BaseMap className={cn('md:h-full', editing !== null ? 'h-[22vh]' : 'h-[38vh]')} kindSwitcher locate>
@@ -876,14 +909,14 @@ export default function TripEditPage() {
       </div>
 
       <div className="flex min-h-0 flex-col md:order-1 md:border-r md:border-ink-200">
-        <header className="px-4 pt-3 md:px-5 md:pt-4">
+        <header className="px-4 pt-4 md:px-8 md:pt-7">
           <div className="flex items-center gap-1.5">
             <Link
               to={`/trips/${trip.id}`}
-              className="-ml-1.5 rounded-full p-1.5 text-ink-600 transition-colors hover:bg-ink-900/5 hover:text-ink-900"
+              className="-ml-2.5 flex size-10 items-center justify-center rounded-full text-ink-600 transition-colors hover:bg-ink-900/[0.06] hover:text-ink-900"
               aria-label="返回旅程"
             >
-              <ArrowLeft className="size-5" strokeWidth={1.5} />
+              <ArrowLeft className="size-[18px]" strokeWidth={1.25} />
             </Link>
             <p className="eyebrow min-w-0 flex-1 truncate">
               <span className="hidden sm:inline">Editing · </span>
@@ -891,10 +924,10 @@ export default function TripEditPage() {
             </p>
             <Link
               to={`/trips/${trip.id}`}
-              className={buttonClass({ size: 'sm', variant: 'ghost', className: 'px-2 sm:px-3' })}
+              className={buttonClass({ size: 'sm', variant: 'ghost', className: 'h-10 px-2.5 sm:px-3 md:h-9' })}
               title="预览旅程页"
             >
-              <Eye className="size-4" strokeWidth={1.75} />
+              <Eye className="size-4" strokeWidth={1.5} />
               <span className="hidden sm:inline">预览</span>
             </Link>
             <Link
@@ -905,31 +938,37 @@ export default function TripEditPage() {
                 toast('先添加至少两个地点，再来 3D 预览路线')
               }}
               aria-disabled={!canPreview}
-              className={buttonClass({ size: 'sm', variant: 'outline', className: cn('px-2.5', !canPreview && 'opacity-50') })}
+              className={buttonClass({ size: 'sm', variant: 'outline', className: cn('h-10 px-3 md:h-9', !canPreview && 'opacity-50') })}
               title="沿计划路线 3D 飞行预览"
             >
-              <Box className="size-4" strokeWidth={1.75} />
+              <Box className="size-4" strokeWidth={1.5} />
               3D 预览
             </Link>
             {trip.phase !== 'finished' && (
-              <Button size="sm" variant="accent" icon={<Play className="size-3.5" strokeWidth={1.75} />} onClick={() => nav(`/trips/${trip.id}/go`)}>
+              <Button
+                size="sm"
+                variant="accent"
+                className="h-10 md:h-9"
+                icon={<Play className="size-3.5" strokeWidth={1.5} />}
+                onClick={() => nav(`/trips/${trip.id}/go`)}
+              >
                 出发
               </Button>
             )}
           </div>
-          <h1 className="mt-2 line-clamp-2 text-[21px] leading-snug text-ink-900 md:text-[24px]">{trip.title}</h1>
-          <TabBar<Panel> value={panel} onChange={setPanel} options={tabs} className="mt-4 gap-5 md:gap-6" />
+          <h1 className="font-display mt-5 line-clamp-2 text-[30px] leading-[1.12] text-ink-900 md:mt-8 md:text-[40px]">{trip.title}</h1>
+          <TabBar<Panel> value={panel} onChange={setPanel} options={tabs} className="mt-6 gap-6 md:mt-8 md:gap-7" />
         </header>
 
         {/* 手机上整页滚动（列表不是滚动容器，scrollIntoView 才能把行滚到吸顶地图的下方） */}
-        <div className="flex-1 px-4 pt-4 pb-8 md:overflow-y-auto md:px-5">
+        <div className="flex-1 px-4 pt-6 pb-10 md:overflow-y-auto md:px-8 md:pt-7">
           {panel === 'route' && (
-            <div className="space-y-4">
+            <div className="space-y-6">
               <PlaceSearch onPick={onPick} city={trip.cities[0]} near={near} />
               <div className="flex flex-wrap items-center gap-2 text-xs text-ink-500">
-                <span className="shrink-0 tracking-wide">添加到</span>
+                <span className="eyebrow shrink-0">Add to · 添加到</span>
                 <div className="w-28 shrink-0">
-                  <Select value={addDay} onChange={(e) => setAddDay(Number(e.target.value))} className="h-8 rounded-md text-xs" aria-label="添加到第几天">
+                  <Select value={addDay} onChange={(e) => setAddDay(Number(e.target.value))} className="h-9 rounded-full pl-4 text-xs" aria-label="添加到第几天">
                     <option value={0}>不分天</option>
                     {Array.from({ length: maxDay + 1 }, (_, i) => i + 1).map((d) => (
                       <option key={d} value={d}>
@@ -939,7 +978,7 @@ export default function TripEditPage() {
                   </Select>
                 </div>
                 {trip.phase === 'planning' ? (
-                  <span className="ml-auto text-right text-ink-400">新加的点会作为计划路线</span>
+                  <span className="ml-auto text-right text-ink-500">新加的点会作为计划路线</span>
                 ) : (
                   <Segmented<'plan' | 'visited'>
                     size="sm"
@@ -958,28 +997,24 @@ export default function TripEditPage() {
               )}
               {order.length === 0 ? (
                 <Empty
-                  icon={<Route className="size-9" strokeWidth={1.75} />}
+                  className="border-t border-ink-200"
+                  icon={<Route className="size-9" strokeWidth={1.25} />}
                   title="还没有打卡点"
                   desc="搜索地点、在地图上点选，或者到「照片」里从照片自动生成"
                 />
               ) : (
-                <div>
-                  <div className="flex items-baseline justify-between pt-2 pb-2">
-                    <p className="eyebrow">Itinerary · 路线</p>
-                    <p className="text-[11px] tracking-wide text-ink-400">
-                      <span className="font-num">{order.length}</span> 个地点
-                    </p>
-                  </div>
+                <div className="pt-2">
+                  <PanelHead eyebrow="Itinerary · 路线" count={`${order.length} 个地点`} />
                   <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
                     <SortableContext items={order.map((w) => w.id)} strategy={verticalListSortingStrategy}>
-                      <div className="divide-y divide-ink-200 border-y border-ink-200">
+                      <div className="-mx-4 mt-2 divide-y divide-ink-200 border-y border-ink-200 md:-mx-8">
                         {order.map((w, i) => (
                           <div
                             id={`wp-${w.id}`}
                             key={w.id}
                             className={cn(
                               'md:scroll-mt-3',
-                              editing !== null ? 'scroll-mt-[calc(3.5rem+22vh+0.75rem)]' : 'scroll-mt-[calc(3.5rem+38vh+0.75rem)]',
+                              editing !== null ? 'scroll-mt-[calc(3.75rem+22vh+0.75rem)]' : 'scroll-mt-[calc(3.75rem+38vh+0.75rem)]',
                             )}
                           >
                             <SortableRow
@@ -1010,7 +1045,7 @@ export default function TripEditPage() {
                 </div>
               )}
               {order.length > 1 && (
-                <p className="text-center text-[11px] tracking-wide text-ink-400">拖动左侧把手调整顺序，拖动地图上的标记可微调位置</p>
+                <p className="text-center text-[11px] tracking-wide text-ink-500">拖动左侧把手调整顺序，拖动地图上的标记可微调位置</p>
               )}
             </div>
           )}

@@ -43,7 +43,7 @@ export function removeLayers(map: MLMap, layers: string[], sources: string[] = [
   sources.forEach((s) => map.getSource(s) && map.removeSource(s))
 }
 
-/* ---------------- 路线：计划（虚线）/ 实际（实线）/ GPS 轨迹 ---------------- */
+/* ---------------- 路线：计划（黛青虚线）/ 实际（朱砂实线，夜间为金色）/ GPS 轨迹（赭黄） ---------------- */
 export function RouteLines({
   planned,
   actual,
@@ -70,14 +70,14 @@ export function RouteLines({
         type: 'line',
         source: `${P}-planned`,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': dark ? '#88a8b0' : '#3f6975', 'line-width': 2.25, 'line-dasharray': [2, 2], 'line-opacity': 0.9 },
+        paint: { 'line-color': dark ? '#88a8b0' : '#7aa1ab', 'line-width': 2, 'line-dasharray': [2, 2.2], 'line-opacity': 0.85 },
       })
       map.addLayer({
         id: `${P}-track`,
         type: 'line',
         source: `${P}-track`,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#b7832f', 'line-width': 2.75, 'line-opacity': 0.8 },
+        paint: { 'line-color': '#cfa35e', 'line-width': 2.5, 'line-opacity': 0.8 },
       })
       map.addLayer({
         id: `${P}-actual-casing`,
@@ -95,7 +95,7 @@ export function RouteLines({
           'line-width': 3.25,
           'line-gradient': dark
             ? ['interpolate', ['linear'], ['line-progress'], 0, '#c9a868', 1, '#e8cf94']
-            : ['interpolate', ['linear'], ['line-progress'], 0, '#a53a22', 1, '#cf6b4e'],
+            : ['interpolate', ['linear'], ['line-progress'], 0, '#c4583c', 1, '#e58a6d'],
         },
       })
     }

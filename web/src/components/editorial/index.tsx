@@ -1,72 +1,98 @@
-// 「旅行手账」版式积木：页头、区块标题、文字筛选、注记、邮戳、矿物色封面色板
-// 只给发现 / 社区相关页面用（W1），样式全部取自 index.css 的令牌
-import { Fragment, useId, type ReactNode } from 'react'
+// 「夜航」版式积木：细线区块头、页头、文字筛选、注记、细线邮戳、滚动淡入
+// 只给发现 / 社区相关页面用，样式全部取自 index.css 的令牌
+import { Fragment, useEffect, useId, useRef, useState, type CSSProperties, type ElementType, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 
-/* ---------------- 页头：eyebrow + 宋体 H1 + 一句副标题，右侧放操作 ---------------- */
+/* ---------------- 细线标签行：一条 border-t，下面左侧 eyebrow + 灰色计数，右侧操作 ---------------- */
+export function LabelRow({
+  label,
+  count,
+  extra,
+  className,
+  id,
+}: {
+  label: ReactNode
+  /** 灰色计数 / 说明，紧跟在标签后面 */
+  count?: ReactNode
+  extra?: ReactNode
+  className?: string
+  id?: string
+}) {
+  return (
+    <div className={cn('flex min-h-12 flex-wrap items-center justify-between gap-x-6 gap-y-1 border-t border-ink-200 pt-3 pb-1', className)}>
+      <p id={id} className="flex min-w-0 items-baseline gap-3">
+        <span className="eyebrow !text-ink-800">{label}</span>
+        {count != null && count !== '' && <span className="font-num text-[13px] text-ink-400">{count}</span>}
+      </p>
+      {extra}
+    </div>
+  )
+}
+
+/* ---------------- 页头：细线标签行 + 大号宋体 H1，右侧一句导语和操作 ---------------- */
 export function PageHead({
   eyebrow,
   title,
   dek,
   actions,
+  meta,
   className,
 }: {
   eyebrow?: ReactNode
   title: ReactNode
   dek?: ReactNode
   actions?: ReactNode
+  /** 标签行右侧的灰色小字（如总数） */
+  meta?: ReactNode
   className?: string
 }) {
   return (
-    <header className={cn('flex flex-wrap items-end justify-between gap-x-8 gap-y-5', className)}>
-      <div className="min-w-0 max-w-2xl">
-        {eyebrow && <p className="eyebrow">{eyebrow}</p>}
-        <h1 className="mt-2.5 text-[28px] leading-[1.2] md:text-[38px]">{title}</h1>
-        {dek && <p className="mt-2.5 text-[14.5px] leading-relaxed text-ink-500">{dek}</p>}
+    <header className={cn('animate-slide-up', className)}>
+      {eyebrow && <LabelRow label={eyebrow} extra={meta && <span className="font-num text-[13px] text-ink-400">{meta}</span>} />}
+      <div className="mt-10 grid gap-x-8 gap-y-6 md:mt-16 lg:grid-cols-12 lg:items-end">
+        <h1 className="text-display-lg font-normal max-sm:text-[3.25rem] lg:col-span-7">{title}</h1>
+        {(dek || actions) && (
+          <div className="flex flex-col items-start gap-6 lg:col-span-4 lg:col-start-9 lg:pb-3">
+            {dek && <p className="max-w-sm text-[14.5px] leading-[1.8] text-pretty text-ink-500">{dek}</p>}
+            {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+          </div>
+        )}
       </div>
-      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
     </header>
   )
 }
 
-/** 报头式双线：上粗下细 */
-export function DoubleRule({ className }: { className?: string }) {
-  return (
-    <div aria-hidden className={cn('space-y-[3px]', className)}>
-      <div className="h-[2px] bg-ink-900" />
-      <div className="h-px bg-ink-900" />
-    </div>
-  )
-}
-
-/* ---------------- 区块标题：eyebrow + H2，底部细线；右侧放「更多」或筛选 ---------------- */
+/* ---------------- 区块头（Exemplar 式）：细线 + 标签行，再往下是大号标题 ---------------- */
 export function SectionHead({
   eyebrow,
+  count,
   title,
   extra,
   className,
+  titleClassName,
   id,
 }: {
   eyebrow?: ReactNode
-  title: ReactNode
+  count?: ReactNode
+  title?: ReactNode
   extra?: ReactNode
   className?: string
+  titleClassName?: string
   id?: string
 }) {
   return (
-    <div className={cn('flex flex-wrap items-end justify-between gap-x-4 gap-y-2 border-b border-ink-200 pb-3', className)}>
-      <div className="min-w-0">
-        {eyebrow && <p className="eyebrow">{eyebrow}</p>}
-        <h2 id={id} className="mt-1 text-[20px] leading-snug md:text-[22px]">
+    <div className={className}>
+      <LabelRow label={eyebrow} count={count} extra={extra} />
+      {title && (
+        <h2 id={id} className={cn('text-display-md mt-8 md:mt-12', titleClassName)}>
           {title}
         </h2>
-      </div>
-      {extra}
+      )}
     </div>
   )
 }
 
-/* ---------------- 文字筛选：「全部 / 游记 / 路线攻略」，当前项墨色下划线 ---------------- */
+/* ---------------- 文字筛选：「全部 / 游记 / 路线攻略」，当前项象牙白下划线 ---------------- */
 export function FilterLinks<T extends string>({
   value,
   onChange,
@@ -82,9 +108,9 @@ export function FilterLinks<T extends string>({
   className?: string
 }) {
   return (
-    <div role="group" aria-label={label} className={cn('flex flex-wrap items-center gap-y-1 text-[13.5px]', className)}>
+    <div role="group" aria-label={label} className={cn('flex flex-wrap items-center text-[13.5px]', className)}>
       {label && (
-        <span aria-hidden className="eyebrow mr-2.5">
+        <span aria-hidden className="eyebrow mr-2">
           {label}
         </span>
       )}
@@ -93,7 +119,7 @@ export function FilterLinks<T extends string>({
         return (
           <Fragment key={o.value || '_all'}>
             {i > 0 && (
-              <span aria-hidden className="px-0.5 text-ink-300">
+              <span aria-hidden className="text-ink-300">
                 /
               </span>
             )}
@@ -102,9 +128,9 @@ export function FilterLinks<T extends string>({
               aria-pressed={active}
               onClick={() => onChange(o.value)}
               className={cn(
-                'rounded-sm px-1.5 py-1 whitespace-nowrap tracking-wide transition-colors',
+                'inline-flex h-10 items-center rounded-sm px-2 whitespace-nowrap tracking-wide transition-colors duration-300 md:h-8',
                 active
-                  ? 'text-ink-900 underline decoration-ink-900 decoration-[1.5px] underline-offset-[7px]'
+                  ? 'text-ink-900 underline decoration-ink-900 decoration-1 underline-offset-[7px]'
                   : 'text-ink-400 hover:text-ink-900',
               )}
             >
@@ -117,9 +143,9 @@ export function FilterLinks<T extends string>({
   )
 }
 
-/* ---------------- 注记：左侧一条色线的说明文字（代替彩色底的提示框） ---------------- */
+/* ---------------- 注记：左侧一条细线的说明文字（代替彩色底的提示框） ---------------- */
 const noteTone = {
-  ink: 'border-ink-900 text-ink-600',
+  ink: 'border-ink-400 text-ink-600',
   caution: 'border-brand-500 text-ink-700',
   amber: 'border-amber-500 text-ink-700',
 }
@@ -135,9 +161,9 @@ export function Note({
   className?: string
 }) {
   return (
-    <div className={cn('border-l-2 bg-white/55 py-2.5 pr-3 pl-3.5 text-[13.5px] leading-relaxed', noteTone[tone], className)}>
+    <div className={cn('border-l py-1 pl-4 text-[13.5px] leading-relaxed', noteTone[tone], className)}>
       {label && (
-        <span className={cn('eyebrow mr-2', tone === 'caution' ? '!text-brand-600' : tone === 'amber' && '!text-amber-700')}>
+        <span className={cn('eyebrow mr-2', tone === 'caution' ? '!text-brand-600' : tone === 'amber' && '!text-amber-600')}>
           {label}
         </span>
       )}
@@ -146,7 +172,7 @@ export function Note({
   )
 }
 
-/* ---------------- 邮戳：双圈 + 环形小字 + 中间大号 Cormorant 数字 ---------------- */
+/* ---------------- 细线邮戳：双圈 + 环形小字 + 中间 Cormorant 数字 ---------------- */
 export function Postmark({
   value,
   unit,
@@ -178,24 +204,11 @@ export function Postmark({
       </defs>
       {waves &&
         [34, 44, 54, 64].map((y) => (
-          <path
-            key={y}
-            d={`M -60 ${y} q 7.5 -5 15 0 t 15 0 t 15 0 t 15 0`}
-            strokeWidth={1.1}
-            strokeLinecap="round"
-            opacity={0.8}
-          />
+          <path key={y} d={`M -60 ${y} q 7.5 -5 15 0 t 15 0 t 15 0 t 15 0`} strokeWidth={0.6} strokeLinecap="round" />
         ))}
-      <circle cx={50} cy={50} r={47} strokeWidth={1.5} />
-      <circle cx={50} cy={50} r={31} strokeWidth={0.8} />
-      <text
-        fill="currentColor"
-        stroke="none"
-        fontFamily="var(--font-num)"
-        fontSize={7}
-        fontWeight={500}
-        style={{ textTransform: 'uppercase' }}
-      >
+      <circle cx={50} cy={50} r={47} strokeWidth={0.7} />
+      <circle cx={50} cy={50} r={31} strokeWidth={0.5} />
+      <text fill="currentColor" stroke="none" fontFamily="var(--font-sans)" fontSize={5.6} fontWeight={500} letterSpacing={0.6} style={{ textTransform: 'uppercase' }}>
         <textPath href={`#${id}`} textLength={circ - 5} lengthAdjust="spacing">
           {ring}
         </textPath>
@@ -208,41 +221,72 @@ export function Postmark({
         stroke="none"
         fontFamily="var(--font-num)"
         fontSize={value.length > 3 ? 17 : 23}
-        fontWeight={500}
+        fontWeight={300}
         style={{ fontVariantNumeric: 'lining-nums' }}
       >
         {value}
       </text>
-      <line x1={38} x2={62} y1={61.5} y2={61.5} strokeWidth={0.6} />
-      <text
-        x={50}
-        y={70}
-        textAnchor="middle"
-        fill="currentColor"
-        stroke="none"
-        fontFamily="var(--font-num)"
-        fontSize={6}
-        letterSpacing={1.4}
-      >
+      <line x1={40} x2={60} y1={61.5} y2={61.5} strokeWidth={0.4} />
+      <text x={50} y={70} textAnchor="middle" fill="currentColor" stroke="none" fontFamily="var(--font-sans)" fontSize={5} letterSpacing={1.4}>
         {unit}
       </text>
     </svg>
   )
 }
 
-/* ---------------- 矿物色：没有封面照片时的纯色块（按 id 取色） ---------------- */
-// 取值与 index.css 中的矿物色令牌一致（玉青 / 黛青 / 赭石 / 藕荷 / 胭脂 / 石青 / 宣纸）
-export const minerals = [
-  { name: '玉青', bg: '#2a5447', fg: '#f4f1ea', stamp: '#f4f1ea' },
-  { name: '黛青', bg: '#325662', fg: '#f4f1ea', stamp: '#f4f1ea' },
-  { name: '赭石', bg: '#7d561e', fg: '#f4f1ea', stamp: '#f4f1ea' },
-  { name: '藕荷', bg: '#594b74', fg: '#f4f1ea', stamp: '#f4f1ea' },
-  { name: '胭脂', bg: '#6b3242', fg: '#f4f1ea', stamp: '#f4f1ea' },
-  { name: '石青', bg: '#3d4e7a', fg: '#f4f1ea', stamp: '#f4f1ea' },
-  { name: '墨', bg: '#1d1c19', fg: '#f2eee6', stamp: '#cf6041' },
-] as const
-export type Mineral = (typeof minerals)[number]
-export const mineralOf = (id: number) => minerals[Math.abs(id) % minerals.length]
+/* ---------------- 滚动淡入：进入视口时缓慢上移显现（只一次；减少动效时直接显示） ---------------- */
+export function Reveal({
+  as: Tag = 'div',
+  delay = 0,
+  className,
+  children,
+  ...rest
+}: {
+  as?: ElementType
+  /** 毫秒，同一组元素错开 60–80ms */
+  delay?: number
+  className?: string
+  children?: ReactNode
+  id?: string
+  'aria-labelledby'?: string
+  'aria-label'?: string
+}) {
+  const ref = useRef<HTMLElement>(null)
+  const [shown, setShown] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setShown(true)
+      return
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setShown(true)
+          io.disconnect()
+        }
+      },
+      { rootMargin: '0px 0px -8% 0px' },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
+  const style: CSSProperties | undefined = delay ? { transitionDelay: `${delay}ms` } : undefined
+  return (
+    <Tag
+      ref={ref}
+      style={style}
+      data-shown={shown || undefined}
+      className={cn(
+        'translate-y-6 opacity-0 transition-[opacity,translate] duration-[900ms] ease-out-expo data-[shown]:translate-y-0 data-[shown]:opacity-100 motion-reduce:translate-y-0 motion-reduce:opacity-100 motion-reduce:transition-none',
+        className,
+      )}
+      {...rest}
+    >
+      {children}
+    </Tag>
+  )
+}
 
 const ETHNIC = '(?:藏|彝|白|傣|苗|侗|土家|布依|壮|哈尼|景颇|傈僳|朝鲜|回|蒙古|哈萨克|柯尔克孜|羌|黎|瑶|畲|纳西|怒|独龙)族?'
 const PREFECTURE = new RegExp(`^(.+?)(?:${ETHNIC})+自治[州县]$`)
@@ -258,7 +302,7 @@ export function cityShort(name: string) {
 /** 两位序号：1 → 01 */
 export const pad2 = (n: number) => String(n).padStart(2, '0')
 
-/** 列表底部「加载更多」：细线分隔 + 文字按钮 */
+/** 列表底部「加载更多」：细线之间一个细线胶囊 */
 export function MoreButton({
   onClick,
   loading,
@@ -271,13 +315,13 @@ export function MoreButton({
   className?: string
 }) {
   return (
-    <div className={cn('flex items-center gap-4 pt-10', className)}>
+    <div className={cn('flex items-center gap-5 pt-16', className)}>
       <span className="h-px flex-1 bg-ink-200" />
       <button
         type="button"
         onClick={onClick}
         disabled={loading}
-        className="inline-flex h-9 items-center gap-2 rounded-lg border border-ink-900/15 px-5 text-[13px] tracking-wider text-ink-700 transition-colors hover:border-ink-900/40 hover:bg-surface disabled:opacity-50"
+        className="inline-flex h-10 items-center gap-2 rounded-full border border-ink-900/20 px-6 text-[13px] tracking-[0.08em] text-ink-800 transition-colors duration-300 hover:border-ink-900/60 hover:text-ink-900 disabled:opacity-50"
       >
         {loading ? '加载中…' : children}
       </button>

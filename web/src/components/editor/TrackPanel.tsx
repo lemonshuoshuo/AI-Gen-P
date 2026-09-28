@@ -72,13 +72,13 @@ export function TrackPanel({ trip }: { trip: TripDetail }) {
 
   const km = formatKm(t?.distance_km)
   return (
-    <div className="space-y-5">
-      <div className="rounded-xl border border-ink-200 bg-white/70 p-4">
-        <p className="eyebrow flex items-center gap-1.5">
-          <Footprints className="size-3.5" strokeWidth={1.75} />
+    <div className="space-y-8">
+      <div className="border-t border-ink-200 pt-3.5">
+        <p className="eyebrow flex items-center gap-2 !text-ink-900">
+          <Footprints className="size-3.5" strokeWidth={1.5} />
           GPS Track · 轨迹
         </p>
-        <div className="mt-3 min-h-12">
+        <div className="mt-6 min-h-12">
           {summary.isLoading ? (
             <Spinner className="size-4" />
           ) : summary.isError && !t ? (
@@ -90,27 +90,29 @@ export function TrackPanel({ trip }: { trip: TripDetail }) {
             </p>
           ) : t && t.point_count > 0 ? (
             <>
-              <div className="flex items-end divide-x divide-ink-200">
+              <div className="grid grid-cols-2 divide-x divide-ink-200 border-b border-ink-200 pb-6">
                 <div className="pr-5">
-                  <span className="font-num text-[1.75rem] leading-none font-medium tracking-tight text-ink-900">{km.split(' ')[0]}</span>
-                  <span className="ml-1 text-xs text-ink-400">{km.split(' ')[1]}</span>
-                  <p className="mt-1.5 text-xs tracking-wide text-ink-400">轨迹里程</p>
+                  <p className="eyebrow">Distance · 轨迹里程</p>
+                  <span className="font-num mt-4 inline-block text-[3.5rem] leading-[0.85] font-light tracking-tight text-ink-900">
+                    {km.split(' ')[0]}
+                  </span>
+                  <span className="ml-1.5 text-xs text-ink-500">{km.split(' ')[1]}</span>
                 </div>
                 <div className="pl-5">
-                  <span className="font-num text-[1.75rem] leading-none font-medium tracking-tight text-ink-900">
+                  <p className="eyebrow">Points · 轨迹点</p>
+                  <span className="font-num mt-4 inline-block text-[3.5rem] leading-[0.85] font-light tracking-tight text-ink-900">
                     {t.point_count.toLocaleString()}
                   </span>
-                  <p className="mt-1.5 text-xs tracking-wide text-ink-400">轨迹点</p>
                 </div>
               </div>
               {t.started_at && (
-                <p className="font-num mt-3 text-xs tracking-wide text-ink-400">
+                <p className="font-num mt-4 text-[14px] tracking-wide text-ink-500">
                   {fmtTime(t.started_at)} – {fmtTime(t.ended_at)}
                 </p>
               )}
             </>
           ) : (
-            <p className="text-sm leading-relaxed text-ink-500">
+            <p className="font-display text-[19px] leading-[1.6] text-ink-600">
               还没有 GPS 轨迹。出发后旅行模式会自动记录，也可以导入运动手表或户外 App 导出的 GPX 文件。
             </p>
           )}
@@ -133,12 +135,12 @@ export function TrackPanel({ trip }: { trip: TripDetail }) {
           variant="outline"
           loading={progress != null}
           disabled={busy}
-          icon={<Upload className="size-4" strokeWidth={1.75} />}
+          icon={<Upload className="size-4" strokeWidth={1.5} />}
           onClick={() => input.current?.click()}
         >
           {progress != null ? `导入中 ${Math.round(progress * 100)}%` : '导入 GPX 轨迹'}
         </Button>
-        <p className="text-xs leading-relaxed text-ink-400">
+        <p className="pt-1 text-xs leading-relaxed text-ink-500">
           支持两步路、六只脚、运动手表等导出的 GPX 文件（最多 5 万个点，需带时间）；重复导入同一文件不会产生重复的点；导入不会改变旅程状态
         </p>
       </div>
@@ -151,7 +153,7 @@ export function TrackPanel({ trip }: { trip: TripDetail }) {
             className="text-brand-600 hover:bg-brand-50"
             loading={clearing}
             disabled={busy}
-            icon={<Trash2 className="size-4" strokeWidth={1.75} />}
+            icon={<Trash2 className="size-4" strokeWidth={1.5} />}
             onClick={clear}
           >
             清空轨迹
