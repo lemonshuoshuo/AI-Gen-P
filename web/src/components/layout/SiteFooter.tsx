@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { useSite } from '@/hooks/useSite'
 import { cn } from '@/lib/cn'
@@ -6,8 +7,51 @@ import { cn } from '@/lib/cn'
 const linkCls = 'inline-flex h-10 items-center transition-colors duration-300 hover:text-ink-900 md:h-auto'
 
 /**
- * 页脚：超大字标、一行安静的链接（用户协议 / 隐私政策），以及管理员填写的 ICP 备案号和公安联网备案号
- * （工信部要求在网站首页底部显示备案号并链接到备案管理系统）。compact 用于登录页等没有边框和留白的场合
+ * 超大字标：按栏宽实测后撑满整行（左缘对齐页面栏线），完整显示、不裁切；
+ * 用暗一档的墨色，作为页面的落款而不是新的视觉焦点
+ */
+function Wordmark({ name }: { name: string }) {
+  const box = useRef<HTMLDivElement>(null)
+  const text = useRef<HTMLSpanElement>(null)
+  const [size, setSize] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    const b = box.current
+    const t = text.current
+    if (!b || !t) return
+    let alive = true
+    // 字号与字宽成正比：按当前字号下的实际宽度一次换算到栏宽
+    const fit = () => {
+      const w = t.getBoundingClientRect().width
+      const cur = parseFloat(getComputedStyle(t).fontSize)
+      const avail = b.clientWidth
+      if (alive && w > 0 && avail > 0) setSize(Math.floor(((cur * avail) / w) * 10) / 10)
+    }
+    fit()
+    void document.fonts?.ready.then(fit)
+    const ro = new ResizeObserver(fit)
+    ro.observe(b)
+    return () => {
+      alive = false
+      ro.disconnect()
+    }
+  }, [name])
+  return (
+    <div ref={box} aria-hidden className="pt-6 pb-8 select-none md:pt-10 md:pb-12">
+      <span
+        ref={text}
+        className="font-display inline-block pb-[0.12em] leading-[0.9] tracking-[-0.02em] whitespace-nowrap text-ink-300"
+        style={{ fontSize: size ? `${size}px` : `min(${Math.min(21, 150 / Math.max(name.length, 1))}vw, ${Math.min(19, 133 / Math.max(name.length, 1))}rem)` }}
+      >
+        {name}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * 页脚：一行安静的链接（用户协议 / 隐私政策）、管理员填写的 ICP 备案号和公安联网备案号
+ * （工信部要求在网站首页底部显示备案号并链接到备案管理系统），最下面是撑满栏宽的字标。
+ * compact 用于登录页等没有边框和留白的场合
  */
 export function SiteFooter({ className, compact }: { className?: string; compact?: boolean }) {
   const { data: site } = useSite()
@@ -72,15 +116,7 @@ export function SiteFooter({ className, compact }: { className?: string; compact
           © {year} {name}
         </p>
       </div>
-      {/* 超大字标：几乎占满整行宽度，字母下伸部分被页面底边轻轻裁掉 */}
-      <div aria-hidden className="overflow-hidden select-none">
-        <p
-          className="font-display -mb-[0.08em] text-center leading-[0.95] tracking-[-0.02em] whitespace-nowrap text-ink-900"
-          style={{ fontSize: `min(${Math.min(21, 150 / Math.max(name.length, 1))}vw, ${Math.min(19, 133 / Math.max(name.length, 1))}rem)` }}
-        >
-          {name}
-        </p>
-      </div>
+      <Wordmark name={name} />
     </footer>
   )
 }

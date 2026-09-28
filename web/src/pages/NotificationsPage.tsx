@@ -43,8 +43,13 @@ const typeIcon: Record<NotificationType, LucideIcon> = {
   system: Megaphone,
 }
 
-/** 人名、旅程名、地点名：象牙白宋体（只加载了 400 字重，不加粗） */
-const B = ({ children }: { children: ReactNode }) => <span className="font-display text-ink-900">{children}</span>
+/** 人名、旅程名、地点名：象牙白宋体（只加载了 400 字重，不加粗）；数字用齐线数字，「1 GB」不会变成「ı GB」 */
+const B = ({ children }: { children: ReactNode }) => (
+  <span className="font-display text-ink-900 [font-variant-numeric:lining-nums]">{children}</span>
+)
+
+/** 默认头像：近黑底 + 细线圈 + 象牙白首字，不用彩色圆片 */
+const monoAvatar = '!bg-surface-2 ring-1 ring-inset ring-ink-300 !text-ink-800'
 
 /** 通知的中文描述 */
 function describe(n: Notification): ReactNode {
@@ -133,7 +138,7 @@ function NoticeAvatar({ n }: { n: Notification }) {
     )
   return (
     <span className="relative size-11 shrink-0">
-      <Avatar user={n.actor} size={44} />
+      <Avatar user={n.actor} size={44} className={monoAvatar} />
       <span className="absolute -right-1 -bottom-1 flex size-5 items-center justify-center rounded-full border border-ink-200 bg-paper text-ink-600">
         <Icon className="size-2.5" strokeWidth={1.75} />
       </span>
@@ -161,7 +166,7 @@ function InviteActions({ tripId, onDone }: { tripId: number; onDone: () => void 
   })
   if (result === 'accepted')
     return (
-      <div className="mt-4 text-[13px] text-emerald-700">
+      <div className="mt-4 text-[13px] text-ink-700">
         已接受 ·{' '}
         <Link to={`/trips/${tripId}`} className="text-ink-900 underline decoration-ink-300 underline-offset-4 hover:decoration-ink-900">
           查看旅程
@@ -171,10 +176,10 @@ function InviteActions({ tripId, onDone }: { tripId: number; onDone: () => void 
   if (result === 'declined') return <div className="mt-4 text-[13px] text-ink-400">已拒绝</div>
   return (
     <div className="mt-4 flex gap-2">
-      <Button size="sm" variant="outline" loading={m.isPending && !m.variables} disabled={m.isPending} onClick={() => m.mutate(false)}>
+      <Button size="sm" variant="outline" className="max-sm:h-10" loading={m.isPending && !m.variables} disabled={m.isPending} onClick={() => m.mutate(false)}>
         拒绝
       </Button>
-      <Button size="sm" loading={m.isPending && m.variables} disabled={m.isPending} onClick={() => m.mutate(true)}>
+      <Button size="sm" className="max-sm:h-10" loading={m.isPending && m.variables} disabled={m.isPending} onClick={() => m.mutate(true)}>
         接受
       </Button>
     </div>
@@ -188,8 +193,9 @@ function NoticeItem({ n, onOpen, onRead }: { n: Notification; onOpen: () => void
   const d = dayjs(n.created_at)
   const body = (
     <>
-      {/* 左栏：时间（亮）+ 相对时间（灰）；未读是一粒朱砂小点，不给整行铺底色 */}
-      <div className="flex items-baseline gap-3 max-md:col-span-2 md:col-span-2 md:block">
+      {/* 左栏：时间（亮）+ 相对时间（灰）；未读是一粒朱砂小点，不给整行铺底色。
+          大屏占 4 栏，正文与「我的」「账号设置」从同一条竖线（第 5 栏）起排 */}
+      <div className="flex items-baseline gap-3 max-md:col-span-2 md:col-span-3 md:block lg:col-span-4">
         <p className="flex items-center gap-2.5 text-[13px] text-ink-900">
           <span
             className={cn('size-1.5 shrink-0 rounded-full', n.read ? 'bg-transparent' : 'bg-brand-500')}
@@ -200,12 +206,12 @@ function NoticeItem({ n, onOpen, onRead }: { n: Notification; onOpen: () => void
         <p className="caption md:mt-0.5 md:pl-4">{fromNow(n.created_at)}</p>
         <p className="eyebrow ml-auto md:hidden">{typeLabel[n.type] ?? typeLabel.system}</p>
       </div>
-      <div className="flex min-w-0 gap-4 max-md:col-span-2 md:col-span-7 md:gap-5">
+      <div className="flex min-w-0 gap-4 max-md:col-span-2 md:col-span-6 md:gap-5">
         <NoticeAvatar n={n} />
         <div className="min-w-0 flex-1">
           <p
             className={cn(
-              'font-display line-clamp-3 text-[17px] leading-[1.7] break-words transition-colors duration-300 md:text-[20px]',
+              'font-display line-clamp-3 text-[17px] leading-[1.7] break-words transition-colors duration-300 [font-feature-settings:"halt"] [font-variant-numeric:lining-nums] md:text-[20px]',
               n.read ? 'text-ink-500' : 'text-ink-700',
               clickable && 'group-hover:text-ink-800',
             )}
@@ -216,13 +222,16 @@ function NoticeItem({ n, onOpen, onRead }: { n: Notification; onOpen: () => void
           {actionable && n.trip && <InviteActions tripId={n.trip.id} onDone={onRead} />}
         </div>
       </div>
-      <div className="hidden items-start justify-end gap-6 pt-1 md:col-span-3 md:flex">
-        <span className="eyebrow">{typeLabel[n.type] ?? typeLabel.system}</span>
-        {clickable && (
+      {/* 箭头位总是占着，右侧的类型标签列才有一条整齐的右边 */}
+      <div className="hidden items-start justify-end gap-6 pt-1 md:col-span-3 md:flex lg:col-span-2">
+        <span className="eyebrow whitespace-nowrap">{typeLabel[n.type] ?? typeLabel.system}</span>
+        {clickable ? (
           <ArrowUpRight
             className="size-4 shrink-0 text-ink-300 transition-colors duration-300 group-hover:text-ink-900"
             strokeWidth={1.25}
           />
+        ) : (
+          <span className="size-4 shrink-0" aria-hidden />
         )}
       </div>
     </>
@@ -329,7 +338,7 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[90rem] px-4 pt-10 pb-24 md:px-8 md:pt-20 md:pb-32">
+    <div className="mx-auto max-w-[90rem] px-4 pt-10 pb-24 [font-variant-numeric:lining-nums] md:px-8 md:pt-20 md:pb-32">
       {/* 页头：细线标签行 + 大号宋体标题；右栏是未读数（大号细字）与「全部已读」 */}
       <header className="animate-slide-up">
         <LabelRow

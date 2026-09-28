@@ -32,6 +32,7 @@ import { Markdown } from '@/components/Markdown'
 import { BaseMap, useMap } from '@/components/map/BaseMap'
 import { FitOnce, RouteLines, WaypointMarkers } from '@/components/map/layers'
 import { ReportDialog } from '@/components/report/ReportDialog'
+import { CjkWords } from '@/components/trip/CjkWords'
 import { PhotoViewer } from '@/components/trip/PhotoViewer'
 import { Reveal } from '@/components/trip/Reveal'
 import { ShareDialog, ShareSheet } from '@/components/trip/ShareDialog'
@@ -47,7 +48,6 @@ import {
   PageLoader,
   Switch,
   Tag,
-  UserName,
   buttonClass,
   confirmDialog,
 } from '@/components/ui'
@@ -383,7 +383,7 @@ function Cover({ trip, onScroll }: { trip: TripDetail; onScroll: () => void }) {
             className="text-display-xl animate-slide-up mt-5 max-w-[11em] text-balance text-white [animation-fill-mode:backwards] md:mt-7"
             style={{ animationDelay: '120ms', fontSize: 'clamp(3rem, 8.6vw, 8rem)' }}
           >
-            {trip.title}
+            <CjkWords text={trip.title} />
           </h1>
           <div className="animate-fade-in mt-10 [animation-fill-mode:backwards] md:mt-16" style={{ animationDelay: '360ms' }}>
             {captions}
@@ -396,21 +396,25 @@ function Cover({ trip, onScroll }: { trip: TripDetail; onScroll: () => void }) {
   const first = places[0]
   const last = places.length > 1 ? places[places.length - 1] : null
   const via = places.slice(1, -1)
+  // 按最长的地名定字号：两个字的城市在手机上也能撑满一行（约 165px），宽屏封顶
+  const longest = Math.max(first?.length ?? 1, last?.length ?? 0)
+  const gutter = 'var(--cover-gutter)'
+  const nameSize = `min(${last ? '12.5rem' : '17rem'}, calc((100vw - ${gutter}) / ${longest} * 0.92))`
   const days = trip.days ? pad2(trip.days) : '—'
   const ring = `TripHub · ${dates || dayjs(trip.created_at).format('YYYY')} · ${phaseEyebrow[trip.phase]} · `
   return (
     <section className="relative overflow-hidden">
-      <div className="mx-auto flex min-h-[calc(88svh-3.75rem)] max-w-[90rem] flex-col px-4 pt-8 pb-7 md:min-h-[680px] md:px-8 md:pt-12 md:pb-10">
+      <div className="mx-auto flex min-h-[calc(88svh-3.75rem)] max-w-[90rem] flex-col px-4 pt-8 pb-7 [--cover-gutter:2rem] md:min-h-[680px] md:px-8 md:pt-12 md:pb-10 md:[--cover-gutter:4rem]">
         <div className="flex items-start justify-between gap-6">
           {kicker}
           <CoverPostmark ring={ring} value={days} unit="DAYS" className="animate-fade-in -mt-1 w-36 shrink-0 text-ink-400 md:w-56" />
         </div>
-        <div className="flex flex-1 flex-col justify-center py-8 md:py-10">
+        <div className="flex flex-1 flex-col justify-center py-4 md:py-10">
           {first ? (
             <div
               aria-hidden
               className="font-display animate-slide-up leading-[0.92] font-light tracking-[-0.02em] text-ink-900 [animation-fill-mode:backwards]"
-              style={{ fontSize: last ? 'clamp(4.75rem, 13.5vw, 12.5rem)' : 'clamp(6.5rem, 28vw, 17rem)' }}
+              style={{ fontSize: nameSize }}
             >
               <p>{first}</p>
               {last && (
@@ -436,7 +440,7 @@ function Cover({ trip, onScroll }: { trip: TripDetail; onScroll: () => void }) {
           className="text-display-lg animate-slide-up max-w-[13em] text-balance text-ink-900 [animation-fill-mode:backwards]"
           style={{ animationDelay: '140ms' }}
         >
-          {trip.title}
+          <CjkWords text={trip.title} />
         </h1>
         <div className="mt-8 md:mt-12">{captions}</div>
       </div>
@@ -464,6 +468,16 @@ function Itinerary({
   const byWp = photosByWaypoint(trip.photos)
   const order = useMemo(() => new Map([...trip.waypoints].sort(bySeq).map((w, i) => [w.id, i + 1])), [trip.waypoints])
   const hasPlan = trip.waypoints.some((w) => w.planned)
+  // 每天有照片的第一站用整栏横幅，之后的站用竖幅并左右交替
+  const plates = new Map<number, 'wide' | 'left' | 'right'>()
+  for (const [, list] of days) {
+    let k = 0
+    for (const w of list) {
+      if (!byWp.get(w.id)?.length) continue
+      plates.set(w.id, k === 0 ? 'wide' : k % 2 ? 'right' : 'left')
+      k++
+    }
+  }
   if (!trip.waypoints.length)
     return (
       <Empty
@@ -510,6 +524,7 @@ function Itinerary({
                 w={w}
                 label={String(order.get(w.id))}
                 photos={byWp.get(w.id)}
+                plate={plates.get(w.id)}
                 selected={selected?.id === w.id}
                 onSelect={() => onSelect(w)}
                 onPhoto={onPhoto}
@@ -525,10 +540,46 @@ function Itinerary({
   )
 }
 
+/** 链接式操作：小图标 + 带细下划线的文字，整块至少 40px 高方便手指点 */
+const linkAction = 'group/la inline-flex h-10 items-center gap-2 text-[13px] text-ink-900'
+const linkText = 'underline decoration-ink-300 underline-offset-4 transition-colors duration-300 group-hover/la:decoration-ink-900'
+
 /** 地图上的胶囊按钮：玻璃底 + 细线；主操作为象牙白实心 */
 const mapChip = 'inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-[13px] tracking-[0.02em] transition-colors duration-300'
 const mapChipGlass = 'glass border border-ink-900/15 text-ink-800 hover:border-ink-900/45 hover:text-ink-900'
 const mapChipSolid = 'bg-ink-900 text-paper hover:bg-ink-700'
+
+interface MapActionDef {
+  key: string
+  label: string
+  icon: typeof Box
+  to?: string
+  href?: string
+  title?: string
+  solid?: boolean
+  onClick?: () => void
+}
+
+/** 地图操作：站内链接或外部导航链接；text 给文字加下划线样式，arrow 在末尾加「→」 */
+function MapAction({ a, className, text, arrow }: { a: MapActionDef; className: string; text?: string; arrow?: boolean }) {
+  const Icon = a.icon
+  const inner = (
+    <>
+      <Icon className={cn('size-4 shrink-0', text && 'size-3.5 text-ink-500')} strokeWidth={1.5} />
+      <span className={text}>{a.label}</span>
+      {arrow && <span className="text-ink-500">→</span>}
+    </>
+  )
+  return a.href ? (
+    <a href={a.href} target="_blank" rel="noreferrer" title={a.title} onClick={a.onClick} className={className}>
+      {inner}
+    </a>
+  ) : (
+    <Link to={a.to!} title={a.title} className={className}>
+      {inner}
+    </Link>
+  )
+}
 
 /** 沿途影像：不对称网格（大图 7 栏 + 竖图 4 栏错落），图片下方两行说明 */
 const galleryLayout = [
@@ -537,6 +588,8 @@ const galleryLayout = [
   'col-span-1 lg:col-span-5 lg:col-start-2 aspect-[4/5]',
   'col-span-2 lg:col-span-6 lg:col-start-7 aspect-[3/2] lg:mt-24',
 ]
+/** 落单的最后一张：居中的竖幅（Exemplar 式的居中图版） */
+const galleryLast = 'col-span-2 lg:col-span-6 lg:col-start-4 aspect-[4/5]'
 const GALLERY_MAX = 12
 
 // 同一路由内切换到另一段旅程（「引用自」链接、浏览器前进 / 后退）时整页重新挂载，
@@ -682,16 +735,41 @@ function TripDetailView() {
     ? `高德一次最多规划 ${AMAP_MAX_STOPS} 站，这条路线${remaining.length ? '还剩' : '共'} ${navStops.length} 站` +
       (trip.can_edit && remaining.length ? '；到达并打卡后再点，可继续导航后面的站' : '')
     : undefined
-  const gallery = trip.photos
+  // 沿途影像只放行程里没出现过的照片（没关联地点的、或每站超出 5 张的），不再把同一批照片整幅重复一遍
+  const byWpAll = photosByWaypoint(trip.photos)
+  const shownInItinerary = new Set<number>()
+  for (const w of trip.waypoints) for (const p of (byWpAll.get(w.id) ?? []).slice(0, 5)) shownInItinerary.add(p.id)
+  const gallery = trip.photos.filter((p) => !shownInItinerary.has(p.id))
   const wpById = new Map(trip.waypoints.map((w) => [w.id, w]))
   const km = formatKm(trip.distance_km)
   const canPlanPreview = plannedTotal >= 2
   const authors = [trip.author, ...trip.members]
+  // 地图的操作：3D 回放 / 3D 预览 / 整条路线导航（宽屏压在地图上，窄屏放在地图下方）
+  const mapActions: MapActionDef[] = [
+    ...(hasActual ? [{ key: 'replay', to: `/trips/${trip.id}/replay`, icon: Box, label: '3D 回放', solid: true }] : []),
+    ...(canPlanPreview
+      ? [{ key: 'plan', to: `/trips/${trip.id}/replay?plan=1`, icon: Box, label: '3D 预览', title: '沿计划路线 3D 飞行预览', solid: !hasActual }]
+      : []),
+    ...(sorted.length > 1
+      ? [
+          {
+            key: 'nav',
+            href: navAll,
+            icon: Navigation,
+            label: navTruncated ? `导航${remaining.length ? '接下来' : '前'} ${AMAP_MAX_STOPS} 站` : '整条路线导航',
+            title: navHint,
+            onClick: () => navHint && toast(navHint),
+          },
+        ]
+      : []),
+  ]
+  const legend = (hasPlan && hasActual) || segments.length > 0
   // 一眼看完的路线：地点名按顺序连起来
   const routeNames = sorted.map((w) => w.name || '未命名地点')
   const ROUTE_MAX = 12
 
-  const openPhoto = (p: Photo, list = gallery) =>
+  // 查看器里始终可以翻看全部照片
+  const openPhoto = (p: Photo, list = trip.photos) =>
     setViewer({
       list,
       i: Math.max(
@@ -718,7 +796,7 @@ function TripDetailView() {
       {/* 数字 + 简介 */}
       <div className="mx-auto max-w-[90rem] px-4 md:px-8">
         <Reveal className="grid grid-cols-2 border-b border-ink-200 md:grid-cols-4">
-          <BigStat label="Days · 天数" value={trip.days ? pad2(trip.days) : '–'} unit={trip.days ? '天' : undefined} />
+          <BigStat label="Days · 天数" value={trip.days || '–'} unit={trip.days ? '天' : undefined} />
           <BigStat
             className="border-l pl-4 md:pl-8"
             label={showProgress ? 'Checked · 已打卡/计划' : 'Stops · 地点'}
@@ -730,7 +808,7 @@ function TripDetailView() {
                   {plannedTotal}
                 </>
               ) : (
-                pad2(trip.waypoint_count)
+                trip.waypoint_count
               )
             }
             sub={
@@ -747,40 +825,50 @@ function TripDetailView() {
             value={km.split(' ')[0]}
             unit={km.split(' ')[1]}
           />
-          <BigStat className="border-t border-l pl-4 md:border-t-0 md:pl-8" label="Cities · 城市" value={pad2(trip.cities.length)} unit="座" />
+          <BigStat className="border-t border-l pl-4 md:border-t-0 md:pl-8" label="Cities · 城市" value={trip.cities.length} unit="座" />
         </Reveal>
 
         <div className="grid gap-y-14 py-14 md:py-24 lg:grid-cols-12 lg:gap-x-8">
           {/* 左：同行的人与出处 */}
           <Reveal className="lg:col-span-4">
             <p className="eyebrow">Travellers · 同行</p>
-            <div className="mt-6 flex items-center gap-4">
-              <div className="flex -space-x-2.5">
-                {authors.map((u) => (
-                  <Avatar key={u.id} user={u} size={44} ring />
-                ))}
-              </div>
-              <div className="min-w-0 text-[13px]">
-                <div className="flex flex-wrap items-center gap-x-1.5 text-ink-900">
-                  <UserName user={trip.author} />
-                  {trip.members.map((m) => (
-                    <span key={m.id} className="flex items-center gap-1.5 text-ink-500">
-                      &amp;
-                      <UserName user={m} />
-                    </span>
-                  ))}
-                </div>
-                <p className="caption mt-0.5">
-                  {trip.published_at ? `发布于 ${fromNow(trip.published_at)}` : `更新于 ${fromNow(trip.updated_at)}`}
-                  <span className="mx-1.5 text-ink-300">·</span>
-                  <span className="font-num text-[14px]">{fmtCount(trip.view_count)}</span> 浏览
-                </p>
-              </div>
+            {/* 头像叠放 + 宋体名字：不用等级、管理员这类论坛徽章 */}
+            <div className="mt-7 flex -space-x-3">
+              {authors.map((u) => (
+                <Link key={u.id} to={`/u/${u.username}`} className="rounded-full transition-transform duration-500 hover:-translate-y-0.5">
+                  <Avatar user={u} size={52} ring />
+                </Link>
+              ))}
             </div>
+            <p className="font-display mt-6 text-[22px] leading-[1.35] text-ink-900 md:text-[26px]">
+              {authors.map((u, i) => (
+                <span key={u.id}>
+                  {i > 0 && <span className="mx-2 text-ink-400">&amp;</span>}
+                  <Link
+                    to={`/u/${u.username}`}
+                    className="underline decoration-transparent underline-offset-[6px] transition-colors hover:decoration-ink-300"
+                  >
+                    {u.nickname || u.username}
+                  </Link>
+                </span>
+              ))}
+            </p>
+            <p className="caption mt-2">
+              {trip.members.length ? '共同记录' : '作者'}
+              <span className="mx-1.5 text-ink-300">·</span>
+              {trip.published_at ? `发布于 ${fromNow(trip.published_at)}` : `更新于 ${fromNow(trip.updated_at)}`}
+              <span className="mx-1.5 text-ink-300">·</span>
+              <span className="font-num text-[14px]">{fmtCount(trip.view_count)}</span> 浏览
+            </p>
             {(trip.featured || trip.together || trip.status !== 'normal' || (trip.can_edit && trip.visibility !== 'public')) && (
               <div className="mt-6 flex flex-wrap items-center gap-2">
                 {trip.featured && <Tag className="border-brand-300 text-brand-600">精选</Tag>}
-                {trip.together && <Tag className="border-pink-300 text-pink-600">我们一起</Tag>}
+                {trip.together && (
+                  <Tag className="gap-1.5">
+                    <Heart className="size-3 fill-pink-500 text-pink-500" strokeWidth={1.5} />
+                    我们一起
+                  </Tag>
+                )}
                 {trip.status === 'hidden' && <Tag className="border-brand-300 text-brand-600">已被管理员隐藏</Tag>}
                 {trip.status === 'pending' && <Tag className="border-amber-300 text-amber-700">{tripStatuses.pending.label}</Tag>}
                 {trip.can_edit && trip.visibility !== 'public' && (
@@ -869,67 +957,78 @@ function TripDetailView() {
               </p>
             )}
 
-            {/* 操作栏 */}
-            <div className="flex flex-wrap items-center gap-2 border-t border-ink-200 pt-6">
-              <Button
-                variant="outline"
+            {/* 操作栏：链接式的文字操作（下划线 + 等高数字），只保留「分享」一个细线胶囊 */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-ink-200 pt-4 sm:gap-x-6">
+              <button
+                type="button"
                 aria-pressed={trip.liked}
-                className={cn(trip.liked && 'border-brand-400 text-brand-700 hover:border-brand-500')}
-                icon={<Heart className={cn('size-4', trip.liked && 'fill-brand-500 text-brand-500')} strokeWidth={1.5} />}
+                className={linkAction}
                 onClick={() => requireAuth(() => like.mutate())}
               >
-                {trip.like_count ? <span className="font-num text-[15px]">{trip.like_count}</span> : '点赞'}
-              </Button>
+                <Heart className={cn('size-3.5', trip.liked ? 'fill-brand-500 text-brand-500' : 'text-ink-500')} strokeWidth={1.5} />
+                <span className={linkText}>{trip.liked ? '已赞' : '点赞'}</span>
+                {trip.like_count > 0 && <span className="font-num text-[15px] text-ink-500">{trip.like_count}</span>}
+              </button>
               {canFavorite && (
-                <Button
-                  variant="outline"
+                <button
+                  type="button"
                   aria-pressed={trip.favorited}
-                  icon={<Bookmark className={cn('size-4', trip.favorited && 'fill-ink-900')} strokeWidth={1.5} />}
+                  className={linkAction}
                   onClick={() => requireAuth(() => fav.mutate())}
                 >
-                  {trip.favorited ? '已收藏' : '收藏'}
-                </Button>
+                  <Bookmark className={cn('size-3.5', trip.favorited ? 'fill-ink-900 text-ink-900' : 'text-ink-500')} strokeWidth={1.5} />
+                  <span className={linkText}>{trip.favorited ? '已收藏' : '收藏'}</span>
+                </button>
               )}
               {!trip.is_owner && trip.waypoints.length > 0 && (
-                <Button
-                  variant="outline"
-                  icon={<GitFork className="size-4" strokeWidth={1.5} />}
-                  onClick={() => requireAuth(() => setForkOpen(true))}
-                >
-                  引用路线
-                </Button>
+                <button type="button" className={linkAction} onClick={() => requireAuth(() => setForkOpen(true))}>
+                  <GitFork className="size-3.5 text-ink-500" strokeWidth={1.5} />
+                  <span className={linkText}>引用路线</span>
+                </button>
               )}
-              <Button variant="outline" icon={<Share2 className="size-4" strokeWidth={1.5} />} onClick={() => setShare(true)}>
-                分享
-              </Button>
               {hasPlan && hasActual && (
-                <Link to={`/trips/${trip.id}/compare`} className={buttonClass({ variant: 'outline' })}>
-                  <GitCompareArrows className="size-4" strokeWidth={1.5} />
-                  计划 vs 实际
+                <Link to={`/trips/${trip.id}/compare`} className={linkAction}>
+                  <GitCompareArrows className="size-3.5 text-ink-500" strokeWidth={1.5} />
+                  <span className={linkText}>计划 vs 实际</span>
                 </Link>
               )}
-              <Menu
-                trigger={(t, open) => (
-                  <Button variant="ghost" className="w-10 px-0" onClick={t} aria-label="更多" aria-expanded={open}>
-                    <MoreHorizontal className="size-4" strokeWidth={1.5} />
-                  </Button>
-                )}
-              >
-                {(close) => (
-                  <>
-                    {!trip.is_owner && (
-                      <MenuItem icon={<Flag className="size-4" strokeWidth={1.5} />} onClick={() => (close(), requireAuth(() => setReport(true)))}>
-                        举报
-                      </MenuItem>
-                    )}
-                    {trip.is_owner && (
-                      <MenuItem icon={<Trash2 className="size-4" strokeWidth={1.5} />} danger onClick={() => (close(), remove())}>
-                        删除旅程
-                      </MenuItem>
-                    )}
-                  </>
-                )}
-              </Menu>
+              {/* 手机上「分享」也是文字链接，和其他操作排在同一行，不单独换行成一个胶囊 */}
+              <button type="button" className={cn(linkAction, 'sm:hidden')} onClick={() => setShare(true)}>
+                <Share2 className="size-3.5 text-ink-500" strokeWidth={1.5} />
+                <span className={linkText}>分享</span>
+              </button>
+              <div className="flex items-center gap-1 sm:ml-auto">
+                <Button
+                  variant="outline"
+                  className="hidden sm:inline-flex"
+                  icon={<Share2 className="size-4" strokeWidth={1.5} />}
+                  onClick={() => setShare(true)}
+                >
+                  分享
+                </Button>
+                <Menu
+                  trigger={(t, open) => (
+                    <Button variant="ghost" className="w-10 px-0" onClick={t} aria-label="更多" aria-expanded={open}>
+                      <MoreHorizontal className="size-4" strokeWidth={1.5} />
+                    </Button>
+                  )}
+                >
+                  {(close) => (
+                    <>
+                      {!trip.is_owner && (
+                        <MenuItem icon={<Flag className="size-4" strokeWidth={1.5} />} onClick={() => (close(), requireAuth(() => setReport(true)))}>
+                          举报
+                        </MenuItem>
+                      )}
+                      {trip.is_owner && (
+                        <MenuItem icon={<Trash2 className="size-4" strokeWidth={1.5} />} danger onClick={() => (close(), remove())}>
+                          删除旅程
+                        </MenuItem>
+                      )}
+                    </>
+                  )}
+                </Menu>
+              </div>
             </div>
 
             {trip.can_edit && (
@@ -1005,37 +1104,14 @@ function TripDetailView() {
                 kindSwitcher
                 locate
                 overlay={
-                  <div className="absolute bottom-4 left-4 z-10 flex max-w-[calc(100%-5rem)] flex-wrap gap-2">
-                    {hasActual && (
-                      <Link to={`/trips/${trip.id}/replay`} className={cn(mapChip, mapChipSolid)}>
-                        <Box className="size-4" strokeWidth={1.5} />
-                        3D 回放
-                      </Link>
-                    )}
-                    {canPlanPreview && (
-                      <Link
-                        to={`/trips/${trip.id}/replay?plan=1`}
-                        className={cn(mapChip, hasActual ? mapChipGlass : mapChipSolid)}
-                        title="沿计划路线 3D 飞行预览"
-                      >
-                        <Box className="size-4" strokeWidth={1.5} />
-                        3D 预览
-                      </Link>
-                    )}
-                    {sorted.length > 1 && (
-                      <a
-                        href={navAll}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={navHint}
-                        onClick={() => navHint && toast(navHint)}
-                        className={cn(mapChip, mapChipGlass)}
-                      >
-                        <Navigation className="size-4" strokeWidth={1.5} />
-                        {navTruncated ? `导航${remaining.length ? '接下来' : '前'} ${AMAP_MAX_STOPS} 站` : '整条路线导航'}
-                      </a>
-                    )}
-                  </div>
+                  // 宽屏：玻璃胶囊压在地图上；窄屏改为地图下方的一行文字链接，不挡路线和标记
+                  mapActions.length > 0 && (
+                    <div className="absolute bottom-4 left-4 z-10 hidden max-w-[calc(100%-5rem)] flex-wrap gap-2 lg:flex">
+                      {mapActions.map((a) => (
+                        <MapAction key={a.key} a={a} className={cn(mapChip, a.solid ? mapChipSolid : mapChipGlass)} />
+                      ))}
+                    </div>
+                  )
                 }
               >
                 <RouteLines
@@ -1047,8 +1123,15 @@ function TripDetailView() {
                 <FitOnce points={fitPoints} fitKey={fitKey} />
                 <FlyToSelected w={selected} refit={fitKey} />
               </BaseMap>
-              {((hasPlan && hasActual) || segments.length > 0) && (
-                <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-ink-200 px-4 py-2.5 text-[11px] tracking-[0.06em] text-ink-500 lg:glass lg:absolute lg:top-4 lg:left-4 lg:rounded-full lg:border lg:border-ink-900/15 lg:py-2">
+              {mapActions.length > 0 && (
+                <div className="flex flex-nowrap items-center gap-x-6 overflow-x-auto border-t border-ink-200 px-4 whitespace-nowrap md:px-8 lg:hidden">
+                  {mapActions.map((a) => (
+                    <MapAction key={a.key} a={a} className={linkAction} text={linkText} arrow />
+                  ))}
+                </div>
+              )}
+              {legend && (
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-ink-200 px-4 py-2.5 text-[11px] tracking-[0.06em] text-ink-500 md:px-8 lg:glass lg:absolute lg:top-4 lg:left-4 lg:rounded-full lg:border lg:border-ink-900/15 lg:px-4 lg:py-2">
                   {hasPlan && hasActual && (
                     <span className="flex items-center gap-2">
                       <span className="inline-block w-5 border-t border-dashed border-sky-500" />
@@ -1122,22 +1205,25 @@ function TripDetailView() {
       {gallery.length > 0 && (
         <section className="mx-auto mt-24 max-w-[90rem] px-4 md:mt-36 md:px-8">
           <SectionHead
-            eyebrow="Photographs · 照片"
+            eyebrow={gallery.length < 3 ? 'More Photographs · 更多照片' : 'Photographs · 照片'}
             count={`${gallery.length} 张`}
-            title="沿途影像"
+            // 只剩一两张时不再配超大标题，只留细线标签行
+            title={gallery.length >= 3 ? '沿途影像' : undefined}
             aside={
-              gallery.length > GALLERY_MAX && (
-                <button type="button" onClick={() => openPhoto(gallery[0])} className="text-ink-900 transition-colors hover:text-ink-600">
-                  全部 →
-                </button>
-              )
+              <button type="button" onClick={() => openPhoto(gallery[0])} className="text-ink-900 transition-colors hover:text-ink-600">
+                全部 {trip.photos.length} 张 →
+              </button>
             }
           />
           <div className="mt-12 grid grid-cols-2 gap-x-3 gap-y-12 md:mt-16 md:gap-x-6 md:gap-y-20 lg:grid-cols-12 lg:gap-x-8 lg:gap-y-28">
             {gallery.slice(0, GALLERY_MAX).map((p, i) => {
               const w = p.waypoint_id ? wpById.get(p.waypoint_id) : undefined
               const more = i === GALLERY_MAX - 1 && gallery.length > GALLERY_MAX ? gallery.length - GALLERY_MAX : 0
-              const layout = galleryLayout[i % galleryLayout.length]
+              const n = Math.min(gallery.length, GALLERY_MAX)
+              let layout = galleryLayout[i % galleryLayout.length]
+              // 奇数张时最后一张单独居中成一幅竖图；手机上落单的半幅图改成整幅
+              if (n % 2 === 1 && i === n - 1) layout = galleryLast
+              else if (i === n - 1 && i % 4 === 1) layout = layout.replace('col-span-1 ', 'col-span-2 ')
               return (
                 <Reveal as="figure" key={p.id} className={cn('min-w-0', layout.replace(/aspect-\S+/, ''))} delay={(i % 2) * 80}>
                   <button
@@ -1147,7 +1233,7 @@ function TripDetailView() {
                     aria-label={more ? `还有 ${more} 张，查看全部` : p.caption || w?.name || '查看照片'}
                   >
                     <img
-                      src={i % 4 === 0 || i % 4 === 3 ? p.url : p.thumb_url}
+                      src={i % 4 === 0 || i % 4 === 3 || layout === galleryLast ? p.url : p.thumb_url}
                       alt={p.caption}
                       loading="lazy"
                       className="size-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03]"

@@ -3,10 +3,10 @@ import { Link, useSearchParams } from 'react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import { api } from '@/api'
-import { LabelRow, MoreButton, SectionHead, pad2 } from '@/components/editorial'
+import { EmptyNote, LabelRow, MoreButton, SectionHead, TextLink, pad2 } from '@/components/editorial'
 import { PlaceRow } from '@/components/place/PlaceCard'
 import { TripGrid, TripGridSkeleton } from '@/components/trip/TripCard'
-import { Empty, LoadError } from '@/components/ui'
+import { LoadError } from '@/components/ui'
 import { flattenPages } from '@/lib/pages'
 
 const suggestions = ['杭州', '美食', '情侣', '自驾', '徒步', '古镇', '海边']
@@ -32,9 +32,12 @@ export default function SearchPage() {
     enabled: !!q,
   })
   const items = flattenPages(trips.data?.pages)
+  const tripTotal = trips.data?.pages[0]?.total
+  const placeTotal = q ? (places.data?.total ?? 0) : 0
+  const subject = tag ? `#${tag}` : `「${q}」`
 
   return (
-    <div className="mx-auto max-w-[90rem] px-4 pt-12 pb-24 md:px-8 md:pt-20 md:pb-32">
+    <div className="mx-auto max-w-[90rem] px-4 pt-12 pb-24 [font-variant-numeric:lining-nums] md:px-8 md:pt-20 md:pb-32">
       <LabelRow label="Search · 搜索" count={tag ? `#${tag}` : q ? `「${q}」` : undefined} />
       <form
         role="search"
@@ -47,7 +50,7 @@ export default function SearchPage() {
         <input
           value={kw}
           onChange={(e) => setKw(e.target.value)}
-          placeholder="想去哪儿？"
+          placeholder="想去哪儿"
           aria-label="搜索旅程、城市、标签、打卡地"
           className="text-display-lg min-w-0 flex-1 bg-transparent py-2 text-ink-900 outline-none placeholder:text-ink-400"
           autoFocus
@@ -60,20 +63,41 @@ export default function SearchPage() {
           <Search className="size-5" strokeWidth={1.25} />
         </button>
       </form>
-      {tag ? (
-        <p className="mt-4 text-[13px] text-ink-500">
-          标签 <span className="text-ink-900">#{tag}</span>
-        </p>
-      ) : (
-        <p className="caption mt-4">旅程、城市、标签、打卡地，都可以搜</p>
-      )}
+      {/* 搜索后，输入框下面的提示换成结果数；没有搜索时是一句用法说明 */}
+      <p className="mt-4 text-[13px] text-ink-500">
+        {tag && (
+          <>
+            标签 <span className="text-ink-900">#{tag}</span>
+            {tripTotal != null && ' · '}
+          </>
+        )}
+        {has ? (
+          tripTotal != null && (
+            <>
+              <span className="font-num text-[14px] text-ink-900">{tripTotal}</span> 段旅程
+              {placeTotal > 0 && (
+                <>
+                  {' · '}
+                  <span className="font-num text-[14px] text-ink-900">{placeTotal}</span> 处打卡地
+                </>
+              )}
+            </>
+          )
+        ) : (
+          '旅程、城市、标签、打卡地，都可以搜'
+        )}
+      </p>
 
       {!has ? (
         <section className="mt-24 md:mt-36" aria-labelledby="suggest-title">
           <LabelRow id="suggest-title" label="Try · 不妨试试" count={pad2(suggestions.length)} />
-          <ul className="mt-8 flex flex-wrap items-baseline gap-y-3 md:mt-12">
+          <ul className="mt-8 flex flex-wrap items-baseline gap-x-7 gap-y-3 md:mt-12 md:gap-x-0">
             {suggestions.map((w) => (
-              <li key={w} className="flex items-baseline after:mx-4 after:text-[1.5rem] after:text-ink-300 after:content-['/'] last:after:content-none md:after:mx-6">
+              <li
+                key={w}
+                // 手机上只用间距分隔；宽屏用斜线，斜线在每个词的前面（第一个除外），折行时不会挂在行尾
+                className="flex items-baseline md:before:mx-6 md:before:text-[1.5rem] md:before:text-ink-300 md:before:content-['/'] md:first:before:content-none"
+              >
                 <Link
                   to={`/search?q=${encodeURIComponent(w)}`}
                   className="text-display-md inline-block py-1.5 text-ink-500 transition-colors duration-300 hover:text-ink-900"
@@ -87,12 +111,12 @@ export default function SearchPage() {
       ) : (
         <>
           {!!places.data?.items.length && (
-            <section className="mt-24 md:mt-36" aria-labelledby="places-title">
+            <section className="mt-16 md:mt-24" aria-labelledby="places-title">
               <SectionHead
                 id="places-title"
                 eyebrow="Places · 相关打卡地"
                 count={places.data.total}
-                title="打卡地"
+                title={`${subject}的 ${places.data.total} 处打卡地`}
                 extra={
                   <Link
                     to={`/places?q=${encodeURIComponent(q)}`}
@@ -111,15 +135,24 @@ export default function SearchPage() {
               </ul>
             </section>
           )}
-          <section className="mt-24 md:mt-36" aria-labelledby="trips-title">
-            <SectionHead id="trips-title" eyebrow="Journeys · 相关旅程" count={trips.data?.pages[0].total} title="旅程" />
+          <section className={placeTotal > 0 ? 'mt-24 md:mt-36' : 'mt-16 md:mt-24'} aria-labelledby="trips-title">
+            <SectionHead
+              id="trips-title"
+              eyebrow="Journeys · 相关旅程"
+              count={tripTotal}
+              title={tripTotal ? `${subject}相关的 ${tripTotal} 段旅程` : undefined}
+            />
             <div className="mt-10 md:mt-16">
               {trips.isLoading ? (
                 <TripGridSkeleton n={4} />
               ) : trips.isLoadingError ? (
                 <LoadError error={trips.error} onRetry={() => trips.refetch()} />
               ) : items.length === 0 ? (
-                <Empty title="没有找到相关旅程" desc="换个关键词，或者去打卡地看看" />
+                <EmptyNote
+                  title="没有找到相关的旅程。"
+                  desc="换个关键词，或者去打卡地看看。"
+                  action={<TextLink to={q ? `/places?q=${encodeURIComponent(q)}` : '/places'}>去打卡地看看</TextLink>}
+                />
               ) : (
                 <TripGrid trips={items} />
               )}

@@ -23,7 +23,7 @@ const darkPaint = {
   'raster-brightness-min': 0.86,
   'raster-brightness-max': 0.05,
   'raster-hue-rotate': 180,
-  'raster-saturation': -0.72,
+  'raster-saturation': -0.86,
   'raster-contrast': 0.1,
   'raster-opacity': 0.9,
 }

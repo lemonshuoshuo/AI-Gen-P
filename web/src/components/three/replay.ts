@@ -223,3 +223,42 @@ export function angleLerp(a: number, b: number, k: number) {
   const diff = ((((b - a) % 360) + 540) % 360) - 180
   return a + diff * k
 }
+
+/** 分段内里程 x 处的坐标（x 在这一段的里程范围内） */
+function partPoint(p: RouteModel['parts'][number], x: number): LngLat {
+  const ts = p.timestamps
+  let lo = 0
+  let hi = ts.length - 1
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1
+    if (ts[mid] < x) lo = mid
+    else hi = mid
+  }
+  const k = Math.max(0, Math.min(1, (x - ts[lo]) / (ts[hi] - ts[lo] || 1)))
+  return [p.path[lo][0] + (p.path[hi][0] - p.path[lo][0]) * k, p.path[lo][1] + (p.path[hi][1] - p.path[lo][1]) * k]
+}
+
+/** 路线上里程 a → b 之间的一段；跨过分段（两次记录、两段旅程之间）时断开，返回多条折线 */
+export function slicePath(model: RouteModel, a: number, b: number): LngLat[][] {
+  const out: LngLat[][] = []
+  if (b <= a) return out
+  for (const p of model.parts) {
+    const ts = p.timestamps
+    if (ts.length < 2 || ts[ts.length - 1] <= a || ts[0] >= b) continue
+    const lo = Math.max(a, ts[0])
+    const hi = Math.min(b, ts[ts.length - 1])
+    const seg: LngLat[] = [partPoint(p, lo)]
+    // 第一个里程大于 lo 的顶点
+    let i = 0
+    let j = ts.length
+    while (i < j) {
+      const mid = (i + j) >> 1
+      if (ts[mid] <= lo) i = mid + 1
+      else j = mid
+    }
+    for (; i < ts.length && ts[i] < hi; i++) seg.push(p.path[i])
+    seg.push(partPoint(p, hi))
+    out.push(seg)
+  }
+  return out
+}

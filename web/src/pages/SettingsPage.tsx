@@ -33,12 +33,21 @@ const sectionIds = [
   ['delete', '注销'],
 ] as const
 
+/** 字节数去掉多余的 0：「133.0 KB」→「133 KB」，「1.00 GB」→「1 GB」 */
+const tidyBytes = (n: number) =>
+  fmtBytes(n)
+    .replace(/\.0+(?=\s)/, '')
+    .replace(/(\.\d*?)0+(?=\s)/, '$1')
+
+/** 默认头像：近黑底 + 细线圈 + 象牙白首字，不用彩色圆片 */
+const monoAvatar = '!bg-surface-2 ring-1 ring-inset ring-ink-300 !text-ink-800'
+
 /** 细线标签行：一条 border-t，左侧 eyebrow + 灰色序号，右侧补充 */
-function LabelRow({ label, count, extra, tone }: { label: ReactNode; count?: ReactNode; extra?: ReactNode; tone?: 'danger' }) {
+function LabelRow({ label, count, extra }: { label: ReactNode; count?: ReactNode; extra?: ReactNode }) {
   return (
     <div className="flex min-h-12 flex-wrap items-center justify-between gap-x-6 gap-y-1 border-t border-ink-200 pt-3 pb-1">
       <p className="flex min-w-0 items-baseline gap-3">
-        <span className={cn('eyebrow', tone === 'danger' ? '!text-brand-600' : '!text-ink-800')}>{label}</span>
+        <span className="eyebrow !text-ink-800">{label}</span>
         {count != null && <span className="font-num text-[13px] text-ink-400">{count}</span>}
       </p>
       {extra}
@@ -55,7 +64,6 @@ function Section({
   index,
   title,
   desc,
-  tone,
   children,
 }: {
   id: string
@@ -63,12 +71,12 @@ function Section({
   index: number
   title: string
   desc?: ReactNode
-  tone?: 'danger'
   children: ReactNode
 }) {
   return (
     <section id={id} aria-labelledby={`${id}-title`} className="animate-slide-up scroll-mt-24 [animation-fill-mode:backwards]" style={{ animationDelay: `${index * 70}ms` }}>
-      <LabelRow label={eyebrow} count={String(index + 1).padStart(2, '0')} tone={tone} />
+      <LabelRow label={eyebrow} count={String(index + 1).padStart(2, '0')} />
+      {/* 与「我的」「通知」同一套 12 栏：内容从第 5 栏起排 */}
       <div className="mt-8 grid gap-x-8 gap-y-8 md:mt-12 lg:grid-cols-12">
         <div className="lg:col-span-4">
           <h2 id={`${id}-title`} className="text-display-md font-normal">
@@ -109,6 +117,9 @@ function Row({
     </div>
   )
 }
+
+/** 未修改时的提交按钮：一道看得清的细线胶囊 + 灰字（而不是整体降到 40% 的实心块） */
+const idleBtn = 'disabled:border-ink-300 disabled:text-ink-400 disabled:opacity-100'
 
 /** 表单尾部：右对齐的操作 */
 function Actions({ children }: { children: ReactNode }) {
@@ -183,12 +194,12 @@ function ProfileSection({ user }: { user: Me }) {
               className="group relative shrink-0 overflow-hidden rounded-full"
               aria-label="更换头像"
             >
-              <Avatar user={user} size={64} className="transition-transform duration-700 ease-out group-hover:scale-[1.03]" />
+              <Avatar user={user} size={64} className={cn(monoAvatar, 'transition-transform duration-700 ease-out group-hover:scale-[1.03]')} />
               <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity duration-300 group-hover:opacity-100">
                 <Camera className="size-5" strokeWidth={1.25} />
               </span>
             </button>
-            <Button variant="outline" size="sm" loading={avatar.isPending} onClick={() => fileRef.current?.click()}>
+            <Button variant="outline" size="sm" loading={avatar.isPending} onClick={() => fileRef.current?.click()} className="max-sm:h-10">
               更换头像
             </Button>
           </div>
@@ -242,7 +253,7 @@ function ProfileSection({ user }: { user: Me }) {
               onChange={(e) => setBio(e.target.value)}
               maxLength={200}
               placeholder="介绍一下自己，喜欢去哪里旅行？"
-              className="max-w-xl"
+              className="max-w-md"
             />
           </Row>
           <Row label="邮箱" hint="可用于登录" htmlFor={`${uid}-e`}>
@@ -258,7 +269,8 @@ function ProfileSection({ user }: { user: Me }) {
           </Row>
         </div>
         <Actions>
-          <Button type="submit" disabled={!dirty} loading={save.isPending}>
+          {/* 没有修改时是细线胶囊，有修改才变成象牙白实心 */}
+          <Button type="submit" variant={dirty ? 'primary' : 'outline'} className={dirty ? undefined : idleBtn} disabled={!dirty} loading={save.isPending}>
             保存资料
           </Button>
         </Actions>
@@ -341,14 +353,14 @@ function LevelSection({ user }: { user: Me }) {
                     <td className="px-3 py-4">
                       <span className={cn('font-display text-[17px]', current && 'text-ink-900')}>{l.name}</span>
                       {current && (
-                        <span className="ml-3 inline-flex items-center gap-1.5 align-middle text-[12px] text-brand-700">
+                        <span className="ml-3 inline-flex items-center gap-1.5 align-middle text-[12px] text-ink-700">
                           <span className="size-1.5 rounded-full bg-brand-500" aria-hidden />
                           当前
                         </span>
                       )}
                     </td>
                     <td className="font-num px-3 py-4 text-right text-[16px]">{l.min_exp}</td>
-                    <td className="font-num py-4 pl-3 text-right text-[16px] whitespace-nowrap">{fmtBytes(l.quota_mb * 1024 ** 2)}</td>
+                    <td className="font-num py-4 pl-3 text-right text-[16px] whitespace-nowrap">{tidyBytes(l.quota_mb * 1024 ** 2)}</td>
                   </tr>
                 )
               })}
@@ -383,7 +395,7 @@ function StorageSection({ user }: { user: Me }) {
   const ratio = unlimited ? 0 : user.storage_used / user.storage_quota
   // 快满时小点变成赭黄 / 朱砂
   const dotCls = ratio > 0.9 ? 'bg-brand-500' : ratio > 0.75 ? 'bg-amber-500' : 'bg-ink-900'
-  const [used, usedUnit] = fmtBytes(user.storage_used).split(' ')
+  const [used, usedUnit] = tidyBytes(user.storage_used).split(' ')
   return (
     <Section id="storage" index={2} eyebrow="Storage · 存储" title="存储空间" desc="照片和 GPS 轨迹会占用存储空间。">
       <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-6">
@@ -397,7 +409,7 @@ function StorageSection({ user }: { user: Me }) {
               '不限容量'
             ) : (
               <>
-                共 <span className="font-num text-[15px]">{fmtBytes(user.storage_quota)}</span> · 已用{' '}
+                共 <span className="font-num text-[15px]">{tidyBytes(user.storage_quota)}</span> · 已用{' '}
                 <span className="font-num text-[15px]">{Math.round(ratio * 100)}%</span>
               </>
             )}
@@ -435,6 +447,7 @@ function PasswordSection() {
     if (form.next === form.old) return toast.error('新密码不能与当前密码相同')
     m.mutate()
   }
+  const ready = !!form.old && !!form.next && !!form.confirm
   return (
     <Section id="security" index={3} eyebrow="Security · 安全" title="修改密码" desc="修改后，其他设备上的登录会失效，需要重新登录。">
       <form onSubmit={submit}>
@@ -471,7 +484,7 @@ function PasswordSection() {
           </Row>
         </div>
         <Actions>
-          <Button type="submit" disabled={!form.old || !form.next || !form.confirm} loading={m.isPending}>
+          <Button type="submit" variant={ready ? 'primary' : 'outline'} className={ready ? undefined : idleBtn} disabled={!ready} loading={m.isPending}>
             修改密码
           </Button>
         </Actions>
@@ -503,7 +516,7 @@ function DeleteAccountSection({ user }: { user: Me }) {
     setAck(false)
   }
   return (
-    <Section id="delete" index={4} eyebrow="Danger zone · 注销" tone="danger" title="注销账号" desc="注销后账号无法恢复，请谨慎操作。">
+    <Section id="delete" index={4} eyebrow="Danger zone · 注销" title="注销账号" desc="注销后账号无法恢复，请谨慎操作。">
       <div className="border-y border-ink-200 py-6">
         <p className="max-w-2xl text-[14px] leading-[1.9] text-ink-600">
           只有你能编辑的旅程会被删除（含照片、轨迹和评论）；有其他共同作者的旅程会转交给最早加入的共同作者；你上传的照片和 GPS
@@ -513,7 +526,7 @@ function DeleteAccountSection({ user }: { user: Me }) {
           </Link>
         </p>
         {isAdmin(user) ? (
-          <p className="mt-6 border-l border-amber-500 py-1 pl-4 text-[13.5px] leading-relaxed text-ink-700">
+          <p className="mt-6 border-l border-ink-500 py-1 pl-4 text-[13.5px] leading-relaxed text-ink-700">
             管理员账号不能注销；如需注销，请先让其他管理员取消你的管理员权限。
           </p>
         ) : (
@@ -571,7 +584,7 @@ export default function SettingsPage() {
     void useAuth.getState().refreshMe()
   }, [])
   return (
-    <div className="mx-auto max-w-[90rem] px-4 pt-10 pb-24 md:px-8 md:pt-20 md:pb-32">
+    <div className="mx-auto max-w-[90rem] px-4 pt-10 pb-24 [font-variant-numeric:lining-nums] md:px-8 md:pt-20 md:pb-32">
       {/* 页头：细线标签行 + 大号宋体标题；右栏导语与本页目录 */}
       <header className="animate-slide-up">
         <LabelRow label="Account · 账号" extra={<span className="text-[13px] text-ink-400">@{user.username}</span>} />

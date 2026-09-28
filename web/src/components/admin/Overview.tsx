@@ -5,9 +5,9 @@ import { ArrowRight } from 'lucide-react'
 import { api, errorMessage } from '@/api'
 import { Button, Empty, PageLoader } from '@/components/ui'
 import { cn } from '@/lib/cn'
-import { dayjs, fmtBytes, fmtCount } from '@/lib/format'
+import { dayjs, fmtCount } from '@/lib/format'
 import { insecureContext } from '@/lib/geo'
-import { LabelRow, PanelHeader } from './common'
+import { LabelRow, PanelHeader, tidyBytes } from './common'
 import { TrendChart } from './TrendChart'
 
 /** 「12.3 MB」拆成数字和单位，单位用小字 */
@@ -46,11 +46,11 @@ function Figure({
   )
 }
 
-/** 今日新增：玉青小字 */
+/** 今日新增：灰色标签 + 象牙白数字（玉青只留给「推荐」） */
 const Today = ({ n }: { n: number }) =>
   n > 0 ? (
-    <span className="text-emerald-700">
-      今日 <span className="font-num text-[15px]">+{n}</span>
+    <span className="text-ink-500">
+      今日 <span className="font-num text-[15px] text-ink-900">+{n}</span>
     </span>
   ) : (
     <span>今日暂无新增</span>
@@ -86,7 +86,7 @@ export function Overview() {
 
   const hasTodo = !!pending.data || data.pending_trips > 0
   const todoCount = (pending.data ? 1 : 0) + (data.pending_trips > 0 ? 1 : 0)
-  const [storage, storageUnit] = splitUnit(fmtBytes(data.storage_bytes))
+  const [storage, storageUnit] = splitUnit(tidyBytes(data.storage_bytes))
 
   return (
     <div>
@@ -124,7 +124,7 @@ export function Overview() {
       {/* 数据：大号细字数字，竖细线分隔，行间横细线 */}
       <section className="animate-slide-up [animation-delay:120ms] [animation-fill-mode:backwards]" aria-label="数据">
         <LabelRow label="Figures · 数据" count="06" />
-        <div className="grid grid-cols-2 xl:grid-cols-3 [&>*:nth-child(even)]:max-xl:border-l [&>*:nth-child(even)]:max-xl:pl-5 xl:[&>*:not(:nth-child(3n+1))]:border-l xl:[&>*:not(:nth-child(3n+1))]:pl-8">
+        <div className="grid grid-cols-2 border-t border-ink-200 xl:grid-cols-3 [&>*:nth-child(even)]:max-xl:border-l [&>*:nth-child(even)]:max-xl:pl-5 xl:[&>*:not(:nth-child(3n+1))]:border-l xl:[&>*:not(:nth-child(3n+1))]:pl-8">
           <Figure label="注册用户" en="Members" value={fmtCount(data.users)} sub={<Today n={data.today.users} />} />
           <Figure
             label="旅程"
@@ -172,7 +172,7 @@ export function Overview() {
           to="/admin/diagnostics"
           className="group mt-8 grid gap-x-10 gap-y-5 border-b border-ink-200 pb-10 md:mt-12 xl:grid-cols-12 xl:items-end"
         >
-          <p className="text-display-md font-normal text-ink-800 transition-colors duration-300 group-hover:text-ink-900 xl:col-span-7">
+          <p className="text-display-md font-normal text-ink-800 transition-colors duration-300 [font-feature-settings:'halt'] group-hover:text-ink-900 xl:col-span-7">
             搜索、路线或 AI 不可用？
           </p>
           <div className="flex items-end justify-between gap-8 xl:col-span-5">

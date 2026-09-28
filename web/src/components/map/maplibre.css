@@ -7,7 +7,7 @@
   border-radius: 999px !important;
   overflow: hidden;
   background: rgb(11 11 10 / 0.66) !important;
-  box-shadow: 0 0 0 1px rgb(242 238 230 / 0.14) !important;
+  box-shadow: 0 0 0 1px rgb(242 238 230 / 0.22) !important;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api'
@@ -23,10 +23,10 @@ const sections: { path: string; label: string }[] = [
 
 const toOf = (path: string) => (path ? `/admin/${path}` : '/admin')
 
-/** 待处理数量：朱砂小圆点 + 小号 Cormorant 数字，不用色块 */
+/** 待处理数量：朱砂小圆点（与状态胶囊同一种颜色）+ 象牙白小号 Cormorant 数字，不用色块 */
 function Count({ n, label }: { n: number; label: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 font-num text-[13px] leading-none text-brand-700">
+    <span className="inline-flex items-center gap-1.5 font-num text-[13px] leading-none text-ink-700">
       <span className="size-1 rounded-full bg-brand-500" aria-hidden />
       <span aria-hidden>{n > 99 ? '99+' : n}</span>
       <span className="sr-only">
@@ -56,18 +56,29 @@ export default function AdminPage() {
   // 手机上的横向标签：当前项（如靠后的「系统诊断」）滚动到可见位置，只滚动标签条本身
   const { pathname } = useLocation()
   const tabsRef = useRef<HTMLElement>(null)
+  // 左右还有没露出来的标签时，那一侧的边缘渐隐，提示可以横向滑动
+  const [edges, setEdges] = useState({ left: false, right: true })
+  const syncEdges = () => {
+    const bar = tabsRef.current
+    if (!bar) return
+    const left = bar.scrollLeft > 2
+    const right = bar.scrollLeft + bar.clientWidth < bar.scrollWidth - 2
+    setEdges((e) => (e.left === left && e.right === right ? e : { left, right }))
+  }
   useEffect(() => {
     const bar = tabsRef.current
     const el = bar?.querySelector<HTMLElement>('[aria-current="page"]')
     if (bar && el) bar.scrollLeft = el.offsetLeft - (bar.clientWidth - el.offsetWidth) / 2
+    syncEdges()
   }, [pathname])
+  const fade = `linear-gradient(to right, ${edges.left ? 'transparent, #000 28px' : '#000, #000'}, ${edges.right ? '#000 calc(100% - 40px), transparent' : '#000, #000'})`
 
   return (
-    <div className="mx-auto max-w-[90rem] px-4 pt-10 pb-24 md:px-8 md:pt-20 md:pb-32">
+    <div className="mx-auto max-w-[90rem] px-4 pt-10 pb-24 [font-variant-numeric:lining-nums] md:px-8 md:pt-20 md:pb-32">
       <div className="md:grid md:grid-cols-[12rem_minmax(0,1fr)] md:gap-12 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-20">
         {/* 桌面端侧边导航：安静的目录，细线分隔；当前项象牙白 + 左侧一道细线 */}
         <nav className="hidden md:block" aria-label="管理后台导航">
-          <div className="animate-fade-in sticky top-24">
+          <div className="sticky top-24">
             <div className="flex min-h-12 items-center border-t border-ink-200 pt-3 pb-1">
               <p className="eyebrow !text-ink-800">Console</p>
             </div>
@@ -118,23 +129,28 @@ export default function AdminPage() {
           </div>
           <nav
             ref={tabsRef}
-            className="scrollbar-none relative -mx-4 mt-2 mb-10 flex gap-7 overflow-x-auto border-b border-ink-200 px-4"
+            onScroll={syncEdges}
+            className="scrollbar-none relative -mx-4 mt-1 mb-12 flex snap-x scroll-px-4 gap-7 overflow-x-auto border-b border-ink-200 px-4"
+            style={{ maskImage: fade, WebkitMaskImage: fade }}
             aria-label="管理后台导航"
           >
-            {sections.map((s) => (
+            {sections.map((s, i) => (
               <NavLink
                 key={s.path}
                 to={toOf(s.path)}
                 end={!s.path}
                 className={({ isActive }) =>
                   cn(
-                    'relative inline-flex h-12 shrink-0 items-center gap-1.5 text-[14px] whitespace-nowrap transition-colors duration-300',
+                    'relative inline-flex h-12 shrink-0 snap-start items-center gap-2 text-[14px] whitespace-nowrap transition-colors duration-300',
                     isActive ? 'text-ink-900' : 'text-ink-400 hover:text-ink-700',
                   )
                 }
               >
                 {({ isActive }) => (
                   <>
+                    <span className={cn('font-num text-[12px]', isActive ? 'text-ink-500' : 'text-ink-300')} aria-hidden>
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
                     {s.label}
                     {badgeOf(s.path) > 0 && <Count n={badgeOf(s.path)} label={badgeLabel(s.path)} />}
                     {isActive && <span className="absolute right-0 -bottom-px left-0 h-px bg-ink-900" aria-hidden />}

@@ -59,28 +59,28 @@ export interface LitPalette {
   accent: string
 }
 
-// 「夜航」：去过的省份像象牙白的石雕浮在黑色地图上（打卡越多越亮），城市光柱是金色，
-// 城市级的实际路线是朱砂；情侣空间换成胭脂色调
+// 「夜航」：去过的省份是石墨色的石刻（打卡越多越亮，最亮也只到中灰，约 50% 明度），象牙白细线勾出省界；
+// 城市光柱是金色、顶端一圈象牙白的细帽；城市级的实际路线是朱砂。
+// 情侣空间的地面与足迹页相同（不做粉色大色块），胭脂色只留在光柱、路线和强调色上
+const STONE = { low: '#3b3833', high: '#8c8474', line: '#e9dcbc' }
 export const litPalettes: Record<LitTheme, LitPalette> = {
   sunset: {
-    low: '#aa9f89',
-    high: '#f1e8d0',
-    line: '#e9dcbc',
-    column: '#d6b36c',
+    ...STONE,
+    column: '#e2c27a',
     routeNight: '#d8bc7e',
     routeDay: '#de7c5d',
     accent: '#cf6041',
   },
   love: {
-    low: '#a98a92',
-    high: '#f1dade',
-    line: '#efd5da',
+    ...STONE,
     column: '#d58f9f',
     routeNight: '#e0b6c0',
     routeDay: '#cf8a9b',
     accent: '#c47488',
   },
 }
+/** 光柱顶端的细帽（象牙白），让金色光柱在石墨色的省份上立得住 */
+const COLUMN_CAP = '#f6ecd2'
 
 /** 没去过的地方：夜色下为青灰细线，放大到城市级（石墨底图）后为暖灰细线 */
 const IDLE_NIGHT = 'rgb(150,185,185)'
@@ -223,23 +223,40 @@ export function LitProvinces({
     const small: Feature<Polygon>[] = []
     for (const c of cities) {
       const base = provH(c.code)
-      big.push({ type: 'Feature', properties: { base, top: base + columnHeight(c.count) }, geometry: circle(c.lng, c.lat, 11_000) })
-      small.push({ type: 'Feature', properties: { top: smallColumnHeight(c.count) }, geometry: circle(c.lng, c.lat, 1_900, 16) })
+      const top = base + columnHeight(c.count)
+      const sTop = smallColumnHeight(c.count)
+      // cap：光柱顶端一截（约 4% 高）换成象牙白
+      big.push({ type: 'Feature', properties: { base, top, cap: top - Math.max(5_000, (top - base) * 0.045) }, geometry: circle(c.lng, c.lat, 11_000) })
+      small.push({ type: 'Feature', properties: { top: sTop, cap: sTop - Math.max(500, sTop * 0.06) }, geometry: circle(c.lng, c.lat, 1_900, 16) })
     }
     upsertSource(map, `${P}-col-l`, fc(big))
     upsertSource(map, `${P}-col-s`, fc(small))
     const before = beforeId && ensureSlot(map, beforeId)
+    const bigOpacity = ['interpolate', ['linear'], Z, z(4.9), 0.95, z(5.8), 0]
     setOrAdd(map, { id: `${P}-col-l`, type: 'fill-extrusion', source: `${P}-col-l` }, {
       'fill-extrusion-color': pal.column,
-      'fill-extrusion-opacity': ['interpolate', ['linear'], Z, z(4.9), 0.95, z(5.8), 0],
+      'fill-extrusion-opacity': bigOpacity,
       'fill-extrusion-base': ['interpolate', ['linear'], Z, z(4.6), ['get', 'base'], z(6.0), 0],
+      'fill-extrusion-height': ['interpolate', ['linear'], Z, z(4.6), ['get', 'cap'], z(6.0), 0],
+    }, before)
+    setOrAdd(map, { id: `${P}-col-l-cap`, type: 'fill-extrusion', source: `${P}-col-l` }, {
+      'fill-extrusion-color': COLUMN_CAP,
+      'fill-extrusion-opacity': bigOpacity,
+      'fill-extrusion-base': ['interpolate', ['linear'], Z, z(4.6), ['get', 'cap'], z(6.0), 0],
       'fill-extrusion-height': ['interpolate', ['linear'], Z, z(4.6), ['get', 'top'], z(6.0), 0],
     }, before)
+    // 进入石墨色过渡带（AUTO_DAY_ZOOM）之前就收起，城市级画面里不留残影
+    const smallOpacity = ['interpolate', ['linear'], Z, z(5.3), 0, z(6.0), 0.92, z(7.6), 0.92, z(8.15), 0]
     setOrAdd(map, { id: `${P}-col-s`, type: 'fill-extrusion', source: `${P}-col-s` }, {
       'fill-extrusion-color': pal.column,
-      // 进入石墨色过渡带（AUTO_DAY_ZOOM）之前就收起，城市级画面里不留残影
-      'fill-extrusion-opacity': ['interpolate', ['linear'], Z, z(5.3), 0, z(6.0), 0.92, z(7.6), 0.92, z(8.15), 0],
+      'fill-extrusion-opacity': smallOpacity,
       'fill-extrusion-base': 0,
+      'fill-extrusion-height': ['interpolate', ['linear'], Z, z(5.3), 0, z(6.2), ['get', 'cap'], z(7.6), ['get', 'cap'], z(8.2), 0],
+    }, before)
+    setOrAdd(map, { id: `${P}-col-s-cap`, type: 'fill-extrusion', source: `${P}-col-s` }, {
+      'fill-extrusion-color': COLUMN_CAP,
+      'fill-extrusion-opacity': smallOpacity,
+      'fill-extrusion-base': ['interpolate', ['linear'], Z, z(5.3), 0, z(6.2), ['get', 'cap'], z(7.6), ['get', 'cap'], z(8.2), 0],
       'fill-extrusion-height': ['interpolate', ['linear'], Z, z(5.3), 0, z(6.2), ['get', 'top'], z(7.6), ['get', 'top'], z(8.2), 0],
     }, before)
   }, [map, atlas, cities, pal, provH, P, beforeId, shift])
@@ -249,7 +266,7 @@ export function LitProvinces({
       if (map)
         removeLayers(
           map,
-          [`${P}-col-s`, `${P}-col-l`, `${P}-ext`, `${P}-line`, `${P}-fill`],
+          [`${P}-col-s-cap`, `${P}-col-s`, `${P}-col-l-cap`, `${P}-col-l`, `${P}-ext`, `${P}-line`, `${P}-fill`],
           [`${P}-col-s`, `${P}-col-l`, `${P}-prov`],
         )
     },
@@ -302,7 +319,7 @@ export function LitPrefectures({
     const before = map.getLayer(`${P}-ext`) ? `${P}-ext` : beforeId && ensureSlot(map, beforeId)
     setOrAdd(map, { id: `${P}-pref-fill`, type: 'fill', source: `${P}-pref`, filter: lit }, {
       'fill-color': ['interpolate', ['linear'], Z, D0, color, D1, pal.routeDay],
-      'fill-opacity': ['interpolate', ['linear'], Z, z(5.0), 0, z(6.0), 0.36, z(7.6), 0.3, D0, 0.22, D1, 0.07, z(10.5), 0],
+      'fill-opacity': ['interpolate', ['linear'], Z, z(5.0), 0, z(6.0), 0.36, z(7.6), 0.3, D0, 0.2, D1, 0.035, z(10.5), 0],
     }, before)
     // 去过的城市边界内侧一圈柔光，夜色下更像「点亮」
     setOrAdd(map, { id: `${P}-pref-glow`, type: 'line', source: `${P}-pref`, filter: lit }, {

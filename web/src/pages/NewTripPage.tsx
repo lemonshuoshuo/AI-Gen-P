@@ -7,7 +7,9 @@ import { api, ApiError, errorMessage, type AIPlanItem, type AIPlanProgress, type
 import { IndeterminateLine } from '@/components/editor/Indeterminate'
 import { BaseMap } from '@/components/map/BaseMap'
 import { FitOnce, RouteLines } from '@/components/map/layers'
+import { CjkWords } from '@/components/trip/CjkWords'
 import { Button, CategoryChip, Field, Input, Switch, Textarea } from '@/components/ui'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useSite } from '@/hooks/useSite'
 import { invalidateTripLists } from '@/lib/cache'
 import { cn } from '@/lib/cn'
@@ -59,9 +61,21 @@ function LabelRow({ eyebrow, note, aside, className }: { eyebrow: string; note?:
 }
 
 /** 大号标题式输入框：只有一条底线，宋体大字 */
-const underline = 'h-16 rounded-none border-0 border-b border-ink-300 bg-transparent px-0 hover:border-ink-500 focus:border-ink-900 md:h-20'
-const bigInput = `${underline} font-display text-[26px] md:text-[36px]`
-const bigNumInput = `${underline} font-num text-[34px] font-light md:text-[46px]`
+const underline = 'rounded-none border-0 border-b border-ink-300 bg-transparent px-0 hover:border-ink-500 focus:border-ink-900'
+const bigInput = `${underline} h-16 font-display text-[26px] md:h-20 md:text-[36px]`
+const bigNumInput = `${underline} h-16 font-num text-[34px] font-light md:h-20 md:text-[46px]`
+/** 日期：同样只有底线，小一号的等高数字；日历图标跟随深色 */
+const dateInput = `${underline} h-12 w-full font-num text-[18px] [color-scheme:dark]`
+
+/** 表单区：左 4 栏一句引导语，右 7 栏表单 */
+function DetailGrid({ lead, children }: { lead: ReactNode; children: ReactNode }) {
+  return (
+    <div className="mt-10 grid gap-y-10 md:mt-14 lg:grid-cols-12 lg:gap-x-8">
+      <div className="lg:col-span-4">{lead}</div>
+      <div className="min-w-0 lg:col-span-7 lg:col-start-6">{children}</div>
+    </div>
+  )
+}
 
 /** 生成中的进度：阶段、实时字数、用时，一条细线动画，可取消 */
 function PlanProgress({ run, onCancel }: { run: Run; onCancel: () => void }) {
@@ -139,11 +153,19 @@ function PlanProgress({ run, onCancel }: { run: Run; onCancel: () => void }) {
 function AIPlanner({
   onUse,
   amapSearch,
+  lead,
+  before,
 }: {
   onUse: (r: AIPlanResult, items: AIPlanItem[], days: number, startDate: string) => Promise<void>
   /** 服务器配置了高德 Key：没配置时所有地点都无法校正，默认也加入 AI 估算的位置 */
   amapSearch: boolean
+  /** 表单左侧的引导语 */
+  lead: ReactNode
+  /** 表单上方的额外选项（和 TA 一起） */
+  before?: ReactNode
 }) {
+  // 宽屏：草稿左栏吸顶放标题和「创建」按钮；窄屏：按钮放在全部地点之后
+  const wide = useMediaQuery('(min-width: 1024px)')
   const [f, setF] = useState({ destination: '', days: 2, preferences: '', start_date: '' })
   const [result, setResult] = useState<AIPlanResult | null>(null)
   const [using, setUsing] = useState(false)
@@ -213,179 +235,219 @@ function AIPlanner({
   const days = [...new Set((result?.items ?? []).map((i) => i.day))].sort((a, b) => a - b)
   const busy = !!run
 
-  return (
-    <div className="space-y-20 md:space-y-28">
-      <div className="space-y-8">
-        <fieldset disabled={busy} className="space-y-8 disabled:opacity-60">
-          <div className="grid grid-cols-[1fr_5.5rem] gap-x-6 md:grid-cols-[1fr_8rem] md:gap-x-10">
-            <Field label="去哪儿">
-              <Input
-                value={f.destination}
-                onChange={(e) => setF({ ...f, destination: e.target.value })}
-                maxLength={30}
-                placeholder="如：台州、成都+重庆、大理"
-                className={bigInput}
-              />
-            </Field>
-            <Field label="玩几天">
-              <Input
-                type="number"
-                min={1}
-                max={15}
-                value={f.days}
-                onChange={(e) => setF({ ...f, days: Math.min(15, Math.max(1, Number(e.target.value) || 1)) })}
-                className={bigNumInput}
-              />
-            </Field>
-          </div>
-          <Field label="出发日期（可选）" className="max-w-xs">
-            <Input type="date" value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} className="h-12" />
-          </Field>
-          <Field label="偏好和要求" hint="越具体越好：同行人、节奏、预算、爱吃什么、想拍照还是躺平">
-            <Textarea
-              value={f.preferences}
-              onChange={(e) => setF({ ...f, preferences: e.target.value })}
-              maxLength={300}
-              placeholder="情侣出游，想吃本地特色小吃，喜欢拍照，不想太累，预算中等，避开网红坑"
-              className="min-h-28 text-[15px] leading-[1.8]"
-            />
-          </Field>
-        </fieldset>
-        {!busy && (
-          <Button
-            size="lg"
-            className="w-full sm:w-auto sm:min-w-56"
-            variant={result ? 'outline' : 'accent'}
-            disabled={!f.destination.trim()}
-            onClick={generate}
-          >
-            {result ? '重新生成' : '生成行程'}
-            <ArrowRight className="size-4" strokeWidth={1.5} />
-          </Button>
-        )}
-        {error && !busy && (
-          <div role="alert" className="flex gap-3 border-l border-brand-500 py-1 pl-4 text-sm leading-relaxed text-ink-700">
-            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-brand-600" strokeWidth={1.5} />
-            <span className="min-w-0 flex-1">
-              <span className="text-ink-900">没能生成行程：</span>
-              {error}
-            </span>
-          </div>
-        )}
+  const decision = result && (
+    <div className="space-y-8">
+      {estCount > 0 && (
+        <div className="space-y-2 border-l border-amber-500 py-1 pl-4">
+          <Switch checked={includeEst} onChange={setWithEst} label={`同时加入 ${estCount} 个 AI 估算位置的地点`} />
+          <p className="text-xs leading-relaxed text-ink-500">
+            这些坐标未经地图服务校正，可能偏差几百米甚至几公里，加入后请在编辑页拖动标记核对
+          </p>
+        </div>
+      )}
+      <div>
+        <Button
+          size="lg"
+          variant="accent"
+          className="w-full sm:w-auto sm:min-w-64"
+          loading={using}
+          icon={<Check className="size-4" strokeWidth={1.5} />}
+          onClick={async () => {
+            setUsing(true)
+            try {
+              await onUse(result, toSave, f.days, f.start_date)
+            } finally {
+              setUsing(false)
+            }
+          }}
+        >
+          就按这个来，创建旅程
+        </Button>
+        <p className="mt-4 max-w-sm text-xs leading-relaxed text-ink-500">
+          创建后可以在编辑页继续调整；未加入路线的地点可以在编辑页搜索后手动添加
+        </p>
       </div>
+    </div>
+  )
 
-      {run && <PlanProgress run={run} onCancel={cancel} />}
-
-      {result && !run && (
-        <section className="animate-slide-up">
-          <LabelRow eyebrow="Draft · AI 行程草稿" note={`${result.items.length} 个地点`} aside={`${days.length} 天`} />
-          <h2 className="text-display-lg mt-10 text-ink-900 md:mt-14">{result.title}</h2>
-          {result.summary && <p className="mt-6 max-w-2xl text-[15px] leading-[1.9] text-ink-500">{result.summary}</p>}
-          {located.length > 0 && (
-            <div className="mt-12 overflow-hidden rounded-sm ring-1 ring-ink-200">
-              <BaseMap className="h-72 md:h-96" navigation={false}>
-                <RouteLines planned={located} idPrefix="ai" />
-                <FitOnce points={located} fitKey={result.title + toSave.length} />
-              </BaseMap>
+  return (
+    <>
+      <DetailGrid lead={lead}>
+        <div className="space-y-10">
+          {before}
+          <fieldset disabled={busy} className="space-y-8 disabled:opacity-60">
+            <div className="grid grid-cols-[1fr_5.5rem] gap-x-6 md:grid-cols-[1fr_8rem] md:gap-x-10">
+              <Field label="去哪儿">
+                <Input
+                  value={f.destination}
+                  onChange={(e) => setF({ ...f, destination: e.target.value })}
+                  maxLength={30}
+                  placeholder="如：台州、成都+重庆、大理"
+                  className={bigInput}
+                />
+              </Field>
+              <Field label="玩几天">
+                <Input
+                  type="number"
+                  min={1}
+                  max={15}
+                  value={f.days}
+                  onChange={(e) => setF({ ...f, days: Math.min(15, Math.max(1, Number(e.target.value) || 1)) })}
+                  className={bigNumInput}
+                />
+              </Field>
+            </div>
+            <Field label="出发日期（可选）" className="sm:max-w-xs">
+              <Input type="date" value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} className={dateInput} />
+            </Field>
+            <Field label="偏好和要求" hint="越具体越好：同行人、节奏、预算、爱吃什么、想拍照还是躺平">
+              <Textarea
+                value={f.preferences}
+                onChange={(e) => setF({ ...f, preferences: e.target.value })}
+                maxLength={300}
+                placeholder="情侣出游，想吃本地特色小吃，喜欢拍照，不想太累，预算中等，避开网红坑"
+                className="min-h-28 text-[15px] leading-[1.8]"
+              />
+            </Field>
+          </fieldset>
+          {!busy && (
+            <Button
+              size="lg"
+              className="w-full sm:w-auto sm:min-w-56"
+              variant={result ? 'outline' : 'accent'}
+              disabled={!f.destination.trim()}
+              onClick={generate}
+            >
+              {result ? '重新生成' : '生成行程'}
+              <ArrowRight className="size-4" strokeWidth={1.5} />
+            </Button>
+          )}
+          {error && !busy && (
+            <div role="alert" className="flex gap-3 border-l border-brand-500 py-1 pl-4 text-sm leading-relaxed text-ink-700">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0 text-brand-600" strokeWidth={1.5} />
+              <span className="min-w-0 flex-1">
+                <span className="text-ink-900">没能生成行程：</span>
+                {error}
+              </span>
             </div>
           )}
-          <div className="mt-16 space-y-16 md:mt-20 md:space-y-20">
-            {days.map((d) => {
-              const list = result.items.filter((i) => i.day === d)
-              return (
-                <div key={d}>
-                  <div className="flex items-end gap-5 border-b border-ink-200 pb-5">
-                    <span className="font-num text-[4rem] leading-[0.74] font-light tracking-[-0.02em] text-ink-900 md:text-[5rem]">
-                      {pad2(d)}
-                    </span>
-                    <div className="min-w-0 pb-0.5 text-[13px] leading-[1.45]">
-                      <p className="text-ink-900">
-                        <span className="eyebrow !text-ink-900">Day {pad2(d)}</span>
-                        {f.start_date && <span className="ml-3">{dayjs(f.start_date).add(d - 1, 'day').format('M月D日')}</span>}
-                      </p>
-                      <p className="text-ink-500">{f.start_date ? dayjs(f.start_date).add(d - 1, 'day').format('dddd') : `第 ${d} 天`}</p>
-                    </div>
-                    <span className="caption ml-auto shrink-0 pb-0.5">
-                      <span className="font-num text-[14px]">{list.length}</span> 个地点
-                    </span>
+          {run && (
+            <div className="pt-10 md:pt-16">
+              <PlanProgress run={run} onCancel={cancel} />
+            </div>
+          )}
+        </div>
+      </DetailGrid>
+
+      {/* 草稿：独立成整宽的一节——左栏吸顶放标题、概要和唯一的决定按钮，右栏地图与逐日地点 */}
+      {result && !run && (
+        <section className="animate-slide-up mt-24 md:mt-36">
+          <LabelRow eyebrow="Draft · AI 行程草稿" note={`${result.items.length} 个地点`} aside={`${days.length} 天`} />
+          <div className="mt-10 grid gap-y-14 md:mt-14 lg:grid-cols-12 lg:gap-x-8">
+            <div className="lg:col-span-4">
+              <div className="lg:sticky lg:top-24">
+                <h2 className="text-display-lg text-balance text-ink-900">
+                  <CjkWords text={result.title} />
+                </h2>
+                {result.summary && <p className="mt-6 max-w-xl text-[15px] leading-[1.9] text-ink-500">{result.summary}</p>}
+                <dl className="mt-10 flex divide-x divide-ink-200 border-y border-ink-200">
+                  <div className="py-5 pr-8">
+                    <dt className="eyebrow">Stops · 地点</dt>
+                    <dd className="font-num mt-4 text-[3.25rem] leading-[0.85] font-light text-ink-900">
+                      {result.items.length}
+                      <span className="ml-1.5 font-sans text-xs text-ink-500">个</span>
+                    </dd>
                   </div>
-                  <ol className="divide-y divide-ink-200">
-                    {list.map((i, idx) => {
-                      const est = isEstimated(i)
-                      const none = !hasCoord(i)
-                      return (
-                        <li key={idx} className="grid grid-cols-[2.25rem_minmax(0,1fr)] gap-x-4 py-7 md:grid-cols-[3rem_minmax(0,1fr)] md:gap-x-6 md:py-9">
-                          <span
-                            className={cn(
-                              'font-num mt-1 flex size-8 items-center justify-center rounded-full text-sm leading-none',
-                              none
-                                ? 'border border-ink-300 text-ink-400'
-                                : est
-                                  ? 'border border-dashed border-amber-500 text-amber-700'
-                                  : 'bg-ink-900 text-paper',
-                            )}
-                            title={none ? '未找到位置' : est ? 'AI 估算位置' : '已校准位置'}
-                          >
-                            {idx + 1}
-                          </span>
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                              <CategoryChip category={i.category} />
-                              {est && (
-                                <span className="inline-flex items-center gap-1 tracking-wide text-amber-700">
-                                  <TriangleAlert className="size-3" strokeWidth={1.5} />
-                                  AI 估算位置
-                                </span>
-                              )}
-                              {none && <span className="tracking-wide text-ink-500">未找到位置</span>}
-                            </div>
-                            <p className={cn('font-display mt-2.5 text-[24px] leading-[1.2] md:text-[30px]', none ? 'text-ink-500' : 'text-ink-900')}>
-                              {i.name}
-                            </p>
-                            {i.address && <p className="caption mt-1.5">{i.address}</p>}
-                            {i.note && <p className="mt-4 max-w-xl text-[14.5px] leading-[1.85] text-ink-500">{i.note}</p>}
-                          </div>
-                        </li>
-                      )
-                    })}
-                  </ol>
-                </div>
-              )
-            })}
-            {estCount > 0 && (
-              <div className="space-y-2 border-l border-amber-500 py-1 pl-4">
-                <Switch checked={includeEst} onChange={setWithEst} label={`同时加入 ${estCount} 个 AI 估算位置的地点`} />
-                <p className="text-xs leading-relaxed text-ink-500">
-                  这些坐标未经地图服务校正，可能偏差几百米甚至几公里，加入后请在编辑页拖动标记核对
-                </p>
+                  <div className="py-5 pl-8">
+                    <dt className="eyebrow">Days · 天数</dt>
+                    <dd className="font-num mt-4 text-[3.25rem] leading-[0.85] font-light text-ink-900">
+                      {days.length}
+                      <span className="ml-1.5 font-sans text-xs text-ink-500">天</span>
+                    </dd>
+                  </div>
+                </dl>
+                {wide && <div className="mt-10">{decision}</div>}
               </div>
-            )}
-            <div className="border-t border-ink-200 pt-8">
-              <Button
-                size="lg"
-                variant="accent"
-                className="w-full sm:w-auto sm:min-w-64"
-                loading={using}
-                icon={<Check className="size-4" strokeWidth={1.5} />}
-                onClick={async () => {
-                  setUsing(true)
-                  try {
-                    await onUse(result, toSave, f.days, f.start_date)
-                  } finally {
-                    setUsing(false)
-                  }
-                }}
-              >
-                就按这个来，创建旅程
-              </Button>
-              <p className="mt-4 max-w-md text-xs leading-relaxed text-ink-500">
-                创建后可以在编辑页继续调整；未加入路线的地点可以在编辑页搜索后手动添加
-              </p>
+            </div>
+            <div className="min-w-0 lg:col-span-7 lg:col-start-6">
+              {located.length > 0 && (
+                <div className="-mx-4 overflow-hidden border-y border-ink-200 md:mx-0 md:rounded-sm md:border-0 md:ring-1 md:ring-ink-200">
+                  <BaseMap className="h-72 md:h-[26rem]" navigation={false}>
+                    <RouteLines planned={located} idPrefix="ai" />
+                    <FitOnce points={located} fitKey={result.title + toSave.length} />
+                  </BaseMap>
+                </div>
+              )}
+              <div className="mt-16 space-y-16 md:mt-20 md:space-y-20">
+                {days.map((d) => {
+                  const list = result.items.filter((i) => i.day === d)
+                  return (
+                    <div key={d}>
+                      <div className="flex items-end gap-5 border-b border-ink-200 pb-5">
+                        <span className="font-num text-[4rem] leading-[0.74] font-light tracking-[-0.02em] text-ink-900 md:text-[5rem]">
+                          {pad2(d)}
+                        </span>
+                        <div className="min-w-0 pb-0.5 text-[13px] leading-[1.45]">
+                          <p className="text-ink-900">
+                            <span className="eyebrow !text-ink-900">Day {pad2(d)}</span>
+                            {f.start_date && <span className="ml-3">{dayjs(f.start_date).add(d - 1, 'day').format('M月D日')}</span>}
+                          </p>
+                          <p className="text-ink-500">{f.start_date ? dayjs(f.start_date).add(d - 1, 'day').format('dddd') : `第 ${d} 天`}</p>
+                        </div>
+                        <span className="caption ml-auto shrink-0 pb-0.5">
+                          <span className="font-num text-[14px]">{list.length}</span> 个地点
+                        </span>
+                      </div>
+                      <ol className="divide-y divide-ink-200">
+                        {list.map((i, idx) => {
+                          const est = isEstimated(i)
+                          const none = !hasCoord(i)
+                          return (
+                            <li key={idx} className="grid grid-cols-[2.25rem_minmax(0,1fr)] gap-x-4 py-7 md:grid-cols-[3rem_minmax(0,1fr)] md:gap-x-6 md:py-9">
+                              <span
+                                className={cn(
+                                  'font-num mt-1 flex size-8 items-center justify-center rounded-full text-sm leading-none',
+                                  none
+                                    ? 'border border-ink-300 text-ink-400'
+                                    : est
+                                      ? 'border border-dashed border-amber-500 text-amber-700'
+                                      : 'border border-ink-700 text-ink-900',
+                                )}
+                                title={none ? '未找到位置' : est ? 'AI 估算位置' : '已校准位置'}
+                              >
+                                {idx + 1}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                                  <CategoryChip category={i.category} />
+                                  {est && (
+                                    <span className="inline-flex items-center gap-1 tracking-wide text-amber-700">
+                                      <TriangleAlert className="size-3" strokeWidth={1.5} />
+                                      AI 估算位置
+                                    </span>
+                                  )}
+                                  {none && <span className="tracking-wide text-ink-500">未找到位置</span>}
+                                </div>
+                                <p className={cn('font-display mt-2.5 text-[24px] leading-[1.2] md:text-[30px]', none ? 'text-ink-500' : 'text-ink-900')}>
+                                  {i.name}
+                                </p>
+                                {i.address && <p className="caption mt-1.5">{i.address}</p>}
+                                {i.note && <p className="mt-4 max-w-xl text-[14.5px] leading-[1.85] text-ink-500">{i.note}</p>}
+                              </div>
+                            </li>
+                          )
+                        })}
+                      </ol>
+                    </div>
+                  )
+                })}
+              </div>
+              {!wide && <div className="mt-16 border-t border-ink-200 pt-8">{decision}</div>}
             </div>
           </div>
         </section>
       )}
-    </div>
+    </>
   )
 }
 
@@ -398,6 +460,7 @@ export default function NewTripPage() {
   const qc = useQueryClient()
   const [f, setF] = useState({ title: '', start_date: '', end_date: '', with_partner: !!user?.partner })
   const [creating, setCreating] = useState(false)
+  const titleRef = useRef<HTMLInputElement>(null)
   // AI 规划：路线没保存成功、刚建的旅程也没删掉时记下来，重试前先删，避免留下空旅程
   const orphanTrip = useRef<number | null>(null)
   // 进入页面后才刷新到的情侣绑定（或刚解除绑定）：同步「和 TA 一起」的默认值
@@ -480,6 +543,14 @@ export default function NewTripPage() {
   const available = modes.filter((m) => m.value !== 'ai' || site?.ai_enabled)
   const current = available.find((m) => m.value === mode) ?? available[0]
 
+  const lead = (
+    <p className="font-display text-[22px] leading-[1.5] text-ink-700 md:text-[26px]">
+      {mode === 'plan' && '先起个名字，再慢慢把想去的地方排进路线。'}
+      {mode === 'ai' && '说说去哪儿、玩几天和你的偏好，AI 会写出一份逐日的草稿。'}
+      {mode === 'photos' && '把旅途中的照片交给我们，按拍摄地点和时间还原足迹。'}
+    </p>
+  )
+
   const partnerSwitch = user?.partner && (
     <Switch
       checked={f.with_partner}
@@ -521,7 +592,12 @@ export default function NewTripPage() {
                 type="button"
                 role="radio"
                 aria-checked={on}
-                onClick={() => setMode(m.value)}
+                onClick={() => {
+                  setMode(m.value)
+                  // 只在明确选了方式之后把光标放进名称框，且不滚动页面；手机上不弹键盘
+                  if (m.value !== 'ai' && window.matchMedia('(pointer: fine)').matches)
+                    requestAnimationFrame(() => titleRef.current?.focus({ preventScroll: true }))
+                }}
                 className="group grid w-full grid-cols-[3.25rem_minmax(0,1fr)_auto] items-center gap-x-4 py-7 text-left md:grid-cols-[9rem_minmax(0,1fr)_minmax(0,18rem)_3rem] md:gap-x-8 md:py-10"
               >
                 <span
@@ -564,61 +640,48 @@ export default function NewTripPage() {
         )}
       </section>
 
-      {/* 细节：左侧标签，右侧表单 */}
+      {/* 细节：左侧引导语，右侧表单 */}
       <section className="mt-20 md:mt-32">
         <LabelRow eyebrow="Details · 旅程信息" note={current ? `${pad2(available.indexOf(current) + 1)} · ${current.en}` : undefined} />
-        <div className="mt-10 grid gap-y-10 md:mt-14 lg:grid-cols-12 lg:gap-x-8">
-          <div className="lg:col-span-4">
-            <p className="font-display text-[22px] leading-[1.5] text-ink-700 md:text-[26px]">
-              {mode === 'plan' && '先起个名字，再慢慢把想去的地方排进路线。'}
-              {mode === 'ai' && '说说去哪儿、玩几天和你的偏好，AI 会写出一份逐日的草稿。'}
-              {mode === 'photos' && '把旅途中的照片交给我们，按拍摄地点和时间还原足迹。'}
-            </p>
-          </div>
-          <div className="min-w-0 lg:col-span-7 lg:col-start-6">
-            {mode !== 'ai' && (
-              <div className="space-y-10" key={mode}>
-                <Field label="旅程名称">
+        {mode === 'ai' ? (
+          <AIPlanner onUse={useAIPlan} amapSearch={site?.amap_search ?? true} lead={lead} before={partnerSwitch} />
+        ) : (
+          <DetailGrid lead={lead}>
+            <div className="space-y-10">
+              <Field label="旅程名称">
+                <Input
+                  ref={titleRef}
+                  value={f.title}
+                  onChange={(e) => setF({ ...f, title: e.target.value })}
+                  placeholder={mode === 'photos' ? '如：2026 国庆 · 青甘大环线' : '如：五一杭州两日游'}
+                  maxLength={80}
+                  className={bigInput}
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-x-6 md:gap-x-10">
+                <Field label="开始日期">
+                  <Input type="date" value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} className={dateInput} />
+                </Field>
+                <Field label="结束日期">
                   <Input
-                    value={f.title}
-                    onChange={(e) => setF({ ...f, title: e.target.value })}
-                    placeholder={mode === 'photos' ? '如：2026 国庆 · 青甘大环线' : '如：五一杭州两日游'}
-                    maxLength={80}
-                    autoFocus
-                    className={bigInput}
+                    type="date"
+                    value={f.end_date}
+                    min={f.start_date}
+                    onChange={(e) => setF({ ...f, end_date: e.target.value })}
+                    className={dateInput}
                   />
                 </Field>
-                <div className="grid grid-cols-2 gap-4 md:gap-6">
-                  <Field label="开始日期">
-                    <Input type="date" value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} className="h-12" />
-                  </Field>
-                  <Field label="结束日期">
-                    <Input
-                      type="date"
-                      value={f.end_date}
-                      min={f.start_date}
-                      onChange={(e) => setF({ ...f, end_date: e.target.value })}
-                      className="h-12"
-                    />
-                  </Field>
-                </div>
-                {partnerSwitch}
-                <div className="border-t border-ink-200 pt-8">
-                  <Button size="lg" variant="accent" className="w-full sm:w-auto sm:min-w-64" loading={creating} onClick={create}>
-                    {mode === 'photos' ? '创建并上传照片' : '创建并开始规划'}
-                    {!creating && <ArrowRight className="size-4" strokeWidth={1.5} />}
-                  </Button>
-                </div>
               </div>
-            )}
-            {mode === 'ai' && (
-              <div className="space-y-10">
-                {partnerSwitch}
-                <AIPlanner onUse={useAIPlan} amapSearch={site?.amap_search ?? true} />
+              {partnerSwitch}
+              <div className="border-t border-ink-200 pt-8">
+                <Button size="lg" variant="accent" className="w-full sm:w-auto sm:min-w-64" loading={creating} onClick={create}>
+                  {mode === 'photos' ? '创建并上传照片' : '创建并开始规划'}
+                  {!creating && <ArrowRight className="size-4" strokeWidth={1.5} />}
+                </Button>
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          </DetailGrid>
+        )}
       </section>
     </div>
   )

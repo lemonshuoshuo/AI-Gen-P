@@ -9,8 +9,8 @@ import { api, isNotFound, type Footprints, type TrackData, type TripDetail } fro
 import { rememberedShareCode } from '@/api/client'
 import { BaseMap, useMap } from '@/components/map/BaseMap'
 import { RouteLines } from '@/components/map/layers'
-import { hexToRgb, useDeckOverlay } from '@/components/three/deck'
-import { angleLerp, buildRoute, distanceAt, legBounds, pointAt, type PlacedStop, type ReplayStop, type RouteModel } from '@/components/three/replay'
+import { useDeckOverlay } from '@/components/three/deck'
+import { angleLerp, buildRoute, distanceAt, legBounds, pointAt, slicePath, type PlacedStop, type ReplayStop, type RouteModel } from '@/components/three/replay'
 import { ShareDialog } from '@/components/trip/ShareDialog'
 import { Avatar, Button, Empty, LoadError, PageLoader, VerdictBadge, buttonClass } from '@/components/ui'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
@@ -35,41 +35,61 @@ interface SceneProps {
   /** 开场镜头：先看全程，停一会儿再飞到第一站 */
   intro: boolean
   onIntroDone: () => void
+  /** 全程镜头的瓦片加载好了，可以揭开画面 */
+  onShown: () => void
 }
 
 const CAMERA_SIDE_ANGLE = 22
+// 回放的夜色底图完全去色：公园、绿地和道路标牌不再是橄榄绿 / 青色的色块
+// 同时略微压暗文字和整体不透明度，让画面沉进夜色里，字幕和轨迹更突出
+const REPLAY_TONE = { 'raster-saturation': -1, 'raster-contrast': -0.04, 'raster-brightness-min': 0.74, 'raster-opacity': 0.86 }
 const FOLLOW_PITCH = 60
 const OVERVIEW_PITCH = 45
 const INTRO_HOLD = 1200 // 全程镜头停留（毫秒）
 
-// 夜色 + 金 / 朱砂（情侣空间为玫瑰金 / 胭脂）：轨迹是金色，彗星头是朱砂
-const THEMES: Record<Theme, { glow: RGB; trail: RGB; head: RGB; core: RGB; column: RGB; current: RGB; arcA: RGB; arcB: RGB }> = {
+// 一帧画面只有一种强调色：夜色里轨迹、彗星头、当前地点的光柱都是金色（情侣空间为玫瑰色），
+// 其余光柱是中性的石色，不再按分类着色
+const THEMES: Record<Theme, { glow: RGB; trail: RGB; head: RGB; core: RGB; column: RGB; current: RGB; arc: RGB }> = {
   sunset: {
     glow: [201, 168, 104],
     trail: [218, 190, 128],
-    head: [224, 100, 66],
-    core: [255, 240, 208],
-    column: [214, 184, 122],
-    current: [206, 88, 58],
-    arcA: [201, 168, 104],
-    arcB: [206, 88, 58],
+    head: [238, 206, 138],
+    core: [255, 244, 222],
+    column: [178, 171, 158],
+    current: [226, 194, 122],
+    arc: [201, 168, 104],
   },
   love: {
     glow: [210, 161, 171],
     trail: [228, 190, 200],
-    head: [196, 96, 126],
-    core: [255, 234, 240],
-    column: [222, 178, 188],
-    current: [176, 82, 112],
-    arcA: [163, 151, 191],
-    arcB: [210, 161, 171],
+    head: [236, 178, 192],
+    core: [255, 238, 242],
+    column: [178, 171, 158],
+    current: [213, 143, 159],
+    arc: [210, 161, 171],
   },
 }
 
-/** 金色里掺一点分类色（矿物色），光柱既统一又能分辨类别 */
-function tint(base: RGB, hex: string, k = 0.35, alpha = 235): [number, number, number, number] {
-  const c = hexToRgb(hex)
-  return [base[0] * (1 - k) + c[0] * k, base[1] * (1 - k) + c[1] * k, base[2] * (1 - k) + c[2] * k, alpha]
+// 前方路线的淡线：从彗星头往前到下一站，离得越远越淡（分几段画出渐隐）
+const GHOST_STEPS = [64, 50, 36, 22, 10]
+
+/** 等当前画面的瓦片加载完（最多 max 毫秒）再继续：开场不露出还没加载的黑块 */
+function whenTilesLoaded(map: MLMap, max: number, cb: () => void) {
+  let done = false
+  const finish = () => {
+    if (done) return
+    done = true
+    window.clearTimeout(t)
+    map.off('idle', finish)
+    cb()
+  }
+  const t = window.setTimeout(finish, max)
+  map.on('idle', finish)
+  return () => {
+    done = true
+    window.clearTimeout(t)
+    map.off('idle', finish)
+  }
 }
 
 /** 跟随镜头：以轨迹前端为中心，按当前路段自适应缩放；画面下方留出卡片位置 */
@@ -131,14 +151,33 @@ function overviewView(map: MLMap, model: RouteModel) {
   }
 }
 
-function ReplayScene({ model, time, playing, theme, arcs, intro, onIntroDone }: SceneProps) {
+/** 淡线的数据：开场时是整条路线，之后是前方到下一站（最多约一个路段长）的几段、透明度逐段递减 */
+function ghostPaths(model: RouteModel, d: number, stop: number | null, intro: boolean, maxLen: number) {
+  if (intro) return model.parts.map((p) => ({ path: p.path, a: GHOST_STEPS[0] - 8 }))
+  if (d >= model.total) return []
+  const reaches = model.stops.map((s) => s.reach)
+  const next = reaches.find((r) => r > d + 1) ?? model.total
+  const prev = [...reaches].reverse().find((r) => r <= d + 1) ?? 0
+  // 停在某一站时镜头框的是刚走过的路段：前方的淡线也只画这么长
+  const leg = stop != null ? prev - ([...reaches].reverse().find((r) => r < prev - 1) ?? 0) : next - prev
+  // 也不超过大约一屏的距离：镜头还没拉远时，长路段的淡线不会一直伸到画面顶端
+  const end = Math.min(next, d + Math.min(maxLen, Math.max(300, leg)))
+  const n = GHOST_STEPS.length
+  return GHOST_STEPS.flatMap((a, i) => slicePath(model, d + ((end - d) * i) / n, d + ((end - d) * (i + 1)) / n).map((path) => ({ path, a })))
+}
+
+function ReplayScene({ model, time, playing, theme, arcs, intro, onIntroDone, onShown }: SceneProps) {
   const map = useMap()
   const overlay = useDeckOverlay()
   const cam = useRef({ bearing: 0, zoom: 0, init: false, d: -1, last: 0 })
   const zoomCache = useRef(new Map<string, number>())
   const introDone = useRef(onIntroDone)
   introDone.current = onIntroDone
+  const shownCb = useRef(onShown)
+  shownCb.current = onShown
   const shownOnce = useRef(false)
+  // 画面已经揭开（第一次全程镜头的瓦片加载完）
+  const revealed = useRef(false)
 
   const { d, stop } = distanceAt(model, time)
   // 已到达的打卡点：buildRoute 保证 reach 单调不减，已到达的一定是前缀。
@@ -147,7 +186,7 @@ function ReplayScene({ model, time, playing, theme, arcs, intro, onIntroDone }: 
   while (reachedCount < model.stops.length && model.stops[reachedCount].reach <= d + 1) reachedCount++
   const reached = useMemo(() => model.stops.slice(0, reachedCount), [model, reachedCount])
 
-  // 开场：全程俯瞰（倾斜约 45°）→ 停留 1.2 秒 → 飞到第一站开始跟随
+  // 开场：全程俯瞰（倾斜约 45°）→ 瓦片加载完后揭开画面 → 停留 1.2 秒 → 飞到第一站，那里的瓦片加载完再开始播放
   useEffect(() => {
     if (!map || !intro) return
     const ov = overviewView(map, model)
@@ -156,42 +195,55 @@ function ReplayScene({ model, time, playing, theme, arcs, intro, onIntroDone }: 
     if (first) map.jumpTo(ov)
     else map.easeTo({ ...ov, duration: 1100 })
     let done = false
+    let t = 0
+    let cancelWait = () => {}
     const finish = () => {
       if (done) return
       done = true
       introDone.current()
     }
-    const t = window.setTimeout(
-      () => {
-        const f = followView(map, model, 0, zoomCache.current)
-        const moving = f.ahead[0] !== f.behind[0] || f.ahead[1] !== f.behind[1]
-        const brg = moving ? bearing(f.behind, f.ahead) + CAMERA_SIDE_ANGLE : 0
-        const c = cam.current
-        c.zoom = f.zoom
-        c.bearing = brg
-        c.init = true
-        c.d = 0
-        c.last = 0
-        map.once('moveend', finish)
-        map.flyTo({
-          center: f.head,
-          zoom: f.zoom,
-          bearing: brg,
-          pitch: FOLLOW_PITCH,
-          padding: f.padding,
-          // 不许飞行弧线拉得比全程镜头还远（一座城市内的旅程不会先拉到全国）
-          minZoom: Math.min(ov.zoom, f.zoom),
-          speed: 0.9,
-          curve: 1.3,
-          maxDuration: 3200,
-          essential: true,
-        })
-      },
-      INTRO_HOLD + (first ? 0 : 1100),
-    )
+    const onArrive = () => {
+      cancelWait = whenTilesLoaded(map, 2500, finish)
+    }
+    const fly = () => {
+      const f = followView(map, model, 0, zoomCache.current)
+      const moving = f.ahead[0] !== f.behind[0] || f.ahead[1] !== f.behind[1]
+      const brg = moving ? bearing(f.behind, f.ahead) + CAMERA_SIDE_ANGLE : 0
+      const c = cam.current
+      c.zoom = f.zoom
+      c.bearing = brg
+      c.init = true
+      c.d = 0
+      c.last = 0
+      map.once('moveend', onArrive)
+      map.flyTo({
+        center: f.head,
+        zoom: f.zoom,
+        bearing: brg,
+        pitch: FOLLOW_PITCH,
+        padding: f.padding,
+        // 不许飞行弧线拉得比全程镜头还远（一座城市内的旅程不会先拉到全国）
+        minZoom: Math.min(ov.zoom, f.zoom),
+        speed: 0.9,
+        curve: 1.3,
+        maxDuration: 3200,
+        essential: true,
+      })
+    }
+    const hold = () => {
+      t = window.setTimeout(fly, INTRO_HOLD + (first ? 0 : 1100))
+    }
+    if (revealed.current) hold()
+    else
+      cancelWait = whenTilesLoaded(map, 5000, () => {
+        revealed.current = true
+        shownCb.current()
+        hold()
+      })
     return () => {
       window.clearTimeout(t)
-      map.off('moveend', finish)
+      cancelWait()
+      map.off('moveend', onArrive)
       if (!done) map.stop()
     }
   }, [map, model, intro])
@@ -232,6 +284,10 @@ function ReplayScene({ model, time, playing, theme, arcs, intro, onIntroDone }: 
     const trips = model.parts
     const head = pointAt(model, d)
     const showHead = time > 0 && d < model.total
+    // 一屏高度大约对应的地面距离（米）
+    const c = map.getCenter()
+    const screenM = ((156543.03 * Math.cos((c.lat * Math.PI) / 180)) / 2 ** zoom) * map.getContainer().clientHeight
+    const ghost = ghostPaths(model, d, stop, intro, screenM * 0.6)
     o.setProps({
       layers: [
         ...(arcs?.length
@@ -241,37 +297,24 @@ function ReplayScene({ model, time, playing, theme, arcs, intro, onIntroDone }: 
                 data: arcs,
                 getSourcePosition: (a) => a.from,
                 getTargetPosition: (a) => a.to,
-                getSourceColor: [...t.arcA, 150],
-                getTargetColor: [...t.arcB, 150],
-                getWidth: 1.5,
+                getSourceColor: [...t.arc, 90],
+                getTargetColor: [...t.arc, 150],
+                getWidth: 1.25,
                 getHeight: 0.6,
                 greatCircle: false,
               }),
             ]
           : []),
-        // 整条路线的淡金细线和还没到的地点（空心小圈）：开场俯瞰时就能看出路线的形状
-        new PathLayer<RouteModel['parts'][number]>({
+        // 路线的淡线：开场俯瞰时画整条路线（看出形状）；跟随时只画前方到下一站的一小段，越远越淡，不会一直伸到天边
+        new PathLayer<{ path: LngLat[]; a: number }>({
           id: 'ghost',
-          data: trips,
+          data: ghost,
           getPath: (x) => x.path,
-          getColor: [...t.trail, 70],
+          getColor: (x) => [...t.trail, x.a],
           widthUnits: 'pixels',
           getWidth: 1.25,
           capRounded: true,
           jointRounded: true,
-        }),
-        new ScatterplotLayer<PlacedStop>({
-          id: 'ghost-stops',
-          data: model.stops,
-          getPosition: (s) => [s.lng, s.lat],
-          radiusUnits: 'pixels',
-          getRadius: 3.5,
-          filled: true,
-          getFillColor: [12, 19, 20, 200],
-          stroked: true,
-          getLineColor: [...t.trail, 150],
-          lineWidthUnits: 'pixels',
-          getLineWidth: 1.25,
         }),
         new TripsLayer({
           id: 'trail-glow',
@@ -316,12 +359,12 @@ function ReplayScene({ model, time, playing, theme, arcs, intro, onIntroDone }: 
           data: reached,
           getPosition: (s) => [s.lng, s.lat],
           getRadius: radius * 2.2,
-          getFillColor: (s) => hexToRgb(s.color, 45),
-          getLineColor: (s) => tint(t.column, s.color, 0.5, 190),
+          getFillColor: [...t.column, 26],
+          getLineColor: (s) => (stop === s.index ? [...t.current, 200] : [...t.column, 130]),
           stroked: true,
-          lineWidthMinPixels: 1.25,
+          lineWidthMinPixels: 1,
           radiusMinPixels: 6,
-          updateTriggers: { getRadius: [radius] },
+          updateTriggers: { getRadius: [radius], getLineColor: [stop, theme] },
         }),
         new ColumnLayer<PlacedStop>({
           id: 'stop-columns',
@@ -330,7 +373,7 @@ function ReplayScene({ model, time, playing, theme, arcs, intro, onIntroDone }: 
           radius,
           extruded: true,
           getPosition: (s) => [s.lng, s.lat],
-          getFillColor: (s) => (stop === s.index ? [...t.current, 240] : tint(t.column, s.color)),
+          getFillColor: (s) => (stop === s.index ? [...t.current, 245] : [...t.column, 225]),
           getElevation: (s) => {
             const k = Math.min(1, (d - s.reach) / Math.max(1, model.total * 0.02) + (stop != null && s.index <= stop ? 1 : 0))
             return radius * 7 * (0.15 + 0.85 * Math.min(1, k))
@@ -338,7 +381,7 @@ function ReplayScene({ model, time, playing, theme, arcs, intro, onIntroDone }: 
           material: { ambient: 0.62, diffuse: 0.55, shininess: 32 },
           updateTriggers: { getElevation: [d, stop, radius], getFillColor: [stop, theme] },
         }),
-        // 彗星头：朱砂光晕 + 纸色内核
+        // 彗星头：金色光晕 + 象牙白内核
         new ScatterplotLayer<LngLat>({
           id: 'head',
           data: showHead ? [head] : [],
@@ -362,7 +405,7 @@ function ReplayScene({ model, time, playing, theme, arcs, intro, onIntroDone }: 
         }),
       ],
     })
-  }, [overlay, map, model, d, stop, theme, arcs, reached, time])
+  }, [overlay, map, model, d, stop, theme, arcs, reached, time, intro])
 
   return null
 }
@@ -510,6 +553,8 @@ export default function ReplayPage() {
   const [time, setTime] = useState(0)
   const [playing, setPlaying] = useState(true)
   const [intro, setIntro] = useState(true)
+  // 开场的全程镜头瓦片加载完之前，画面盖一层夜色（只露出片名），不露出一块块还没加载的瓦片
+  const [shown, setShown] = useState(false)
   const [speed, setSpeed] = useState(1)
   const [share, setShare] = useState(false)
   const qc = useQueryClient()
@@ -625,14 +670,19 @@ export default function ReplayPage() {
     setPlaying((p) => !p)
   }
 
-  const [kmNow, kmTotal] = [formatKm(d / 1000).replace(/ ?(公里|米)$/, ''), formatKm(model.total / 1000)]
+  // 当前里程与全程单位相同时只写数字（12.3 / 184 公里），不同时各写各的单位（587 米 / 184 公里）
+  const kmTotal = formatKm(model.total / 1000)
+  const kmNowFull = formatKm(d / 1000)
+  const unitOf = (x: string) => x.replace(/^[\d.,\s]+/, '')
+  const kmNow = unitOf(kmNowFull) === unitOf(kmTotal) ? kmNowFull.replace(/ ?(公里|米)$/, '') : kmNowFull
 
   return (
     <div className="bg-night fixed inset-0 overflow-hidden text-white">
-      {/* 地图版权信息抬到底部控制条上方，不遮住倍速按钮 */}
+      {/* 地图版权信息：桌面抬到底部控制条上方；手机上放到右上角关闭按钮下方，不压在地点字幕上 */}
       <BaseMap
-        className="absolute inset-0 [&_.maplibregl-ctrl-bottom-right]:bottom-[calc(5.25rem+env(safe-area-inset-bottom))]"
+        className="absolute inset-0 sm:[&_.maplibregl-ctrl-bottom-right]:bottom-[calc(5.25rem+env(safe-area-inset-bottom))] max-sm:[&_.maplibregl-ctrl-bottom-right]:top-[calc(max(env(safe-area-inset-top),1rem)+6.5rem)] max-sm:[&_.maplibregl-ctrl-bottom-right]:bottom-auto"
         kind="dark"
+        rasterTone={REPLAY_TONE}
         navigation={false}
         center={model.coords[0]}
         zoom={12}
@@ -648,8 +698,16 @@ export default function ReplayPage() {
           arcs={data.arcs}
           intro={intro}
           onIntroDone={() => setIntro(false)}
+          onShown={() => setShown(true)}
         />
       </BaseMap>
+      <div
+        aria-hidden
+        className={cn(
+          'bg-night pointer-events-none absolute inset-0 transition-opacity duration-1000 ease-out',
+          shown || !intro ? 'opacity-0' : 'opacity-100',
+        )}
+      />
 
       {/* 上下两道暗角：让照片般的画面上的小字看得清 */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-[#0b1112]/90 via-[#0b1112]/45 to-transparent" />
@@ -658,16 +716,17 @@ export default function ReplayPage() {
       {/* 顶部：片名 */}
       <div className="animate-fade-in absolute inset-x-0 top-0 px-4 pt-[max(env(safe-area-inset-top),1rem)] sm:px-8 sm:pt-7">
         <div className="flex items-start gap-4">
-          <div className="min-w-0 flex-1">
+          {/* 片尾字幕出现时片名淡出，不在模糊的背景里重复出现 */}
+          <div className={cn('min-w-0 flex-1 transition-opacity duration-500', done && 'opacity-0')}>
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
               {together && me && partner && (
-                <span className="flex items-center">
+                <span className="flex items-center gap-1.5">
                   <Avatar user={me} size={22} className="ring-1 ring-white/25" />
-                  <span className="font-display z-10 -mx-0.5 text-[15px] leading-none text-[#e0b6c0] italic">&amp;</span>
+                  <span className="font-display text-[15px] leading-none text-white/60 italic">&amp;</span>
                   <Avatar user={partner} size={22} className="ring-1 ring-white/25" />
                 </span>
               )}
-              <span className={cn('eyebrow', love ? '!text-[#e0b6c0]' : '!text-gold')}>{eyebrow}</span>
+              <span className="eyebrow !text-white/55">{eyebrow}</span>
               {subtitle && <span className="font-num text-[13px] text-white/50">{subtitle}</span>}
             </p>
             <h1 className="font-display mt-2 truncate text-[1.75rem] leading-[1.1] font-normal text-white sm:mt-3 sm:text-[2.75rem]">{title}</h1>
@@ -707,7 +766,7 @@ export default function ReplayPage() {
           )}
           <div className="min-w-0 pb-0.5">
             <p className="eyebrow flex items-center gap-2 !text-white/55">
-              <span className="size-1.5 shrink-0 rounded-full" style={{ background: current.color }} />
+              <span className="size-1.5 shrink-0 rounded-full bg-white/70" />
               <span className="font-num">No. {String(current.index + 1).padStart(2, '0')}</span>
               <span className="text-white/25">·</span>
               <span className="truncate normal-case">{current.tag ?? `第 ${current.index + 1} 站`}</span>
@@ -724,7 +783,7 @@ export default function ReplayPage() {
       {done && (
         <div className="animate-fade-in absolute inset-0 flex items-center justify-center bg-[#0b1112]/72 p-6 backdrop-blur-[3px]">
           <div className="animate-slide-up w-full max-w-xl text-center">
-            <p className={cn('eyebrow', love ? '!text-[#e0b6c0]' : '!text-gold')}>
+            <p className="eyebrow !text-white/55">
               {plan ? 'Preview · 预览完毕' : together ? 'To be continued · 未完待续' : 'Fin · 回放结束'}
             </p>
             <h2 className="text-display-lg mt-5 font-normal text-balance text-white">{title}</h2>

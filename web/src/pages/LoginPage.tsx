@@ -4,8 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api, errorMessage } from '@/api'
 import { Note } from '@/components/editorial'
-import { RouteSketch } from '@/components/editorial/RouteSketch'
-import { Logo, SealMark } from '@/components/layout/AppLayout'
+import { Logo } from '@/components/layout/AppLayout'
 import { SiteFooter } from '@/components/layout/SiteFooter'
 import { Markdown } from '@/components/Markdown'
 import { Button, Field, Input, LoadError, Modal, Spinner } from '@/components/ui'
@@ -46,48 +45,49 @@ const highlights = [
   { title: '我们', desc: '两个人的旅行，记在同一本手账里' },
 ]
 
-/** 左侧扉页：超大宋体题记、象牙白细线路线图、四条编号目录（近黑底 + 细线，不用色块） */
+/** 题记：宽屏在左侧扉页里是全页焦点；手机上缩小放在表单上方 */
+function Epigraph({ className, compact }: { className?: string; compact?: boolean }) {
+  return (
+    <figure className={className}>
+      <blockquote>
+        <p
+          className={cn(
+            "font-normal [font-feature-settings:'halt']",
+            compact ? 'font-display text-[2.25rem] leading-[1.18] text-ink-900' : 'text-display-lg',
+          )}
+        >
+          世界是一本书，
+          <br />
+          不旅行的人
+          <br />
+          只读了其中一页。
+        </p>
+      </blockquote>
+      <figcaption className={cn('flex items-center gap-4', compact ? 'mt-5' : 'mt-8')}>
+        <span className="h-px w-10 bg-ink-400" />
+        <span>
+          <span className="block text-[13px] text-ink-900">圣奥古斯丁</span>
+          <span className="caption block">Augustine of Hippo</span>
+        </span>
+      </figcaption>
+    </figure>
+  )
+}
+
+/** 左侧扉页（宽屏）：一屏高，题记在正中，底部四条编号目录（近黑底 + 细线，不用色块） */
 function Frontispiece({ siteName }: { siteName: string }) {
   return (
-    <aside className="relative hidden w-[52%] max-w-[860px] flex-col border-r border-ink-200 px-12 py-10 lg:flex xl:px-16">
+    <aside className="relative hidden h-svh w-[52%] max-w-[860px] shrink-0 flex-col border-r border-ink-200 px-12 py-10 lg:flex xl:px-16">
       <div className="flex items-center justify-between">
         <Logo />
         <span className="eyebrow">Travel Journal · 旅行手账</span>
       </div>
 
-      <div className="flex flex-1 flex-col justify-center py-12">
-        <figure className="animate-slide-up">
-          <blockquote>
-            <p className="text-display-lg font-normal [font-feature-settings:'halt']">
-              世界是一本书，
-              <br />
-              不旅行的人
-              <br />
-              只读了其中一页。
-            </p>
-          </blockquote>
-          <figcaption className="mt-8 flex items-center gap-4">
-            <span className="h-px w-10 bg-ink-400" />
-            <span>
-              <span className="block text-[13px] text-ink-900">圣奥古斯丁</span>
-              <span className="caption block">Augustine of Hippo</span>
-            </span>
-          </figcaption>
-        </figure>
-        <div className="animate-fade-in mt-14 flex items-end justify-between gap-8">
-          <RouteSketch className="max-h-[220px] w-auto max-w-[320px]" />
-          <div className="mb-2 hidden flex-col items-end gap-3 text-right xl:flex">
-            <SealMark size={44} className="text-ink-700" />
-            <span className="caption leading-relaxed">
-              Est. <span className="font-num">2026</span>
-              <br />
-              上海 → 黄山
-            </span>
-          </div>
-        </div>
+      <div className="flex min-h-0 flex-1 flex-col justify-center py-10">
+        <Epigraph className="animate-slide-up" />
       </div>
 
-      <ol className="grid grid-cols-2 border-t border-ink-200">
+      <ol className="grid grid-cols-2 border-t border-ink-200 [font-variant-numeric:lining-nums]">
         {highlights.map((h, i) => (
           <li
             key={h.title}
@@ -101,7 +101,7 @@ function Frontispiece({ siteName }: { siteName: string }) {
           </li>
         ))}
       </ol>
-      <p className="caption mt-6">
+      <p className="caption mt-5">
         <span className="font-num">© {new Date().getFullYear()}</span> {siteName}
       </p>
     </aside>
@@ -153,22 +153,24 @@ export default function LoginPage() {
   const legalLink = 'text-ink-900 underline decoration-ink-300 underline-offset-4 transition-colors hover:decoration-ink-900'
 
   return (
-    <div className="flex min-h-dvh">
+    // 宽屏一屏高、不滚动：左侧扉页固定，右侧表单在自己的栏里居中（窗口很矮时右栏自己滚动）
+    <div className="flex min-h-svh lg:h-svh">
       <Frontispiece siteName={site?.name || 'TripHub'} />
 
-      <main className="flex flex-1 flex-col px-4 pt-6 pb-8 sm:px-10">
+      <main className="flex flex-1 flex-col px-4 pt-6 pb-8 sm:px-10 lg:overflow-y-auto lg:pt-8 lg:pb-6">
         <Logo className="lg:hidden" />
-        <div className="animate-slide-up m-auto w-full max-w-[26rem] py-12">
+        <Epigraph compact className="animate-slide-up mt-14 mb-4 sm:mx-auto sm:w-full sm:max-w-[26rem] lg:hidden" />
+        <div className="animate-slide-up m-auto w-full max-w-[26rem] py-12 lg:py-6">
           <p className="eyebrow border-t border-ink-200 pt-3 !text-ink-800">{isRegister ? 'Join · 注册' : 'Sign in · 登录'}</p>
-          <h1 className="text-display-md mt-10 font-normal">{isRegister ? '开一本新的旅行手账' : '欢迎回来'}</h1>
-          <p className="caption mt-4 text-[14px]">{isRegister ? '注册后就能记录你的第一段旅程' : '登录后，接着写你的旅程'}</p>
+          <h1 className={cn('text-display-md font-normal', isRegister ? 'mt-7' : 'mt-10')}>{isRegister ? '开一本新的旅行手账' : '欢迎回来'}</h1>
+          <p className="caption mt-3 text-[14px]">{isRegister ? '注册后就能记录你的第一段旅程' : '登录后，接着写你的旅程'}</p>
 
           {isRegister && site && !site.registration_open ? (
             <Note tone="amber" label="Notice" className="mt-8">
               站点暂时关闭了注册，请稍后再来。
             </Note>
           ) : (
-            <form onSubmit={submit} className="mt-10 space-y-5">
+            <form onSubmit={submit} className={cn(isRegister ? 'mt-7 space-y-4' : 'mt-10 space-y-5')}>
               {isRegister ? (
                 <>
                   <Field label="用户名" hint="3-20 位字母、数字或下划线，注册后不可修改">
@@ -226,7 +228,7 @@ export default function LoginPage() {
             </form>
           )}
 
-          <div className="mt-12 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-ink-200 pt-5 text-[13px]">
+          <div className={cn('flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-ink-200 pt-4 text-[13px]', isRegister ? 'mt-8' : 'mt-12')}>
             <span className="text-ink-500">
               {isRegister ? '已有账号？' : '还没有账号？'}
               <Link
@@ -242,7 +244,7 @@ export default function LoginPage() {
           </div>
         </div>
         {/* 登录 / 注册页没有站点布局：在这里显示备案号和用户协议、隐私政策 */}
-        <SiteFooter compact className="mt-6" />
+        <SiteFooter compact className="mt-6 lg:mt-2" />
       </main>
       <LegalModal doc={legal} onClose={() => setLegal(null)} />
     </div>

@@ -37,20 +37,23 @@ export default function LegalPage() {
           </Link>
         }
       />
-      <div className="mt-12 grid gap-x-8 gap-y-10 md:mt-20 lg:grid-cols-12">
-        {/* 左栏：说明文字对 + 另一份文件（宽屏吸顶） */}
-        <aside className="lg:sticky lg:top-24 lg:col-span-4 lg:self-start">
+      <div className="mt-12 grid gap-x-8 gap-y-12 md:mt-20 lg:grid-cols-12">
+        {/* 左栏：说明文字对 + 另一份文件（宽屏吸顶）；手机上放到正文之后，先读到标题 */}
+        <aside className="order-last border-t border-ink-200 pt-4 lg:sticky lg:top-24 lg:order-none lg:col-span-4 lg:self-start lg:border-t-0 lg:pt-0">
           <p className="text-[13px] text-ink-900">{legalTitle[doc]}</p>
           <p className="caption">使用本站前请仔细阅读</p>
-          <p className="caption mt-6">
+          <p className="caption mt-4 lg:mt-6">
             另见
-            <Link to={`/legal/${other}`} className="mx-0.5 text-ink-900 underline decoration-ink-300 underline-offset-4 hover:decoration-ink-900">
+            <Link
+              to={`/legal/${other}`}
+              className="mx-0.5 inline-flex min-h-10 items-center text-ink-900 underline decoration-ink-300 underline-offset-4 hover:decoration-ink-900 lg:min-h-0"
+            >
               《{legalTitle[other]}》
             </Link>
           </p>
         </aside>
         {/* 正文以一级标题开头：一级标题放大成展示字号，去掉上边距（.prose-trip 的样式不在 Tailwind 层里，需要 !） */}
-        <div className="animate-slide-up prose-trip max-w-2xl text-[15px] lg:col-span-8 [&>:first-child]:!mt-0 [&>h1:first-child]:!mb-12 [&>h1:first-child]:!text-[clamp(2.25rem,5.4vw,4.25rem)] [&>h1:first-child]:!leading-[1.05] [&>h1:first-child]:!font-normal [&_h2]:!mt-12 [&_h2]:!font-normal">
+        <div className="animate-slide-up prose-trip max-w-2xl text-[15px] [font-variant-numeric:lining-nums] lg:col-span-8 [&>:first-child]:!mt-0 [&>h1:first-child]:!mb-12 [&>h1:first-child]:!text-[clamp(2.25rem,5.4vw,4.25rem)] [&>h1:first-child]:!leading-[1.05] [&>h1:first-child]:!font-normal [&_h2]:!mt-12 [&_h2]:!font-normal">
           <Markdown fallback={<Spinner />}>{q.data?.content ?? ''}</Markdown>
         </div>
       </div>

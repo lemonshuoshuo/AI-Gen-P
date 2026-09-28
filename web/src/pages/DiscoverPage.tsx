@@ -1,13 +1,13 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { ArrowRight, ArrowUpRight, Compass } from 'lucide-react'
+import { ArrowRight, ArrowUpRight } from 'lucide-react'
 import { api, type Phase, type TripCard as Trip } from '@/api'
-import { FilterLinks, LabelRow, MoreButton, Reveal, SectionHead, cityShort, pad2 } from '@/components/editorial'
+import { EmptyNote, FilterLinks, LabelRow, MoreButton, Reveal, SectionHead, TextLink, cityShort, pad2 } from '@/components/editorial'
 import { RouteSketch } from '@/components/editorial/RouteSketch'
 import { PlaceRow } from '@/components/place/PlaceCard'
 import { TripGrid, TripGridSkeleton, kmShort } from '@/components/trip/TripCard'
-import { Empty, LoadError, buttonClass } from '@/components/ui'
+import { LoadError, buttonClass } from '@/components/ui'
 import { useSite } from '@/hooks/useSite'
 import { cn } from '@/lib/cn'
 import { dateRange, dayjs } from '@/lib/format'
@@ -48,23 +48,33 @@ const sections = [
   { t: '我们的足迹', d: '两个人的旅行，记在同一张地图上', to: '/together' },
 ]
 
-type CoverData = { trip: Trip; featured: boolean; hero: Trip | null }
+type CoverData = {
+  /** 首屏整幅大图：精选 / 热门里第一篇有封面照片的旅程 */
+  hero: Trip | null
+  heroFeatured: boolean
+  /** 本期封面：精选（没有时取最热）里第一篇、且不是首屏那一篇 */
+  story: Trip | null
+  storyFeatured: boolean
+}
 
 /**
- * 本期封面：精选里的第一篇（没有精选时取最热的一篇）；
- * hero 是精选 / 热门里第一篇有封面照片的旅程，用作首屏整幅大图（没有就用纯排版首屏）
+ * 首屏与本期封面各取一篇，互不重复：首屏已经是照片封面时，「本期封面」换成下一篇，
+ * 一打开页面不会连续看到同一段旅程三次
  */
 function useCover() {
   return useQuery({
     queryKey: ['trips', 'cover-story'],
-    queryFn: async (): Promise<CoverData | null> => {
-      const f = await api.trips.list({ tab: 'featured', page_size: 8 })
-      let hero = f.items.find((t) => t.cover_url) ?? null
-      let hot: Trip[] = []
-      if (!f.items[0] || !hero) hot = (await api.trips.list({ tab: 'hot', page_size: 8 })).items
-      hero ??= hot.find((t) => t.cover_url) ?? null
-      const trip = f.items[0] ?? hot[0]
-      return trip ? { trip, featured: !!f.items[0], hero } : null
+    queryFn: async (): Promise<CoverData> => {
+      const featured = (await api.trips.list({ tab: 'featured', page_size: 8 })).items
+      const hot = featured.length < 2 || !featured.some((t) => t.cover_url) ? (await api.trips.list({ tab: 'hot', page_size: 8 })).items : []
+      const hero = featured.find((t) => t.cover_url) ?? hot.find((t) => t.cover_url) ?? null
+      const pool = [...featured.map((t) => ({ t, featured: true })), ...hot.map((t) => ({ t, featured: false }))].filter((x) => x.t.id !== hero?.id)
+      return {
+        hero,
+        heroFeatured: !!hero && featured.some((t) => t.id === hero.id),
+        story: pool[0]?.t ?? null,
+        storyFeatured: pool[0]?.featured ?? false,
+      }
     },
     staleTime: 5 * 60_000,
   })
@@ -83,16 +93,45 @@ function tripFacts(t: Trip) {
 }
 
 /**
- * 首屏：有封面照片时整幅出血（100vw × 88vh），超大宋体标题压在照片上，左下角是照片说明；
+ * 照片首屏从页面最顶端开始：顶栏（半透明毛玻璃、吸顶）直接压在照片上。
+ * 只在顶栏紧挨着主内容时这样做；上方有公告 / 旅行中提示条时照片从提示条下方开始，不遮住它们
+ */
+function useUnderHeader(enabled: boolean) {
+  const ref = useRef<HTMLElement>(null)
+  const [pull, setPull] = useState(0)
+  useLayoutEffect(() => {
+    const sec = ref.current
+    const main = sec?.closest('main')
+    const shell = main?.parentElement
+    if (!enabled || !sec || !main || !shell) {
+      setPull(0)
+      return
+    }
+    const measure = () => {
+      const prev = main.previousElementSibling
+      const first = main.firstElementChild === sec || main.firstElementChild?.firstElementChild === sec
+      setPull(first && prev instanceof HTMLElement && prev.tagName === 'HEADER' ? prev.offsetHeight : 0)
+    }
+    measure()
+    const mo = new MutationObserver(measure)
+    mo.observe(shell, { childList: true })
+    return () => mo.disconnect()
+  }, [enabled])
+  return [ref, pull] as const
+}
+
+/**
+ * 首屏：有封面照片时整幅出血（100vw × 88vh，顶栏压在照片上），超大宋体标题压在照片上，左下角是照片说明；
  * 没有照片时是纯排版：近黑底上的超大标题 + 象牙白细线路线图
  */
-function Opening({ cover, pending }: { cover: CoverData | null | undefined; pending: boolean }) {
+function Opening({ cover, pending }: { cover: CoverData | undefined; pending: boolean }) {
   const user = useAuth((s) => s.user)
   const { data: site } = useSite()
   const now = dayjs()
   const hero = cover?.hero ?? null
   const photo = !!hero
   const [loaded, setLoaded] = useState(false)
+  const [ref, pull] = useUnderHeader(photo)
 
   const ctas = (
     <div className="flex flex-wrap gap-2.5">
@@ -122,7 +161,7 @@ function Opening({ cover, pending }: { cover: CoverData | null | undefined; pend
     <h1
       className={cn(
         "text-display-xl animate-slide-up font-normal [font-feature-settings:'halt'] max-sm:text-[2.95rem] max-sm:leading-[1.08] lg:text-[clamp(5.5rem,8.6vw,8.25rem)]",
-        photo ? 'text-white' : 'text-ink-900',
+        photo ? 'text-white [text-shadow:0_1px_40px_rgb(0_0_0/0.25)]' : 'text-ink-900',
       )}
     >
       <span className="inline-block">规划路线，</span>
@@ -135,7 +174,16 @@ function Opening({ cover, pending }: { cover: CoverData | null | undefined; pend
 
   return (
     // 手机上底部导航是固定的：首屏高度减去顶栏和底部导航，按钮不被挡住
-    <section className={cn('relative isolate flex flex-col overflow-hidden', photo ? 'min-h-[calc(100svh-9rem)] md:min-h-[88svh]' : 'md:min-h-[calc(88svh-3.75rem)]')}>
+    <section
+      ref={ref}
+      className={cn(
+        'relative isolate flex flex-col overflow-hidden',
+        photo
+          ? 'mt-[calc(var(--pull)*-1)] min-h-[calc(100svh-9rem+var(--pull))] pt-(--pull) md:min-h-[calc(88svh+var(--pull))]'
+          : 'md:min-h-[calc(88svh-3.75rem)]',
+      )}
+      style={{ '--pull': `${pull}px` } as CSSProperties}
+    >
       {hero && (
         <>
           <img
@@ -147,21 +195,30 @@ function Opening({ cover, pending }: { cover: CoverData | null | undefined; pend
               loaded ? 'scale-100 opacity-100' : 'opacity-0',
             )}
           />
-          {/* 极淡的遮罩：保证白字对比度，照片仍是主角 */}
-          <div aria-hidden className="absolute inset-0 -z-10 bg-black/30" />
-          <div aria-hidden className="absolute inset-0 -z-10 bg-linear-to-t from-black/70 via-black/10 to-black/40" />
+          {/* 极淡的遮罩：顶部一小段压暗给顶栏，底部渐暗给照片说明；中间保留照片本来的明暗 */}
+          <div aria-hidden className="absolute inset-x-0 top-0 -z-10 h-56 bg-linear-to-b from-black/45 to-transparent" />
+          <div aria-hidden className="absolute inset-0 -z-10 bg-linear-to-t from-black/70 via-black/20 to-black/5" />
+          {/* 标题背后一团很淡的暗影（不是整层压暗）：浅色天空上白字也有足够对比 */}
+          <div
+            aria-hidden
+            className="absolute inset-0 -z-10"
+            style={{ background: 'radial-gradient(ellipse 85% 50% at 38% 46%, rgb(0 0 0 / 0.34), rgb(0 0 0 / 0.12) 60%, transparent 85%)' }}
+          />
         </>
       )}
 
       <div className="mx-auto flex w-full max-w-[90rem] flex-1 flex-col px-4 md:px-8">
         {/* 顶部小字：期号 · 日期（照片上是白色） */}
-        <div className={cn('flex items-center justify-between gap-4 pt-5 text-[12px] tracking-[0.14em] uppercase md:pt-6', photo ? 'text-white/70' : 'text-ink-400')}>
+        <div className={cn('flex items-center justify-between gap-4 pt-5 text-[12px] tracking-[0.14em] uppercase md:pt-6', photo ? 'text-white/75' : 'text-ink-400')}>
           <span>
-            <span className={photo ? 'text-white' : 'text-ink-800'}>Issue {pad2(issueNo(now))}</span> · 旅行志
+            <span className={photo ? 'text-white' : 'text-ink-800'}>
+              Issue <span className="font-num text-[13px]">{pad2(issueNo(now))}</span>
+            </span>{' '}
+            · 旅行志
           </span>
           <span className="hidden md:inline">{site?.name || 'TripHub'} · Travel Journal</span>
           <span>
-            {now.format('YYYY.MM.DD')} · {weekdays[now.day()]}
+            <span className="font-num text-[13px]">{now.format('YYYY.MM.DD')}</span> · {weekdays[now.day()]}
           </span>
         </div>
 
@@ -169,23 +226,23 @@ function Opening({ cover, pending }: { cover: CoverData | null | undefined; pend
           <>
             <div className="flex flex-1 flex-col justify-center py-16">
               {headline}
-              <p className="font-display mt-6 text-[1.35rem] text-white/75 italic md:mt-8 md:text-[1.9rem]">Plan the route. Light up the map.</p>
+              <p className="font-display mt-6 text-[1.35rem] text-white/80 italic md:mt-8 md:text-[1.9rem]">Plan the route. Light up the map.</p>
             </div>
             <div className="grid gap-8 pb-8 md:grid-cols-12 md:items-end md:pb-10">
               {/* 照片说明：两行式（亮 + 灰），整行链接到这段旅程 */}
               <Link to={`/trips/${hero.id}`} className="group block md:col-span-6">
                 <p className="text-[13px] text-white">
-                  <span className="tracking-[0.12em] uppercase">{cover?.featured ? 'Cover Story' : 'Most Read'}</span>
+                  <span className="tracking-[0.12em] uppercase">{cover?.heroFeatured ? 'Featured' : 'Most Read'}</span>
                   <span className="mx-2 text-white/50">·</span>
                   <span className="underline decoration-white/0 underline-offset-4 transition-colors group-hover:decoration-white/70">{hero.title}</span>
                 </p>
-                <p className="mt-0.5 text-[13px] text-white/60">{tripFacts(hero)}</p>
+                <p className="mt-0.5 text-[13px] text-white/65">{tripFacts(hero)}</p>
               </Link>
               <div className="md:col-span-6 md:justify-self-end">{ctas}</div>
             </div>
           </>
         ) : (
-          <div className="flex flex-1 flex-col justify-center gap-12 pt-14 pb-12 md:gap-12 md:pt-16 md:pb-12">
+          <div className="flex flex-1 flex-col justify-center gap-12 pt-14 pb-12 md:gap-10 md:pt-12 md:pb-10">
             {headline}
             <div className={cn('grid items-end gap-12 transition-opacity duration-700 md:grid-cols-12 md:gap-8', pending ? 'opacity-0' : 'animate-fade-in')}>
               <div className="md:col-span-5 lg:col-span-4">
@@ -195,8 +252,9 @@ function Opening({ cover, pending }: { cover: CoverData | null | undefined; pend
                 </p>
                 <div className="mt-8">{ctas}</div>
               </div>
-              <figure className="md:col-span-6 md:col-start-7 lg:col-span-5 lg:col-start-8">
-                <RouteSketch className="mx-auto max-h-[300px] md:max-h-[270px]" />
+              {/* 线描与图注同宽、左缘对齐 */}
+              <figure className="w-full max-w-[22rem] md:col-span-6 md:col-start-7 md:justify-self-end lg:col-span-5 lg:col-start-8">
+                <RouteSketch />
                 <figcaption className="mt-4 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 border-t border-ink-200 pt-3">
                   <span>
                     <span className="block text-[13px] text-ink-900">Fig. 1 江南五日</span>
@@ -223,8 +281,7 @@ function Opening({ cover, pending }: { cover: CoverData | null | undefined; pend
 }
 
 /** 本期封面：超大宋体地名 + 标题、导语与细字大数字 */
-function CoverStory({ cover }: { cover: CoverData }) {
-  const { trip: t, featured } = cover
+function CoverStory({ trip: t, featured }: { trip: Trip; featured: boolean }) {
   const cities = (t.cities ?? []).map(cityShort)
   const lead = cities[0] || t.title
   const summary =
@@ -271,7 +328,10 @@ function CoverStory({ cover }: { cover: CoverData }) {
           )}
         </div>
         <div className="flex min-w-0 flex-col lg:col-span-5 lg:pt-4">
-          <h2 id="cover-title" className="text-display-md font-normal text-balance [font-feature-settings:'halt'] transition-colors duration-300 group-hover:text-ink-700">
+          <h2
+            id="cover-title"
+            className="text-display-md font-normal text-balance [font-feature-settings:'halt'] [font-variant-numeric:lining-nums] transition-colors duration-300 group-hover:text-ink-700"
+          >
             {t.title}
           </h2>
           <p className="mt-6 line-clamp-4 max-w-md text-[15px] leading-[1.9] text-pretty text-ink-600">{summary}</p>
@@ -382,13 +442,17 @@ export default function DiscoverPage() {
     getNextPageParam: (last) => (last.page * last.page_size < last.total ? last.page + 1 : undefined),
     enabled: tab !== 'following' || !!user,
   })
-  const trips = flattenPages(q.data?.pages)
+  const all = flattenPages(q.data?.pages)
   const total = q.data?.pages[0]?.total
+  // 默认视图里不再重复首屏照片和本期封面那两篇（筛选、换排序时照常列出全部）
+  const shownAbove = new Set([cover.data?.hero?.id, cover.data?.story?.id].filter((x): x is number => x != null))
+  const rest = tab === 'latest' && !phase ? all.filter((t) => !shownAbove.has(t.id)) : all
+  const trips = rest.length ? rest : all
 
   return (
-    <>
+    <div className="[font-variant-numeric:lining-nums]">
       <Opening cover={cover.data} pending={cover.isPending} />
-      {cover.data && <CoverStory cover={cover.data} />}
+      {cover.data?.story && <CoverStory trip={cover.data.story} featured={cover.data.storyFeatured} />}
 
       <section className="mx-auto max-w-[90rem] px-4 pt-28 md:px-8 md:pt-40" aria-labelledby="journal-title">
         <LabelRow
@@ -404,31 +468,20 @@ export default function DiscoverPage() {
         </div>
         <div className="mt-10 md:mt-16">
           {tab === 'following' && !user ? (
-            <Empty
-              title="登录后查看关注的人的旅程"
-              desc="关注喜欢的旅行者，他们发布新旅程时会出现在这里"
-              action={
-                <Link to="/login" className={buttonClass()}>
-                  去登录
-                </Link>
-              }
+            <EmptyNote
+              title="登录后，看看你关注的人。"
+              desc="关注喜欢的旅行者，他们发布新旅程时会出现在这里。"
+              action={<TextLink to="/login">去登录</TextLink>}
             />
           ) : q.isLoading ? (
             <TripGridSkeleton n={6} layout="journal" />
           ) : q.isLoadingError ? (
             <LoadError error={q.error} onRetry={() => q.refetch()} />
           ) : trips.length === 0 ? (
-            <Empty
-              icon={<Compass className="size-11" />}
-              title={tab === 'following' ? '关注的人还没有公开的旅程' : '这里还没有公开的旅程'}
-              desc="写下第一段旅程，成为这一期的封面"
-              action={
-                user && (
-                  <Link to="/trips/new" className={buttonClass()}>
-                    创建旅程
-                  </Link>
-                )
-              }
+            <EmptyNote
+              title={tab === 'following' ? '关注的人还没有公开的旅程。' : '这里还没有公开的旅程。'}
+              desc="写下第一段旅程，成为这一期的封面。"
+              action={user && <TextLink to="/trips/new">创建旅程</TextLink>}
             />
           ) : (
             <>
@@ -442,6 +495,6 @@ export default function DiscoverPage() {
       <PlaceLists />
       <Index />
       <div className="h-24 md:h-40" />
-    </>
+    </div>
   )
 }

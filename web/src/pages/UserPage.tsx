@@ -4,11 +4,11 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { Flag, Heart, Settings, UserCheck, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, isNotFound, type UserProfile } from '@/api'
-import { FilterLinks, LabelRow, MoreButton } from '@/components/editorial'
+import { EmptyNote, FilterLinks, LabelRow, MoreButton, TextLink } from '@/components/editorial'
 import { ReportDialog } from '@/components/report/ReportDialog'
 import { FootprintStats } from '@/components/three/FootprintStats'
 import { TripGrid, TripGridSkeleton } from '@/components/trip/TripCard'
-import { Avatar, Button, Empty, LevelBadge, LoadError, Modal, PageLoader, UserName, buttonClass } from '@/components/ui'
+import { Avatar, Button, LoadError, Modal, PageLoader, UserName, buttonClass } from '@/components/ui'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useRequireAuth } from '@/hooks/useRequireAuth'
 import { cn } from '@/lib/cn'
@@ -63,6 +63,20 @@ function FollowList({ username, kind, onClose }: { username: string; kind: 'foll
   )
 }
 
+function PartnerLink({ partner, className }: { partner: NonNullable<UserProfile['partner']>; className?: string }) {
+  return (
+    <Link
+      to={`/u/${partner.username}`}
+      className={cn(
+        'inline-flex min-h-10 items-center gap-2 text-[13px] text-ink-700 underline decoration-ink-300 underline-offset-4 transition-colors hover:text-ink-900 hover:decoration-ink-900',
+        className,
+      )}
+    >
+      <Heart className="size-3.5 text-pink-500" strokeWidth={1.5} />和 {partner.nickname || partner.username} 一起旅行中
+    </Link>
+  )
+}
+
 export default function UserPage() {
   const { username = '' } = useParams()
   const qc = useQueryClient()
@@ -104,27 +118,43 @@ export default function UserPage() {
   const tripsLabel = user.is_me ? '我的旅程' : 'TA 的旅程'
 
   return (
-    <div>
+    <div className="[font-variant-numeric:lining-nums]">
       <header className="mx-auto max-w-[90rem] px-4 pt-10 md:px-8 md:pt-16">
         <LabelRow label="Traveller · 旅人档案" count={`No. ${String(user.id).padStart(4, '0')}`} />
         <div className="animate-slide-up mt-12 grid gap-x-8 gap-y-8 md:mt-20 lg:grid-cols-12 lg:items-end">
           <div className="min-w-0 lg:col-span-8">
-            <Avatar user={user} size={72} className="mb-8 ring-1 ring-ink-200 ring-offset-4 ring-offset-paper lg:hidden" />
+            {/* 头像外的细线圈画在头像框之内：外缘正好落在栏线上 */}
+            <span className="mb-8 inline-flex rounded-full border border-ink-200 p-1.5 lg:hidden">
+              <Avatar user={user} size={64} className="!bg-ink-100 !text-ink-900" />
+            </span>
             <h1 className="text-display-xl font-normal break-words">{user.nickname || user.username}</h1>
             {/* 说明文字对：等级（亮）+ 账号与加入时间（灰） */}
             <p className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-900 md:mt-8">
-              <LevelBadge level={user.level} />
+              <span>
+                Lv.<span className="font-num text-[14px]">{user.level}</span>
+              </span>
+              <span aria-hidden className="text-ink-300">
+                ·
+              </span>
               <span>{user.level_name}</span>
               {user.role === 'admin' && (
-                <span className="inline-flex h-5 items-center rounded-full border border-ink-300 px-2 text-[11px] leading-none text-ink-700">管理员</span>
+                <>
+                  <span aria-hidden className="text-ink-300">
+                    ·
+                  </span>
+                  <span className="text-ink-700">管理员</span>
+                </>
               )}
             </p>
             <p className="caption mt-0.5">
-              <span className="font-num">@{user.username}</span> · <span className="font-num">{fmtDate(user.created_at)}</span> 加入
+              @{user.username} · <span className="font-num text-[14px]">{fmtDate(user.created_at)}</span> 加入
             </p>
+            {!user.bio && user.partner && <PartnerLink partner={user.partner} className="mt-5" />}
           </div>
           <div className="flex flex-col items-start gap-6 lg:col-span-4 lg:items-end">
-            <Avatar user={user} size={128} className="hidden ring-1 ring-ink-200 ring-offset-8 ring-offset-paper lg:inline-flex" />
+            <span className="hidden rounded-full border border-ink-200 p-2 lg:inline-flex">
+              <Avatar user={user} size={112} className="!bg-ink-100 !text-ink-900" />
+            </span>
             <div className="flex items-center gap-2">
               {user.is_me ? (
                 <Link to="/settings" className={buttonClass({ variant: 'outline' })}>
@@ -152,33 +182,23 @@ export default function UserPage() {
           </div>
         </div>
 
-        {(user.bio || user.partner) && (
+        {user.bio && (
           <div className="mt-14 max-w-3xl md:mt-20">
-            {user.bio && (
-              <p className="font-display text-[1.45rem] leading-[1.6] text-ink-700 md:text-[2rem] md:leading-[1.5]">
-                <span aria-hidden className="font-num mr-1 text-ink-400">
-                  &ldquo;
-                </span>
-                {user.bio}
-                <span aria-hidden className="font-num ml-1 text-ink-400">
-                  &rdquo;
-                </span>
-              </p>
-            )}
-            {user.partner && (
-              <Link
-                to={`/u/${user.partner.username}`}
-                className="mt-5 inline-flex h-10 items-center gap-2 text-[13px] text-ink-700 underline decoration-ink-300 underline-offset-4 transition-colors hover:text-ink-900 hover:decoration-ink-900"
-              >
-                <Heart className="size-3.5 text-pink-500" strokeWidth={1.5} />
-                和 {user.partner.nickname || user.partner.username} 一起旅行中
-              </Link>
-            )}
+            <p className="font-display text-[1.45rem] leading-[1.6] text-ink-700 md:text-[2rem] md:leading-[1.5]">
+              <span aria-hidden className="font-num mr-1 text-ink-400">
+                &ldquo;
+              </span>
+              {user.bio}
+              <span aria-hidden className="font-num ml-1 text-ink-400">
+                &rdquo;
+              </span>
+            </p>
+            {user.partner && <PartnerLink partner={user.partner} className="mt-5" />}
           </div>
         )}
 
         {/* 统计：大号细字 Cormorant 数字，之间用竖细线分隔 */}
-        <dl className="mt-14 grid grid-cols-2 border-y border-ink-200 md:mt-20 md:grid-cols-4">
+        <dl className={cn('grid grid-cols-2 border-y border-ink-200 md:grid-cols-4', user.bio ? 'mt-14 md:mt-20' : 'mt-12 md:mt-16')}>
           {stats.map((x, i) => {
             const inner = (
               <>
@@ -238,7 +258,11 @@ export default function UserPage() {
             ) : trips.isLoadingError ? (
               <LoadError error={trips.error} onRetry={() => trips.refetch()} />
             ) : items.length === 0 ? (
-              <Empty title="还没有公开的旅程" desc={user.is_me ? '把旅程设为公开后，会出现在这里' : undefined} />
+              <EmptyNote
+                title="还没有公开的旅程。"
+                desc={user.is_me ? '把旅程设为公开后，会出现在这里。' : '等 TA 出发，再来看看。'}
+                action={user.is_me ? <TextLink to="/me/trips">去我的旅程</TextLink> : <TextLink to="/">去发现</TextLink>}
+              />
             ) : (
               <>
                 <TripGrid trips={items} showAuthor={false} />
@@ -258,7 +282,7 @@ export default function UserPage() {
                 </Suspense>
               </>
             ) : (
-              <Empty title="还没有公开的足迹" />
+              <EmptyNote title="还没有公开的足迹。" />
             ))}
         </div>
       </section>

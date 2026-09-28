@@ -36,25 +36,18 @@ export function VerdictBar({
   )
 }
 
-/** 地点缩略图：有照片用照片（悬停缓慢放大），没有时是细线框里的分类图标 */
+/** 地点缩略图：只在有照片时出现（悬停缓慢放大）；没有照片的行由序号和地名撑起，不放占位图标 */
 function PlaceThumb({ place, className }: { place: Place; className?: string }) {
-  const c = categoryOf(place.category)
-  const Icon = c.icon
+  if (!place.cover_url) return null
   return (
     <div className={cn('relative shrink-0 overflow-hidden bg-surface', className)}>
-      {place.cover_url ? (
-        <img
-          src={place.cover_thumb_url || place.cover_url}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          className="size-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03]"
-        />
-      ) : (
-        <div className="flex size-full items-center justify-center text-ink-400 ring-1 ring-ink-200 ring-inset">
-          <Icon className="size-[34%]" strokeWidth={1} />
-        </div>
-      )}
+      <img
+        src={place.cover_thumb_url || place.cover_url}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        className="size-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03]"
+      />
     </div>
   )
 }
@@ -96,7 +89,7 @@ export function PlaceRow({
           </span>
         )}
         <span className="min-w-0">
-          <span className="font-display block truncate text-[1.5rem] leading-tight text-ink-900 md:text-[1.9rem]">{place.name}</span>
+          <span className="font-display block truncate text-[1.5rem] leading-tight text-ink-900 [font-variant-numeric:lining-nums] md:text-[1.9rem]">{place.name}</span>
           <span className="caption mt-1.5 block truncate">{placeMeta(place)}</span>
         </span>
         {variant === 'avoid' ? (
@@ -130,7 +123,7 @@ export function PlaceRow({
       <PlaceThumb place={place} className="size-16 sm:size-24" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2.5">
-          <h3 className="truncate text-[1.35rem] leading-tight font-normal text-ink-900 sm:text-[1.85rem]">{place.name}</h3>
+          <h3 className="truncate text-[1.35rem] leading-tight font-normal text-ink-900 [font-variant-numeric:lining-nums] sm:text-[1.85rem]">{place.name}</h3>
           {avoid && (
             <span className="shrink-0 rounded-full border border-brand-400/60 px-2 py-0.5 text-[10.5px] tracking-wider text-brand-600">
               {verdicts.avoid.mark} 慎去

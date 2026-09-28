@@ -1,8 +1,10 @@
-import { useEffect, useEffectEvent, useState, type ReactNode } from 'react'
-import { Search, X } from 'lucide-react'
-import type { Paged } from '@/api'
-import { Button, Input } from '@/components/ui'
+import { Fragment, useEffect, useEffectEvent, useState, type ReactNode } from 'react'
+import { Link } from 'react-router'
+import { Ellipsis, Search, X } from 'lucide-react'
+import type { Paged, UserBrief } from '@/api'
+import { Button, IconButton, Input, Menu } from '@/components/ui'
 import { cn } from '@/lib/cn'
+import { fmtBytes } from '@/lib/format'
 
 export const ADMIN_PAGE_SIZE = 20
 
@@ -62,7 +64,7 @@ export function SearchInput({
           type="button"
           aria-label="清空"
           onClick={() => setText('')}
-          className="absolute top-1/2 right-0 flex size-9 -translate-y-1/2 items-center justify-center rounded-full text-ink-400 transition-colors hover:text-ink-900"
+          className="absolute top-1/2 right-0 flex size-10 -translate-y-1/2 items-center justify-center rounded-full text-ink-400 transition-colors hover:text-ink-900"
         >
           <X className="size-4" strokeWidth={1.5} />
         </button>
@@ -96,17 +98,63 @@ export function LabelRow({
   label: ReactNode
   count?: ReactNode
   extra?: ReactNode
-  /** 待办、危险操作：标签用朱砂色 */
+  /** 待办：标签前一粒朱砂小点（标签本身仍是象牙白） */
   tone?: 'brand'
   className?: string
 }) {
   return (
     <div className={cn('flex min-h-12 flex-wrap items-center justify-between gap-x-6 gap-y-1 border-t border-ink-200 pt-3 pb-1', className)}>
       <p className="flex min-w-0 items-baseline gap-3">
-        <span className={cn('eyebrow', tone === 'brand' ? '!text-brand-600' : '!text-ink-800')}>{label}</span>
+        <span className="eyebrow inline-flex items-center gap-2.5 !text-ink-800">
+          {tone === 'brand' && <span className="size-1.5 shrink-0 rounded-full bg-brand-500" aria-hidden />}
+          {label}
+        </span>
         {count != null && count !== '' && <span className="font-num text-[13px] text-ink-400">{count}</span>}
       </p>
       {extra}
+    </div>
+  )
+}
+
+/** 文字筛选：「待处理 / 已处理 / 全部」，当前项象牙白细下划线 */
+export function TextTabs<T extends string>({
+  value,
+  onChange,
+  options,
+  label,
+  className,
+}: {
+  value: T
+  onChange: (v: T) => void
+  options: { value: T; label: ReactNode }[]
+  /** 读屏的分组名称 */
+  label: string
+  className?: string
+}) {
+  return (
+    <div role="group" aria-label={label} className={cn('-mx-2 flex flex-wrap items-center text-[13.5px]', className)}>
+      {options.map((o, i) => (
+        <Fragment key={o.value || '_all'}>
+          {i > 0 && (
+            <span aria-hidden className="text-ink-300">
+              /
+            </span>
+          )}
+          <button
+            type="button"
+            aria-pressed={value === o.value}
+            onClick={() => onChange(o.value)}
+            className={cn(
+              'inline-flex h-10 items-center px-2 tracking-wide whitespace-nowrap transition-colors duration-300',
+              value === o.value
+                ? 'text-ink-900 underline decoration-ink-900 decoration-1 underline-offset-[7px]'
+                : 'text-ink-400 hover:text-ink-900',
+            )}
+          >
+            {o.label}
+          </button>
+        </Fragment>
+      ))}
     </div>
   )
 }
@@ -142,27 +190,23 @@ export function PanelHeader({
   )
 }
 
-type Tone = 'green' | 'red' | 'amber' | 'sky' | 'gray' | 'dark'
-// 细线胶囊：矿物色小圆点 + 文字 + 同色淡细线，不铺底色
-const toneCls: Record<Tone, [string, string]> = {
-  green: ['border-emerald-500/35 text-emerald-700', 'bg-emerald-500'],
-  red: ['border-red-500/40 text-red-700', 'bg-red-500'],
-  amber: ['border-amber-500/40 text-amber-700', 'bg-amber-500'],
-  sky: ['border-sky-500/35 text-sky-700', 'bg-sky-500'],
-  gray: ['border-ink-300 text-ink-600', ''],
-  dark: ['border-ink-500 text-ink-900', ''],
+/**
+ * 状态胶囊：一律细灰线 + 象牙白文字，只有 4px 的小圆点带颜色。
+ * brand = 待处理 / 待审核（全站同一种朱砂），ivory = 已处理，hollow = 已封禁 / 已隐藏（空心点），gray = 无点
+ */
+type Tone = 'brand' | 'ivory' | 'hollow' | 'gray'
+const toneDot: Record<Tone, string> = {
+  brand: 'size-1 bg-brand-500',
+  ivory: 'size-1 bg-ink-900',
+  hollow: 'size-1.5 ring-1 ring-inset ring-ink-600',
+  gray: '',
 }
 
 export function Pill({ tone = 'gray', icon, children }: { tone?: Tone; icon?: ReactNode; children: ReactNode }) {
-  const [cls, dot] = toneCls[tone]
+  const dot = toneDot[tone]
   return (
-    <span
-      className={cn(
-        'inline-flex h-[22px] items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] leading-none tracking-[0.04em] whitespace-nowrap',
-        cls,
-      )}
-    >
-      {icon ?? (dot && <span className={cn('size-1 shrink-0 rounded-full', dot)} aria-hidden />)}
+    <span className="inline-flex h-[22px] items-center gap-1.5 rounded-full border border-ink-300 px-2.5 text-[11.5px] leading-none tracking-[0.04em] whitespace-nowrap text-ink-700">
+      {icon ?? (dot && <span className={cn('shrink-0 rounded-full', dot)} aria-hidden />)}
       {children}
     </span>
   )
@@ -193,9 +237,58 @@ export function ActionButton({
       icon={icon}
       disabled={disabled}
       onClick={onClick}
-      className={cn('max-lg:h-10 lg:size-9 lg:px-0 [&_svg]:stroke-[1.5]', danger && 'text-brand-600 hover:bg-brand-50 hover:text-brand-700', className)}
+      className={cn('max-lg:h-10 lg:size-9 lg:px-0 [&_svg]:stroke-[1.5]', danger && 'text-ink-500 hover:bg-transparent hover:text-brand-600', className)}
     >
       <span className="lg:hidden">{label}</span>
     </Button>
+  )
+}
+
+/** 行尾的「…」菜单：每行只有一个安静的入口，危险操作（朱砂）收在菜单里 */
+export function RowMenu({ children }: { children: (close: () => void) => ReactNode }) {
+  return (
+    <Menu
+      trigger={(toggle, open) => (
+        <IconButton label="更多操作" onClick={toggle} aria-expanded={open} className="size-10">
+          <Ellipsis className="size-4.5" strokeWidth={1.5} />
+        </IconButton>
+      )}
+    >
+      {children}
+    </Menu>
+  )
+}
+
+/** 字节数去掉多余的 0：「133.0 KB」→「133 KB」，「1.50 GB」→「1.5 GB」 */
+export const tidyBytes = (n: number) =>
+  fmtBytes(n)
+    .replace(/\.0+(?=\s)/, '')
+    .replace(/(\.\d*?)0+(?=\s)/, '$1')
+
+/** 默认头像：近黑底 + 细线圈 + 象牙白首字，不用彩色圆片（传给 Avatar 的 className） */
+export const monoAvatar = '!bg-surface-2 ring-1 ring-inset ring-ink-300 !text-ink-800'
+
+/** 作者 / 举报人：象牙白名字（不加等级、管理员小框）+ 可选的灰色 @用户名 */
+export function PersonName({
+  user,
+  handle = true,
+  className,
+}: {
+  user: Pick<UserBrief, 'nickname' | 'username'>
+  /** 下一行显示 @username */
+  handle?: boolean
+  className?: string
+}) {
+  return (
+    <span className={cn('block min-w-0', className)}>
+      <Link
+        to={`/u/${user.username}`}
+        onClick={(e) => e.stopPropagation()}
+        className="block truncate text-ink-900 underline decoration-transparent underline-offset-4 transition-colors duration-300 hover:decoration-ink-500"
+      >
+        {user.nickname || user.username}
+      </Link>
+      {handle && <span className="caption block truncate">@{user.username}</span>}
+    </span>
   )
 }

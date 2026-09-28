@@ -1,10 +1,8 @@
-import { Link } from 'react-router'
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { Bookmark, Compass } from 'lucide-react'
 import { api } from '@/api'
-import { MoreButton, PageHead } from '@/components/editorial'
+import { EmptyNote, MoreButton, PageHead, TextLink } from '@/components/editorial'
 import { TripGrid, TripGridSkeleton } from '@/components/trip/TripCard'
-import { Empty, LoadError, buttonClass } from '@/components/ui'
+import { LoadError } from '@/components/ui'
 import { flattenPages } from '@/lib/pages'
 
 export default function FavoritesPage() {
@@ -18,7 +16,7 @@ export default function FavoritesPage() {
   const total = q.data?.pages[0]?.total
 
   return (
-    <div className="mx-auto max-w-[90rem] px-4 pt-12 pb-24 md:px-8 md:pt-20 md:pb-32">
+    <div className="mx-auto max-w-[90rem] px-4 pt-12 pb-24 [font-variant-numeric:lining-nums] md:px-8 md:pt-20 md:pb-32">
       <PageHead
         eyebrow="Saved · 收藏夹"
         meta={total ? `${total} 段` : undefined}
@@ -39,17 +37,10 @@ export default function FavoritesPage() {
         ) : q.isLoadingError ? (
           <LoadError error={q.error} onRetry={() => q.refetch()} />
         ) : trips.length === 0 ? (
-          <Empty
-            icon={<Bookmark className="size-11" />}
-            title="还没有收藏"
-            desc="在旅程详情页点「收藏」，就能在这里找到它"
-            action={
-              <Link to="/" className={buttonClass()}>
-                <Compass className="size-4" strokeWidth={1.5} />
-                去发现
-              </Link>
-            }
-          />
+          // 空状态：页头细线之下左对齐的一行宋体 + 说明 + 文字链接
+          <div className="border-t border-ink-200 pt-10 md:pt-14">
+            <EmptyNote title="还没有收藏。" desc="在旅程详情页点「收藏」，就能在这里找到它。" action={<TextLink to="/">去发现</TextLink>} />
+          </div>
         ) : (
           <>
             <TripGrid trips={trips} />

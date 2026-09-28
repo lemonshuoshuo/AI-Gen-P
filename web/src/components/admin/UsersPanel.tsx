@@ -1,27 +1,27 @@
 import { useId, useRef, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Ban, CircleCheck, Copy, Ellipsis, KeyRound, ShieldCheck, ShieldOff, Sparkles, UserCheck } from 'lucide-react'
+import { Ban, CircleCheck, Copy, KeyRound, ShieldCheck, ShieldOff, Sparkles, UserCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type AdminUser } from '@/api'
-import {
-  Avatar,
-  Button,
-  Field,
-  IconButton,
-  Input,
-  LevelBadge,
-  Menu,
-  MenuItem,
-  Modal,
-  Select,
-  UserName,
-  confirmDialog,
-} from '@/components/ui'
+import { Avatar, Button, Field, Input, MenuItem, Modal, Select, confirmDialog } from '@/components/ui'
 import { useSite } from '@/hooks/useSite'
 import { copyText } from '@/lib/clipboard'
-import { fmtBytes, fromNow } from '@/lib/format'
+import { fromNow } from '@/lib/format'
 import { useAuth } from '@/stores/auth'
-import { ADMIN_PAGE_SIZE, FilterBar, FilterSlot, PanelHeader, Pill, SearchInput, useFilters, usePageGuard } from './common'
+import {
+  ADMIN_PAGE_SIZE,
+  FilterBar,
+  FilterSlot,
+  monoAvatar,
+  PanelHeader,
+  PersonName,
+  Pill,
+  RowMenu,
+  SearchInput,
+  tidyBytes,
+  useFilters,
+  usePageGuard,
+} from './common'
 import { DataTable, type Column } from './DataTable'
 
 type UserPatch = { role?: 'user' | 'admin'; status?: 'active' | 'banned'; exp?: number }
@@ -52,7 +52,7 @@ function ExpDialog({ user, onClose, onSave, saving }: { user: AdminUser; onClose
     >
       <div className="space-y-4">
         <p className="text-sm text-ink-500">
-          当前 <LevelBadge level={user.level} /> {user.level_name} · <span className="font-num">{user.exp}</span> 经验
+          当前 <span className="font-num text-ink-700 italic">Lv.{user.level}</span> {user.level_name} · <span className="font-num">{user.exp}</span> 经验
         </p>
         <Field
           label="新的经验值"
@@ -67,7 +67,7 @@ function ExpDialog({ user, onClose, onSave, saving }: { user: AdminUser; onClose
                 key={l.level}
                 type="button"
                 onClick={() => setValue(String(l.min_exp))}
-                className="rounded-sm border border-ink-200 px-2 py-1 text-xs text-ink-600 transition-colors hover:border-ink-900/40 hover:text-ink-900"
+                className="inline-flex h-10 items-center rounded-full border border-ink-200 px-3 text-xs sm:h-8 text-ink-600 transition-colors duration-300 hover:border-ink-900/40 hover:text-ink-900"
               >
                 <span className="font-num italic">Lv.{l.level}</span> · <span className="font-num">{l.min_exp}</span>
               </button>
@@ -132,8 +132,8 @@ function ResetPasswordDialog({ user, onClose }: { user: AdminUser; onClose: () =
             密码已重置，该用户所有设备上的登录已失效
           </p>
           <div>
-            <div className="mb-1.5 text-[13px] font-medium tracking-wide text-ink-600">新密码</div>
-            <div className="flex items-center gap-2 rounded-lg border border-ink-200 bg-paper py-2 pr-2 pl-3.5">
+            <div className="eyebrow mb-2">New password · 新密码</div>
+            <div className="flex items-center gap-2 rounded-md border border-ink-200 bg-paper py-2 pr-2 pl-3.5">
               <code className="min-w-0 flex-1 font-mono text-base break-all text-ink-900 select-all">{result}</code>
               <Button size="sm" variant="outline" icon={<Copy className="size-4" strokeWidth={1.75} />} onClick={() => copy(result)}>
                 复制
@@ -231,14 +231,15 @@ export function UsersPanel() {
     {
       key: 'user',
       header: '用户',
-      primary: true,
+      mobile: 'primary',
       cell: (u) => (
-        <div className="flex min-w-0 items-center gap-3">
-          <Avatar user={u} size={36} />
+        <div className="flex min-w-0 items-center gap-3.5">
+          <Avatar user={u} size={36} className={monoAvatar} />
           <div className="min-w-0">
-            <UserName user={u} className="max-w-full" />
-            <div className="truncate text-xs text-ink-400">
+            <PersonName user={u} handle={false} className="text-[15px]" />
+            <div className="caption truncate">
               @{u.username}
+              {u.role === 'admin' && ' · 管理员'}
               {u.email && ` · ${u.email}`}
             </div>
           </div>
@@ -251,20 +252,37 @@ export function UsersPanel() {
       className: 'whitespace-nowrap',
       cell: (u) => (
         <span className="text-ink-700">
-          {u.level_name} <span className="font-num text-xs text-ink-400">{u.exp}</span>
-          <span className="text-xs text-ink-400"> 经验</span>
+          <span className="font-num text-[13px] text-ink-500 italic">Lv.{u.level}</span> {u.level_name}
+          <span className="caption ml-2">
+            <span className="font-num text-[15px]">{u.exp}</span> 经验
+          </span>
         </span>
       ),
+      meta: (u) => (
+        <>
+          <span className="font-num text-[14px] italic">Lv.{u.level}</span> {u.level_name}
+        </>
+      ),
     },
-    { key: 'trips', header: '旅程', cell: (u) => <span className="font-num text-[15px]">{u.trip_count}</span> },
+    {
+      key: 'trips',
+      header: '旅程',
+      cell: (u) => <span className="font-num text-[1.375rem] leading-none font-light text-ink-900">{u.trip_count}</span>,
+      meta: (u) => (
+        <>
+          <span className="font-num text-[14px] text-ink-700">{u.trip_count}</span> 段旅程
+        </>
+      ),
+    },
     {
       key: 'storage',
       header: '存储',
       className: 'whitespace-nowrap',
+      mobile: 'hide',
       cell: (u) => (
-        <span className="font-num text-ink-700">
-          {fmtBytes(u.storage_used)}
-          <span className="text-xs text-ink-400"> / {u.storage_quota > 0 ? fmtBytes(u.storage_quota) : '不限'}</span>
+        <span className="font-num text-[15px] text-ink-700">
+          {tidyBytes(u.storage_used)}
+          <span className="text-[13px] text-ink-500"> / {u.storage_quota > 0 ? tidyBytes(u.storage_quota) : '不限'}</span>
         </span>
       ),
     },
@@ -273,22 +291,25 @@ export function UsersPanel() {
       header: '状态',
       cell: (u) =>
         u.status === 'banned' ? (
-          <Pill tone="red">已封禁</Pill>
+          <Pill tone="hollow">已封禁</Pill>
         ) : u.status === 'deleted' ? (
           <Pill>已注销</Pill>
         ) : (
-          <span className="text-xs text-ink-500">正常</span>
+          <span className="text-[13px] text-ink-500">正常</span>
         ),
+      // 小屏只在不正常时提示
+      meta: (u) => (u.status === 'banned' ? <Pill tone="hollow">已封禁</Pill> : u.status === 'deleted' ? <Pill>已注销</Pill> : null),
     },
     {
       key: 'login',
       header: '最近登录',
-      className: 'whitespace-nowrap text-ink-500',
+      className: 'whitespace-nowrap',
       cell: (u) => (
-        <span className="text-ink-500" title={`注册于 ${u.created_at}`}>
+        <span className="text-[13px] text-ink-500" title={`注册于 ${u.created_at}`}>
           {u.last_login_at ? fromNow(u.last_login_at) : '从未'}
         </span>
       ),
+      meta: (u) => (u.last_login_at ? `${fromNow(u.last_login_at)}登录` : '从未登录'),
     },
   ]
 
@@ -297,13 +318,7 @@ export function UsersPanel() {
     if (u.status === 'deleted') return null
     const self = u.id === me?.id
     return (
-      <Menu
-        trigger={(toggle, open) => (
-          <IconButton label="更多操作" onClick={toggle} aria-expanded={open} className="size-8">
-            <Ellipsis className="size-4.5" strokeWidth={1.75} />
-          </IconButton>
-        )}
-      >
+      <RowMenu>
         {(close) => (
           <>
             {!self && (
@@ -333,19 +348,23 @@ export function UsersPanel() {
             </MenuItem>
           </>
         )}
-      </Menu>
+      </RowMenu>
     )
   }
 
   return (
     <div>
-      <PanelHeader eyebrow="Members · 用户" title="用户管理" desc={
+      <PanelHeader
+        eyebrow="Members · 用户"
+        title="用户管理"
+        desc={
           data ? (
             <>
-              共 <span className="font-num text-base text-ink-900">{data.total}</span> 位用户
+              共 <span className="font-num text-[17px] text-ink-900">{data.total}</span> 位用户
             </>
           ) : undefined
-        } />
+        }
+      />
       <FilterBar>
         <SearchInput
           value={f.q}
@@ -375,6 +394,7 @@ export function UsersPanel() {
         rowKey={(u) => u.id}
         actions={actions}
         compactActions
+        metaClassName="pl-[3.125rem]"
         loading={isLoading}
         fetching={isFetching}
         emptyText="没有符合条件的用户"

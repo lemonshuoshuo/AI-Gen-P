@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { api, errorMessage, type Comment, type Waypoint } from '@/api'
 import { LabelRow } from '@/components/editorial'
 import { ReportDialog } from '@/components/report/ReportDialog'
-import { Avatar, Button, Empty, LoadError, Textarea, UserName, confirmDialog } from '@/components/ui'
+import { Avatar, Button, LoadError, Textarea, UserName, confirmDialog } from '@/components/ui'
 import { useRequireAuth } from '@/hooks/useRequireAuth'
 import { cn } from '@/lib/cn'
 import { fromNow } from '@/lib/format'
@@ -88,7 +88,8 @@ export function CommentSection({ tripId, placeId, count, onCountChange, waypoint
 
   const renderComment = (c: Comment, isReply = false) => (
     <div key={c.id} className={cn('flex gap-3.5', !isReply && 'py-7')}>
-      <Avatar user={c.author} size={isReply ? 26 : 34} />
+      {/* 没有头像照片时用中性的墨色圆 + 宋体首字，不用彩色圆片 */}
+      <Avatar user={c.author} size={isReply ? 26 : 34} className="!bg-ink-100 !text-ink-700" />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 text-[13.5px] text-ink-900">
           <UserName user={c.author} />
@@ -137,15 +138,17 @@ export function CommentSection({ tripId, placeId, count, onCountChange, waypoint
   )
 
   return (
-    <section id="comments" aria-labelledby="comments-title">
+    <section id="comments" aria-labelledby="comments-title" className="[font-variant-numeric:lining-nums]">
       <LabelRow label="Comments · 评论" count={shown > 0 ? `${shown} 条` : undefined} />
+      {/* 标题说一句新的话，不重复上面的标签 */}
       <h2 id="comments-title" className="text-display-md mt-8 font-normal md:mt-12">
-        评论
+        {placeId ? '问问去过的人' : '和作者聊聊'}
       </h2>
 
-      <div className="mt-8 rounded-md border border-ink-200 bg-surface transition-colors duration-300 focus-within:border-ink-500 md:mt-12">
+      {/* 输入区：不装进盒子，只在输入框下面一条细线（聚焦时变亮），计数和发布按钮在右侧 */}
+      <div className="mt-8 max-w-3xl md:mt-12">
         {(replyTo || waypointId) && (
-          <div className="flex items-center gap-2 border-b border-ink-200 px-4 py-2.5 text-xs text-ink-500">
+          <div className="flex items-center gap-2 pb-2 text-xs text-ink-500">
             {replyTo ? (
               <span className="min-w-0 truncate">
                 回复 <span className="text-ink-800">@{replyTo.author.nickname || replyTo.author.username}</span>：{replyTo.content.slice(0, 30)}
@@ -159,7 +162,7 @@ export function CommentSection({ tripId, placeId, count, onCountChange, waypoint
             <button
               type="button"
               onClick={() => (replyTo ? setReplyTo(null) : onClearWaypoint?.())}
-              className="ml-auto shrink-0 rounded-sm p-0.5 text-ink-400 hover:text-ink-900"
+              className="ml-auto inline-flex size-10 shrink-0 items-center justify-center rounded-full text-ink-400 hover:text-ink-900 md:size-8"
               aria-label="取消"
             >
               <X className="size-3.5" strokeWidth={1.5} />
@@ -175,11 +178,16 @@ export function CommentSection({ tripId, placeId, count, onCountChange, waypoint
               placeholder={placeId ? '说说你的真实体验，或者问问去过的人' : '说点什么，或者问问作者细节'}
               aria-label="评论内容"
               maxLength={1000}
-              className="min-h-28 resize-y rounded-md border-transparent bg-transparent px-4 py-3.5 text-[15px] hover:border-transparent focus:border-transparent focus:ring-0"
+              className="min-h-24 resize-y rounded-none border-x-0 border-t-0 border-b border-ink-300 bg-transparent px-0 py-3 text-[15px] hover:border-ink-400 focus:border-ink-900 focus:ring-0"
             />
-            <div className="flex items-center justify-between border-t border-ink-200 py-2.5 pr-2.5 pl-4">
-              <span className="font-num text-xs text-ink-400">{text.length} / 1000</span>
-              <Button disabled={!text.trim()} loading={send.isPending} onClick={() => requireAuth(() => send.mutate())}>
+            <div className="mt-3 flex items-center justify-end gap-5">
+              <span className="font-num text-[13px] text-ink-400">{text.length} / 1000</span>
+              <Button
+                variant={text.trim() ? 'primary' : 'outline'}
+                disabled={!text.trim()}
+                loading={send.isPending}
+                onClick={() => requireAuth(() => send.mutate())}
+              >
                 发布
               </Button>
             </div>
@@ -189,19 +197,21 @@ export function CommentSection({ tripId, placeId, count, onCountChange, waypoint
           <button
             type="button"
             onClick={() => requireAuth(() => {})}
-            className="flex min-h-24 w-full items-center justify-center gap-2 rounded-md px-3 text-sm text-ink-500 transition-colors hover:text-ink-900"
+            className="flex min-h-14 w-full items-center gap-2 border-b border-ink-300 text-left text-[15px] text-ink-500 transition-colors hover:border-ink-900 hover:text-ink-900"
           >
             {placeId ? '登录后说说你的真实体验，或问问去过的人' : '登录后参与评论'}
-            <span aria-hidden>→</span>
+            <span aria-hidden className="ml-auto">
+              →
+            </span>
           </button>
         )}
       </div>
 
-      <div className="mt-6 divide-y divide-ink-200">{comments.map((c) => renderComment(c))}</div>
+      <div className="mt-10 divide-y divide-ink-200">{comments.map((c) => renderComment(c))}</div>
       {q.isLoadingError && <LoadError className="py-8" title="评论加载失败" error={q.error} onRetry={() => q.refetch()} />}
-      {!q.isLoading && !q.isLoadingError && comments.length === 0 && <Empty title="还没有评论" desc="来写下第一条吧" className="py-10" />}
+      {!q.isLoading && !q.isLoadingError && comments.length === 0 && <p className="caption text-[14px]">还没有评论，来写下第一条吧。</p>}
       {q.hasNextPage && (
-        <div className="flex justify-center border-t border-ink-200 pt-6">
+        <div className="flex border-t border-ink-200 pt-6">
           <Button variant="outline" size="sm" loading={q.isFetchingNextPage} onClick={() => q.fetchNextPage()}>
             查看更多评论
           </Button>

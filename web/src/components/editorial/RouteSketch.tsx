@@ -7,9 +7,9 @@ type Stop = { x: number; y: number; name: string; day: string; lx: number; ly: n
 const stops: Stop[] = [
   { x: 387, y: 74, name: '上海', day: 'DAY 01', lx: 374, ly: 62, anchor: 'end', state: 'done' },
   { x: 289, y: 136, name: '乌镇', day: 'DAY 02', lx: 276, ly: 124, anchor: 'end', state: 'done' },
-  { x: 255, y: 196, name: '杭州', day: 'DAY 03 · NOW', lx: 270, ly: 222, anchor: 'start', state: 'now' },
-  { x: 143, y: 281, name: '千岛湖', day: 'DAY 04', lx: 196, ly: 300, anchor: 'start', state: 'plan' },
-  { x: 57, y: 214, name: '黄山', day: 'DAY 05', lx: 57, ly: 160, anchor: 'middle', state: 'plan' },
+  { x: 255, y: 196, name: '杭州', day: 'DAY 03 · NOW', lx: 272, ly: 224, anchor: 'start', state: 'now' },
+  { x: 143, y: 281, name: '千岛湖', day: 'DAY 04', lx: 196, ly: 306, anchor: 'start', state: 'plan' },
+  { x: 57, y: 214, name: '黄山', day: 'DAY 05', lx: 57, ly: 166, anchor: 'middle', state: 'plan' },
 ]
 
 export function RouteSketch({ className }: { className?: string }) {
@@ -24,16 +24,11 @@ export function RouteSketch({ className }: { className?: string }) {
           <line key={y} x1={8} x2={472} y1={y} y2={y} />
         ))}
       </g>
-      <g fill="currentColor" fillOpacity={0.4} fontFamily="var(--font-sans)" fontSize={7} letterSpacing={1}>
-        {['119°E', '120°E', '121°E', '122°E'].map((t, i) => (
-          <text key={t} x={144 + i * 100} y={18}>
-            {t}
-          </text>
-        ))}
-        <text x={12} y={100}>
-          31°N
+      <g fill="currentColor" fillOpacity={0.5} fontFamily="var(--font-sans)" fontSize={12} letterSpacing={1.4}>
+        <text x={246} y={17}>
+          120°E
         </text>
-        <text x={12} y={226}>
+        <text x={146} y={224}>
           30°N
         </text>
       </g>
@@ -57,7 +52,7 @@ export function RouteSketch({ className }: { className?: string }) {
           <line key={`${x1}-${y}`} x1={x1} x2={x2} y1={y} y2={y} />
         ))}
       </g>
-      <text x={462} y={300} fill="currentColor" fillOpacity={0.35} fontFamily="var(--font-display)" fontSize={12} letterSpacing={3} style={{ writingMode: 'vertical-rl' }}>
+      <text x={460} y={292} fill="currentColor" fillOpacity={0.4} fontFamily="var(--font-display)" fontSize={15} letterSpacing={4} style={{ writingMode: 'vertical-rl' }}>
         东海
       </text>
 
@@ -98,12 +93,15 @@ export function RouteSketch({ className }: { className?: string }) {
             className={s.state === 'now' ? 'fill-brand-500' : s.state === 'done' ? 'fill-ink-900' : 'fill-paper stroke-ink-900'}
             strokeWidth={0.8}
           />
-          <text x={s.lx} y={s.ly} textAnchor={s.anchor} fill="currentColor" fontFamily="var(--font-display)" fontSize={14} fontWeight={400}>
+          <text x={s.lx} y={s.ly} textAnchor={s.anchor} fill="currentColor" fontFamily="var(--font-display)" fontSize={19} fontWeight={400}>
             {s.name}
           </text>
-          <text x={s.lx} y={s.ly + 13} textAnchor={s.anchor} fill="currentColor" fillOpacity={0.45} fontFamily="var(--font-sans)" fontSize={6.5} letterSpacing={1.2}>
-            {s.day}
-          </text>
+          {/* 只标出「此刻」这一天：其余的日期是细节噪音 */}
+          {s.state === 'now' && (
+            <text x={s.lx} y={s.ly + 18} textAnchor={s.anchor} fill="currentColor" fillOpacity={0.6} fontFamily="var(--font-sans)" fontSize={12} letterSpacing={1.4}>
+              {s.day}
+            </text>
+          )}
         </g>
       ))}
 
@@ -112,7 +110,7 @@ export function RouteSketch({ className }: { className?: string }) {
         <circle r={17} strokeOpacity={0.4} />
         <path d="M0 -13 L4 0 L0 13 L-4 0 Z" strokeOpacity={0.7} />
         <path d="M0 -13 L4 0 L-4 0 Z" fill="currentColor" stroke="none" />
-        <text y={-23} textAnchor="middle" fill="currentColor" stroke="none" fontFamily="var(--font-sans)" fontSize={7} letterSpacing={1}>
+        <text y={-24} textAnchor="middle" fill="currentColor" stroke="none" fontFamily="var(--font-sans)" fontSize={12} letterSpacing={1}>
           N
         </text>
       </g>
@@ -123,7 +121,7 @@ export function RouteSketch({ className }: { className?: string }) {
         {[0, 40, 80].map((x) => (
           <line key={x} x1={x} x2={x} y1={-4} y2={x === 40 ? -2 : 0} />
         ))}
-        <text x={90} y={2.5} fill="currentColor" stroke="none" fontFamily="var(--font-sans)" fontSize={7} letterSpacing={1}>
+        <text x={90} y={4} fill="currentColor" stroke="none" fontFamily="var(--font-sans)" fontSize={12} letterSpacing={1.4}>
           50 KM
         </text>
       </g>

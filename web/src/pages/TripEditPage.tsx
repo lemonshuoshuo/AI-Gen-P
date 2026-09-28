@@ -45,7 +45,6 @@ import {
   Switch,
   TabBar,
   Textarea,
-  UserName,
   VerdictBadge,
   buttonClass,
   confirmDialog,
@@ -150,7 +149,18 @@ const mapChip = (on: boolean) =>
   )
 
 /** 地图左上角：点选地点、3D 视角（倾斜地图看路线的起伏走向） */
-function MapTools({ pickMode, picking, onTogglePick }: { pickMode: boolean; picking: boolean; onTogglePick: () => void }) {
+function MapTools({
+  pickMode,
+  picking,
+  onTogglePick,
+  compact,
+}: {
+  pickMode: boolean
+  picking: boolean
+  onTogglePick: () => void
+  /** 手机上展开编辑框时地图很矮：只留「在地图上点选」 */
+  compact?: boolean
+}) {
   const map = useMap()
   const desktop = useIsDesktop()
   const [tilted, setTilted] = useState(false)
@@ -176,16 +186,18 @@ function MapTools({ pickMode, picking, onTogglePick }: { pickMode: boolean; pick
           {pickMode ? <X className="size-4" strokeWidth={1.5} /> : <Crosshair className="size-4" strokeWidth={1.5} />}
           {pickMode ? '取消点选' : '在地图上点选'}
         </button>
-        <button
-          type="button"
-          onClick={toggleTilt}
-          aria-pressed={tilted}
-          title={tilted ? '回到平面视角' : '倾斜地图，立体地看路线'}
-          className={mapChip(tilted)}
-        >
-          <Mountain className="size-4" strokeWidth={1.5} />
-          3D 视角
-        </button>
+        {!compact && (
+          <button
+            type="button"
+            onClick={toggleTilt}
+            aria-pressed={tilted}
+            title={tilted ? '回到平面视角' : '倾斜地图，立体地看路线'}
+            className={mapChip(tilted)}
+          >
+            <Mountain className="size-4" strokeWidth={1.5} />
+            3D 视角
+          </button>
+        )}
       </div>
       {/* 宽屏上候选面板会盖住这条提示：选了位置后不再显示 */}
       {pickMode && !(picking && desktop) && (
@@ -292,7 +304,7 @@ function SortableRow({
           aria-expanded={editing}
           className={cn(
             'h-10 shrink-0 rounded-full border px-3.5 text-xs tracking-[0.04em] transition-colors duration-300 md:h-8',
-            editing ? 'border-ink-900 bg-ink-900 text-paper' : 'border-transparent text-ink-500 hover:border-ink-300 hover:text-ink-900',
+            editing ? 'border-ink-900 bg-transparent text-ink-900' : 'border-transparent text-ink-500 hover:border-ink-300 hover:text-ink-900',
           )}
         >
           {editing ? '收起' : '编辑'}
@@ -467,7 +479,8 @@ function InfoPanel({ trip, onSaved }: { trip: TripDetail; onSaved: (t: TripDetai
           <Input value={f.tags} onChange={(e) => set('tags', e.target.value)} />
         </Field>
       </section>
-      <div className="sticky bottom-0 -mx-4 border-t border-ink-200 bg-paper/90 px-4 py-4 backdrop-blur md:-mx-8 md:px-8">
+      {/* 吸底：外层滚动容器在「信息」面板时不留底部内边距，这条栏正好贴住底边，内容不会从它下面露出来 */}
+      <div className="sticky bottom-0 z-10 -mx-4 border-t border-ink-200 bg-paper px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:-mx-8 md:px-8 md:pb-5">
         <Button block loading={saving} onClick={save}>
           保存旅程信息
         </Button>
@@ -646,7 +659,12 @@ function MembersPanel({ trip }: { trip: TripDetail }) {
       {trip.is_owner && (
         <div className="flex gap-2">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="输入对方用户名" aria-label="用户名" />
-          <Button disabled={!name.trim()} onClick={() => invite(name.trim())} icon={<UserPlus className="size-4" strokeWidth={1.5} />}>
+          <Button
+            variant={name.trim() ? 'primary' : 'outline'}
+            disabled={!name.trim()}
+            onClick={() => invite(name.trim())}
+            icon={<UserPlus className="size-4" strokeWidth={1.5} />}
+          >
             邀请
           </Button>
         </div>
@@ -657,10 +675,17 @@ function MembersPanel({ trip }: { trip: TripDetail }) {
           {members.map((m) => (
             <li key={m.user.id} className="flex items-center gap-4 py-4">
               <Avatar user={m.user} size={40} />
-              <div className="min-w-0 flex-1">
-                <UserName user={m.user} />
-                <div className="mt-0.5 text-xs tracking-wide text-ink-400">
+              <div className="min-w-0 flex-1 text-[13px] leading-[1.45]">
+                <Link
+                  to={`/u/${m.user.username}`}
+                  className="font-display block truncate text-[19px] leading-snug text-ink-900 transition-colors hover:text-ink-600"
+                >
+                  {m.user.nickname || m.user.username}
+                </Link>
+                <div className="caption">
                   {m.role === 'owner' ? '作者' : m.status === 'pending' ? '已邀请，等待接受' : '共同作者'}
+                  <span className="mx-1.5 text-ink-300">·</span>
+                  <span className="font-num text-[14px]">Lv.{m.user.level}</span>
                 </div>
               </div>
               {m.role !== 'owner' && (trip.is_owner || m.user.id === me?.id) && (
@@ -696,6 +721,7 @@ export default function TripEditPage() {
   const [flyTarget, setFlyTarget] = useState<LngLat | null>(null)
   const [order, setOrder] = useState<Waypoint[]>([])
   const [legMode, setLegMode] = useState<LegMode>('transit')
+  const desktop = useIsDesktop()
   // 待滚动到的地点：新加的点要等刷新后列表渲染出这一行才能滚过去
   const scrollTo = useRef<number | null>(null)
 
@@ -863,12 +889,18 @@ export default function TripEditPage() {
   ]
   // 3D 预览：沿计划路线飞一遍（至少两个地点才有路线）
   const canPreview = order.length >= 2
+  // 手机上展开编辑框：地图变矮，只留点选按钮，底图切换、定位和缩放按钮先收起来，免得挤在一起
+  const compact = editing !== null && !desktop
 
   return (
     <div className="md:grid md:h-full md:grid-cols-[minmax(400px,500px)_1fr]">
       <div className="sticky top-15 z-20 border-b border-ink-200 md:static md:order-2 md:h-full md:border-b-0">
         {/* 手机上展开编辑框时地图变矮，给表单留出空间 */}
-        <BaseMap className={cn('md:h-full', editing !== null ? 'h-[22vh]' : 'h-[38vh]')} kindSwitcher locate>
+        <BaseMap
+          className={cn('md:h-full', compact ? 'h-[30vh] min-h-[240px] [&_.maplibregl-ctrl-group]:hidden' : 'h-[38vh]')}
+          kindSwitcher={!compact}
+          locate={!compact}
+        >
           <RouteLines planned={planned} actual={trip.phase !== 'planning' ? actual : undefined} />
           <EditableMarkers
             waypoints={order}
@@ -884,6 +916,7 @@ export default function TripEditPage() {
           <FitOnce points={order.map((w) => [w.lng, w.lat])} fitKey={`${trip.id}-${order.length > 0}`} />
           <FlyTo target={flyTarget} />
           <MapTools
+            compact={compact}
             pickMode={pickMode}
             picking={!!pickPoint}
             onTogglePick={() => {
@@ -961,7 +994,7 @@ export default function TripEditPage() {
         </header>
 
         {/* 手机上整页滚动（列表不是滚动容器，scrollIntoView 才能把行滚到吸顶地图的下方） */}
-        <div className="flex-1 px-4 pt-6 pb-10 md:overflow-y-auto md:px-8 md:pt-7">
+        <div className={cn('flex-1 px-4 pt-6 md:overflow-y-auto md:px-8 md:pt-7', panel === 'info' ? 'pb-0' : 'pb-10')}>
           {panel === 'route' && (
             <div className="space-y-6">
               <PlaceSearch onPick={onPick} city={trip.cities[0]} near={near} />
@@ -978,7 +1011,7 @@ export default function TripEditPage() {
                   </Select>
                 </div>
                 {trip.phase === 'planning' ? (
-                  <span className="ml-auto text-right text-ink-500">新加的点会作为计划路线</span>
+                  <span className="caption basis-full sm:ml-auto sm:basis-auto sm:text-right">新加的点会作为计划路线</span>
                 ) : (
                   <Segmented<'plan' | 'visited'>
                     size="sm"
@@ -1014,7 +1047,7 @@ export default function TripEditPage() {
                             key={w.id}
                             className={cn(
                               'md:scroll-mt-3',
-                              editing !== null ? 'scroll-mt-[calc(3.75rem+22vh+0.75rem)]' : 'scroll-mt-[calc(3.75rem+38vh+0.75rem)]',
+                              editing !== null ? 'scroll-mt-[calc(3.75rem+max(30vh,240px)+0.75rem)]' : 'scroll-mt-[calc(3.75rem+38vh+0.75rem)]',
                             )}
                           >
                             <SortableRow

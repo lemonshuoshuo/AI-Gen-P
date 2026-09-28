@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { api, errorMessage } from '@/api'
 import { Button, buttonClass, Empty, Field, Input, PageLoader, Switch, Textarea } from '@/components/ui'
 import { cn } from '@/lib/cn'
-import { PanelHeader } from './common'
+import { LabelRow, PanelHeader } from './common'
 
 type SiteSettings = Awaited<ReturnType<typeof api.admin.settings>>
 type LegalDoc = 'terms' | 'privacy'
@@ -23,20 +23,35 @@ const countWords = (s: string) =>
     .map((w) => w.trim())
     .filter(Boolean).length
 
-/** 一组设置：左侧小标题与说明，右侧表单；组与组之间一道细线 */
-function Section({ eyebrow, title, desc, children }: { eyebrow: string; title: string; desc?: ReactNode; children: ReactNode }) {
+/** 一组设置（Exemplar 式区块）：细线标签行，下面左栏宋体标题 + 说明，右栏表单 */
+function Section({
+  eyebrow,
+  index,
+  title,
+  desc,
+  children,
+}: {
+  eyebrow: string
+  index: number
+  title: string
+  desc?: ReactNode
+  children: ReactNode
+}) {
   return (
-    <section className="grid gap-5 border-t border-ink-200 py-7 first:border-ink-900 xl:grid-cols-[13rem_minmax(0,1fr)] xl:gap-10">
-      <div>
-        <p className="eyebrow">{eyebrow}</p>
-        <h2 className="mt-1.5 text-lg text-ink-900">{title}</h2>
-        {desc && <p className="mt-1.5 text-xs leading-relaxed text-ink-400">{desc}</p>}
+    <section>
+      <LabelRow label={eyebrow} count={String(index).padStart(2, '0')} />
+      <div className="mt-8 grid gap-x-10 gap-y-8 md:mt-10 xl:grid-cols-12">
+        <div className="xl:col-span-4">
+          <h2 className="font-display text-[1.75rem] leading-tight font-normal md:text-[2.125rem]">{title}</h2>
+          {desc && <p className="mt-3 max-w-xs text-[13px] leading-[1.8] text-pretty text-ink-500">{desc}</p>}
+        </div>
+        <div className="min-w-0 space-y-7 xl:col-span-8">{children}</div>
       </div>
-      <div className="min-w-0 space-y-5">{children}</div>
     </section>
   )
 }
 
+/** 开关行：左侧亮色标题 + 灰色说明，右侧开关；上下细线，不装进有底色的盒子 */
 function SwitchRow({
   title,
   desc,
@@ -49,10 +64,10 @@ function SwitchRow({
   onChange: (v: boolean) => void
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border border-ink-200 bg-white/60 px-4 py-3">
-      <div>
-        <div className="text-sm font-medium text-ink-800">{title}</div>
-        <div className="mt-0.5 text-xs leading-relaxed text-ink-400">{desc}</div>
+    <div className="flex items-center justify-between gap-6 border-y border-ink-200 py-5">
+      <div className="min-w-0">
+        <div className="text-[14px] text-ink-900">{title}</div>
+        <div className="caption mt-1 max-w-xl leading-relaxed">{desc}</div>
       </div>
       <Switch checked={checked} onChange={onChange} label={<span className="sr-only">{title}</span>} />
     </div>
@@ -81,12 +96,12 @@ function LegalField({
     <div>
       {/* 标题行不用 Field：<label> 会把点击转给它里面的第一个按钮 */}
       <div className="mb-1.5 flex items-center justify-between gap-2">
-        <label htmlFor={id} className="text-[13px] font-medium tracking-wide text-ink-600">
+        <label htmlFor={id} className="text-xs font-medium tracking-[0.06em] text-ink-500">
           {label}
         </label>
         <div className="flex items-center gap-1">
           {canLoad && (
-            <Button size="xs" variant="ghost" loading={loading} icon={<FileText className="size-3.5" strokeWidth={1.75} />} onClick={onLoad}>
+            <Button size="xs" variant="ghost" className="max-sm:h-10" loading={loading} icon={<FileText className="size-3.5" strokeWidth={1.75} />} onClick={onLoad}>
               载入内置模板
             </Button>
           )}
@@ -95,7 +110,7 @@ function LegalField({
             target="_blank"
             rel="noopener"
             title="在新标签页查看已保存的版本"
-            className={buttonClass({ variant: 'ghost', size: 'xs' })}
+            className={buttonClass({ variant: 'ghost', size: 'xs', className: 'max-sm:h-10' })}
           >
             <ExternalLink className="size-3.5" strokeWidth={1.75} />
             预览
@@ -160,8 +175,8 @@ function SettingsForm({ initial }: { initial: SiteSettings }) {
         save.mutate(form)
       }}
     >
-      <div>
-        <Section eyebrow="General" title="基本信息" desc="站点名称、顶部公告与注册开关">
+      <div className="space-y-20 md:space-y-28">
+        <Section eyebrow="General · 基本" index={1} title="基本信息" desc="站点名称、顶部公告与注册开关">
           <Field label="站点名称">
             <Input
               value={form.site_name}
@@ -186,16 +201,16 @@ function SettingsForm({ initial }: { initial: SiteSettings }) {
           />
           {form.announcement.trim() && (
             <div>
-              <div className="mb-1.5 text-xs text-ink-400">公告预览</div>
-              <div className="flex items-baseline gap-3 border-y border-ink-200 bg-white/60 px-3 py-2 text-sm text-ink-600">
-                <span className="eyebrow shrink-0 !text-brand-500">Notice</span>
+              <div className="mb-2 text-xs font-medium tracking-[0.06em] text-ink-500">公告预览</div>
+              <div className="flex items-baseline gap-4 border-y border-ink-200 py-3 text-[13.5px] text-ink-700">
+                <span className="eyebrow shrink-0 !text-brand-600">Notice</span>
                 <span className="min-w-0 break-words">{form.announcement.trim()}</span>
               </div>
             </div>
           )}
         </Section>
 
-        <Section eyebrow="Filing" title="备案信息" desc="显示在所有页面的页脚">
+        <Section eyebrow="Filing · 备案" index={2} title="备案信息" desc="显示在所有页面的页脚">
           <div className="grid gap-5 sm:grid-cols-2">
             <Field label="ICP 备案号" hint="显示在网站页脚，链接到工信部备案系统">
               <Input
@@ -216,7 +231,7 @@ function SettingsForm({ initial }: { initial: SiteSettings }) {
           </div>
         </Section>
 
-        <Section eyebrow="Safety" title="内容安全" desc="公开旅程审核与屏蔽词">
+        <Section eyebrow="Safety · 安全" index={3} title="内容安全" desc="公开旅程审核与屏蔽词">
           <SwitchRow
             title="公开旅程需审核"
             desc="开启后，普通用户新公开的旅程要在「内容管理 → 待审核」中通过后才会出现在广场、搜索和地点统计中；已公开的旅程不受影响，关闭后队列中的旅程不会自动通过"
@@ -244,11 +259,12 @@ function SettingsForm({ initial }: { initial: SiteSettings }) {
         </Section>
 
         <Section
-          eyebrow="Legal"
+          eyebrow="Legal · 条款"
+          index={4}
           title="用户协议与隐私政策"
           desc={
             <>
-              Markdown 格式，可用 <code className="rounded bg-ink-100 px-1 font-mono text-ink-700">{'{{site}}'}</code>{' '}
+              Markdown 格式，可用 <code className="rounded-sm bg-ink-100 px-1 font-mono text-ink-700">{'{{site}}'}</code>{' '}
               代表站点名称；留空时使用内置模板（请把模板中的【运营者名称】【联系邮箱】改成实际信息）
             </>
           }
@@ -272,13 +288,13 @@ function SettingsForm({ initial }: { initial: SiteSettings }) {
       {/* 有未保存的修改时吸底，长表单中随时可以保存；手机上留出底部导航的位置 */}
       <div
         className={cn(
-          'mt-4 flex items-center justify-end gap-2',
+          'mt-12 flex items-center justify-end gap-2 border-t border-ink-200 pt-6',
           dirty &&
-            'glass sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-10 rounded-xl p-2 shadow-float md:bottom-4',
+            'glass sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-10 -mx-4 border-b px-4 pb-4 md:bottom-0 md:mx-0 md:px-0 md:pb-6',
         )}
       >
         {dirty && (
-          <span className="mr-auto flex items-center gap-2 pl-2 text-xs text-ink-500">
+          <span className="mr-auto flex items-center gap-2 text-[13px] text-ink-500">
             <span className="size-1.5 rounded-full bg-brand-500" aria-hidden />
             有未保存的修改
           </span>
@@ -288,7 +304,15 @@ function SettingsForm({ initial }: { initial: SiteSettings }) {
             撤销修改
           </Button>
         )}
-        <Button type="submit" disabled={!dirty} loading={save.isPending} icon={<Save className="size-4" strokeWidth={1.75} />}>
+        {/* 没有修改时是细线胶囊，不是一块发灰的实心按钮 */}
+        <Button
+          type="submit"
+          variant={dirty ? 'primary' : 'outline'}
+          className={dirty ? undefined : 'disabled:border-ink-300 disabled:text-ink-400 disabled:opacity-100'}
+          disabled={!dirty}
+          loading={save.isPending}
+          icon={<Save className="size-4" strokeWidth={1.5} />}
+        >
           保存设置
         </Button>
       </div>

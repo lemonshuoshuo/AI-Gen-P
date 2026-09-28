@@ -69,12 +69,13 @@ export function WaypointForm({
           <Input value={f.address} onChange={(e) => set('address', e.target.value)} maxLength={200} />
         </Field>
         {w.planned && (
-          <Field label="计划时间">
+          // 手机上时间框单独一行，日期和时间不会被截断
+          <Field label="计划时间" className="col-span-2 sm:col-span-1">
             <Input type="datetime-local" value={f.planned_at} onChange={(e) => set('planned_at', e.target.value)} />
           </Field>
         )}
         {(phase !== 'planning' || !w.planned) && (
-          <Field label="实际到达">
+          <Field label="实际到达" className="col-span-2 sm:col-span-1">
             <Input type="datetime-local" value={f.arrived_at} onChange={(e) => set('arrived_at', e.target.value)} />
           </Field>
         )}

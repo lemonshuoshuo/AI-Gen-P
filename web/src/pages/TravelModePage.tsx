@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useBlocker, useNavigate, useParams } from 'react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Map as MLMap } from 'maplibre-gl'
@@ -84,17 +84,53 @@ function useTicker(active: boolean) {
   }, [active])
 }
 
+const coarsePointer = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
+
 // 「我到了」只用新鲜、足够准的定位：持续定位可能还停在之前的位置（进出隧道、锁屏后），误差太大会匹配到别的地点
 const FIX_MAX_AGE = 30_000 // 毫秒
 const FIX_MAX_ACC = 100 // 米
 const isFresh = (f: GeoFix) => Date.now() - f.t <= FIX_MAX_AGE && f.accuracy <= FIX_MAX_ACC
 
-// 来源只用小圆点区分颜色，文字保持灰色
+// 来源只用小圆点区分：计划为黛青（计划路线色），大家推荐为绿，其余为灰（AI 为空心灰圈），文字保持灰色
 const sourceLabel: Record<Suggestion['source'], { label: string; cls: string }> = {
   plan: { label: '计划中', cls: 'bg-sky-500' },
   community: { label: '大家推荐', cls: 'bg-emerald-500' },
   amap: { label: '附近', cls: 'bg-ink-400' },
-  ai: { label: 'AI 推荐', cls: 'bg-violet-500' },
+  ai: { label: 'AI 推荐', cls: 'border border-ink-500' },
+}
+
+/** 面板里的次要操作：一格一个图标 + 小字，格子之间是竖细线（没有胶囊边框），高 64px 方便户外点按 */
+function ToolCell({
+  icon,
+  children,
+  onClick,
+  pressed,
+  active,
+  tone,
+}: {
+  icon: ReactNode
+  children: ReactNode
+  onClick: () => void
+  pressed?: boolean
+  /** 正在加载（如推荐中） */
+  active?: boolean
+  /** rec：正在记录轨迹（朱砂，表示进行中的状态） */
+  tone?: 'rec'
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={pressed}
+      className={cn(
+        'group flex h-16 min-w-0 flex-col items-center justify-center gap-1.5 px-1 transition-colors duration-300 focus-visible:bg-ink-900/[0.06] focus-visible:outline-none',
+        tone === 'rec' ? 'text-brand-600 hover:text-brand-700' : pressed ? 'text-ink-900' : 'text-ink-700 hover:bg-ink-900/[0.03] hover:text-ink-900',
+      )}
+    >
+      {active ? <Spinner className="size-5" /> : icon}
+      <span className="max-w-full truncate text-[11px] leading-none tracking-[0.06em]">{children}</span>
+    </button>
+  )
 }
 
 /** 点地图标记或行程清单弹出的地点面板：导航、打卡、跳过、看大家的评价 */
@@ -131,7 +167,7 @@ function StopSheet({
           <span className={cn('rounded-full px-2 py-0.5 text-xs tracking-wide', st.cls)}>{st.label}</span>
         ) : (
           <span className="inline-flex items-center gap-1.5 text-xs tracking-wide text-ink-500">
-            <span className="size-1.5 rounded-full bg-violet-500" aria-hidden />
+            <span className="size-1.5 rounded-full border border-ink-500" aria-hidden />
             计划外
           </span>
         )}
@@ -690,6 +726,8 @@ export default function TravelModePage() {
         <BaseMap
           className="absolute inset-0"
           kindSwitcher
+          // 手机上双指缩放即可：缩放按钮会和右侧的跟随 / 全程按钮挤在一起（面板展开后地图很矮）
+          navigation={!coarsePointer}
           options={{ dragRotate: false }}
           onReady={(m) => {
             mapRef.current = m
@@ -701,7 +739,7 @@ export default function TravelModePage() {
               <button
                 type="button"
                 onClick={() => setFollow((v) => !v)}
-                className={cn(mapChipClass, 'w-10 px-0 sm:w-9', follow ? '!border-white/45 !text-ink-900' : '!text-ink-500')}
+                className={cn(mapChipClass, 'w-10 px-0 sm:w-9', follow ? '!text-ink-900' : '!text-ink-500')}
                 title={follow ? '跟随中' : '不跟随'}
                 aria-label={follow ? '跟随中' : '不跟随'}
                 aria-pressed={follow}
@@ -749,19 +787,21 @@ export default function TravelModePage() {
       </div>
 
       {/* 底部面板：深色浮层 + 细线，主操作是一枚大号朱砂胶囊 */}
-      <div className="pb-safe relative z-20 max-h-[62dvh] overflow-y-auto rounded-t-xl border-t border-ink-200 bg-surface">
+      {/* 桌面上是浮在地图左下角的面板，地图占满整屏 */}
+      <div className="pb-safe relative z-20 max-h-[62dvh] overflow-y-auto rounded-t-xl border-t border-ink-200 bg-surface md:absolute md:bottom-6 md:left-6 md:max-h-[calc(100dvh-8.5rem)] md:w-[27rem] md:rounded-xl md:border md:pt-5 md:shadow-float">
+        {/* 拖动条只在手机上：桌面的浮动面板始终展开 */}
         <button
           type="button"
           onClick={() => setSheetOpen((v) => !v)}
-          className="sticky top-0 z-10 flex h-7 w-full items-center justify-center bg-surface"
+          className="sticky top-0 z-10 flex h-7 w-full items-center justify-center bg-surface md:hidden"
           aria-label={sheetOpen ? '收起' : '展开'}
           aria-expanded={sheetOpen}
         >
           <span className="h-[3px] w-10 rounded-full bg-ink-300" />
         </button>
 
-        <div className="mx-auto max-w-2xl px-4 pb-4 sm:px-6">
-          {/* 下一站：小标签行 + 大号宋体地名，不装进卡片 */}
+        <div className="mx-auto max-w-2xl px-4 pb-4 sm:px-6 md:px-5 md:pb-5">
+          {/* 下一站：小标签行 + 大号宋体地名，不装进卡片；「已到达 / 跳过」是地名下的文字链接 */}
           {next ? (
             <section aria-label="下一站">
               <div className="flex items-baseline justify-between gap-3">
@@ -780,32 +820,28 @@ export default function TravelModePage() {
                   variant="outline"
                 />
               </div>
-              {sheetOpen && next.note && <p className="mt-3 border-l border-ink-300 pl-3 text-[13px] leading-relaxed text-ink-500">{next.note}</p>}
               {sheetOpen && (
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <Button
-                    block
-                    variant="outline"
-                    className="h-11"
-                    icon={<Check className="size-4" strokeWidth={1.5} />}
+                <div className="-mb-1.5 flex items-center gap-6 pl-10">
+                  <button
+                    type="button"
                     disabled={checking || skipping}
                     onClick={() => checkin(next.id)}
+                    className="inline-flex h-11 items-center text-[13px] text-ink-700 underline decoration-ink-300 underline-offset-4 transition-colors hover:text-ink-900 hover:decoration-ink-900 disabled:opacity-40"
                   >
                     已到达
-                  </Button>
-                  <Button
-                    block
-                    variant="ghost"
-                    className="h-11"
-                    icon={<SkipForward className="size-4" strokeWidth={1.5} />}
-                    loading={skipping}
-                    disabled={checking}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={checking || skipping}
                     onClick={() => skip(next)}
+                    className="inline-flex h-11 items-center gap-2 text-[13px] text-ink-700 underline decoration-ink-300 underline-offset-4 transition-colors hover:text-ink-900 hover:decoration-ink-900 disabled:opacity-40"
                   >
+                    {skipping && <Spinner className="size-3.5" />}
                     跳过
-                  </Button>
+                  </button>
                 </div>
               )}
+              {sheetOpen && next.note && <p className="mt-2 border-l border-ink-300 pl-3 text-[13px] leading-relaxed text-ink-500">{next.note}</p>}
             </section>
           ) : (
             plannedTotal > 0 && (
@@ -829,25 +865,55 @@ export default function TravelModePage() {
             </div>
           )}
 
-          {/* 主操作 */}
-          <div className={cn('space-y-2', next || plannedTotal > 0 ? 'mt-4 border-t border-ink-200 pt-4' : 'pt-1')}>
+          {/* 主操作：整个面板里唯一的实心按钮 */}
+          <div className={cn(next || plannedTotal > 0 ? 'mt-4 border-t border-ink-200 pt-4' : 'pt-1')}>
             <button
               type="button"
               disabled={checking}
               onClick={startCheckin}
-              className="flex h-14 w-full items-center justify-center gap-2.5 rounded-full bg-brand-400 text-[15.5px] font-medium tracking-[0.06em] text-white transition-colors duration-300 hover:bg-brand-500 active:bg-brand-300 disabled:opacity-60"
+              className="flex h-14 w-full items-center justify-center gap-2.5 rounded-full bg-brand-400 text-[15.5px] font-medium tracking-[0.06em] text-white transition-colors duration-300 hover:bg-brand-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-900 active:bg-brand-300 disabled:opacity-60"
             >
               {checking ? <Spinner className="text-white" /> : <MapPinPlus className="size-5" strokeWidth={1.5} />}
               我到了，打卡
             </button>
-            <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline" block className="h-12" icon={<Sparkles className="size-4" strokeWidth={1.4} />} onClick={() => recommend()}>
-                推荐下一站
-              </Button>
-              <Button variant="outline" block className="h-12" icon={<Camera className="size-4" strokeWidth={1.4} />} onClick={() => photoInput.current?.click()}>
-                拍照
-              </Button>
-            </div>
+          </div>
+          {/* 次要操作：一行四格，细线分隔，图标 + 小字，不再是一堆胶囊 */}
+          <div className="mt-4 grid grid-cols-4 divide-x divide-ink-200 border-y border-ink-200">
+            <ToolCell icon={<Sparkles className="size-5" strokeWidth={1.25} />} onClick={() => recommend()} active={recLoading}>
+              推荐下一站
+            </ToolCell>
+            <ToolCell icon={<Camera className="size-5" strokeWidth={1.25} />} onClick={() => photoInput.current?.click()}>
+              拍照
+            </ToolCell>
+            <ToolCell
+              icon={
+                geo.recording ? (
+                  <span className="relative flex size-5 items-center justify-center">
+                    <span className="absolute size-2 animate-ping rounded-full bg-brand-500/60" />
+                    <CircleStop className="size-5" strokeWidth={1.25} />
+                  </span>
+                ) : (
+                  <Radio className="size-5" strokeWidth={1.25} />
+                )
+              }
+              onClick={toggleRecord}
+              tone={geo.recording ? 'rec' : undefined}
+              pressed={geo.recording}
+            >
+              {geo.recording ? '停止记录轨迹' : '记录 GPS 轨迹'}
+            </ToolCell>
+            <ToolCell
+              icon={
+                <span className="relative">
+                  <ListChecks className="size-5" strokeWidth={1.25} />
+                  <span className="font-num absolute -top-1.5 -right-3 text-[11px] leading-none text-ink-500">{sorted.length}</span>
+                </span>
+              }
+              onClick={() => setShowList((v) => !v)}
+              pressed={showList}
+            >
+              {showList ? '收起行程' : '行程清单'}
+            </ToolCell>
           </div>
           <input
             ref={photoInput}
@@ -864,24 +930,6 @@ export default function TravelModePage() {
 
           {sheetOpen && (
             <>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <Button
-                  variant="outline"
-                  block
-                  className={cn('h-12', geo.recording && '!border-brand-500/60 !text-brand-600')}
-                  icon={geo.recording ? <CircleStop className="size-4" strokeWidth={1.4} /> : <Radio className="size-4" strokeWidth={1.4} />}
-                  onClick={toggleRecord}
-                >
-                  {geo.recording ? '停止记录轨迹' : '记录 GPS 轨迹'}
-                </Button>
-                <Button variant="outline" block className="h-12" icon={<ListChecks className="size-4" strokeWidth={1.4} />} onClick={() => setShowList((v) => !v)}>
-                  {showList ? '收起行程' : (
-                    <>
-                      行程清单 <span className="font-num text-[13px] text-ink-400">{sorted.length}</span>
-                    </>
-                  )}
-                </Button>
-              </div>
               {trip.phase === 'planning' && <p className="caption mt-3 text-center !text-xs">第一次打卡、拍照或记录轨迹时自动开始旅行</p>}
               {geo.recording && <p className="caption mt-3 text-center !text-xs">记录时请保持此页面打开（已尝试保持屏幕常亮）</p>}
 
@@ -890,7 +938,7 @@ export default function TravelModePage() {
                 <section className="mt-6 border-t border-ink-200 pt-3" aria-label="推荐下一站">
                   <div className="flex items-baseline justify-between gap-3">
                     <p className="eyebrow">Nearby · 推荐</p>
-                    {rec?.ai_used && <span className="eyebrow !text-violet-600">AI</span>}
+                    {rec?.ai_used && <span className="eyebrow">AI</span>}
                   </div>
                   <h3 className="font-display mt-2 text-[1.5rem] font-normal">推荐下一站</h3>
                   {recLoading ? (
@@ -901,7 +949,7 @@ export default function TravelModePage() {
                   ) : (
                     rec && (
                       <div className="mt-3 space-y-3">
-                        {rec.ai_text && <p className="border-l border-violet-500 py-0.5 pl-3 text-[13.5px] leading-relaxed text-ink-700">{rec.ai_text}</p>}
+                        {rec.ai_text && <p className="border-l border-ink-300 py-0.5 pl-3 text-[13.5px] leading-relaxed text-ink-700">{rec.ai_text}</p>}
                         {rec.warnings.map((w) => (
                           // 新标签页打开：离开旅行模式会中断 GPS 轨迹记录
                           <Link
@@ -934,25 +982,27 @@ export default function TravelModePage() {
                                 </div>
                                 {s.reason && <p className="caption mt-1.5 !text-xs leading-relaxed">{s.reason}</p>}
                               </div>
-                              <div className="flex shrink-0 flex-col items-stretch gap-1.5">
+                              {/* 加入是文字操作，导航是图标圆钮：一行里不再有实心按钮 */}
+                              <div className="flex shrink-0 items-center gap-3 self-center">
                                 {s.source !== 'plan' && (
-                                  <Button
-                                    size="sm"
-                                    className="h-9"
-                                    icon={<Plus className="size-3.5" strokeWidth={1.5} />}
-                                    loading={addingSug === s}
+                                  <button
+                                    type="button"
                                     disabled={!!addingSug}
                                     onClick={() => addSuggestion(s)}
+                                    className="inline-flex h-11 items-center gap-1 text-[13px] text-ink-900 underline decoration-ink-300 underline-offset-4 transition-colors hover:decoration-ink-900 disabled:opacity-40"
                                   >
+                                    {addingSug === s ? <Spinner className="size-3.5" /> : null}
                                     加入
-                                  </Button>
+                                    <Plus className="size-3.5" strokeWidth={1.5} aria-hidden />
+                                  </button>
                                 )}
+                                {/* 图标圆钮：文字字号为 0，仍作为按钮的名称（导航）被读屏读出 */}
                                 <NavigateMenu
                                   target={{ lng: s.lng, lat: s.lat, name: s.name, address: s.address }}
                                   distanceM={s.distance_m}
-                                  size="sm"
+                                  size="md"
                                   variant="outline"
-                                  className="h-9"
+                                  className="size-11 !gap-0 !px-0 !text-[0px] [&_svg]:size-4"
                                 />
                               </div>
                             </div>
@@ -992,7 +1042,7 @@ export default function TravelModePage() {
                         {w.status === 'visited' && <Check className="size-4 text-emerald-600" strokeWidth={1.5} />}
                         {!w.planned && (
                           <span className="inline-flex items-center gap-1 text-[11px] text-ink-500">
-                            <span className="size-1.5 rounded-full bg-violet-500" aria-hidden />
+                            <span className="size-1.5 rounded-full border border-ink-500" aria-hidden />
                             计划外
                           </span>
                         )}

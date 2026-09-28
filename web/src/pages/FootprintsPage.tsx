@@ -78,7 +78,7 @@ export default function FootprintsPage() {
         </section>
       ) : (
         <>
-          <FootprintNumerals data={data} className="mt-16 md:mt-28" />
+          <FootprintNumerals data={data} className="mt-10 md:mt-16" />
 
           <section className="animate-fade-in mt-10 md:mt-16" aria-label="足迹地图">
             <FootprintsView data={data} bleed height="h-[68svh] min-h-[26rem] md:h-[80vh] md:min-h-[36rem]" />

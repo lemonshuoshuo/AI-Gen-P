@@ -5,7 +5,7 @@ import { LngLatBounds, Marker, type ExpressionSpecification, type Map as MLMap, 
 import type { Feature, LineString, Point } from 'geojson'
 import { ArrowRight, Maximize2, Scan, X } from 'lucide-react'
 import type { FootprintPoint, Footprints } from '@/api/types'
-import { BaseMap, useMap } from '@/components/map/BaseMap'
+import { BaseMap, mapChipClass, useMap } from '@/components/map/BaseMap'
 import { fc, markerHtml, removeLayers, upsertSource } from '@/components/map/layers'
 import { setAutoDayZoom } from '@/components/map/style'
 import { VerdictBadge } from '@/components/ui'
@@ -554,7 +554,8 @@ function CityLabels({ cities, color }: { cities: Footprints['cities']; color: st
 function PointCard({ p, label, onClose }: { p: FootprintPoint; label: string; onClose: () => void }) {
   const cat = categoryOf(p.category)
   return (
-    <div className="glass animate-slide-up absolute inset-x-3 bottom-3 z-20 overflow-hidden rounded-sm border border-white/10 text-ink-900 sm:right-auto sm:bottom-6 sm:left-6 sm:w-[24rem]">
+    // 手机上卡片压在地图控件上：用不透明底色（地图控件同时隐藏，见 FootprintMap），桌面仍是玻璃
+    <div className="glass animate-slide-up absolute inset-x-3 bottom-3 z-20 overflow-hidden rounded-sm border border-white/10 text-ink-900 max-sm:bg-surface max-sm:backdrop-blur-none sm:right-auto sm:bottom-6 sm:left-6 sm:w-[24rem]">
       <div className="flex gap-4 p-3 pr-12">
         {p.photo_thumb_url ? (
           <img src={p.photo_thumb_url} alt="" className="h-[5.5rem] w-[4.4rem] shrink-0 rounded-sm object-cover" loading="lazy" />
@@ -644,9 +645,8 @@ export function FootprintMap({
     fly({ ...v, zoom, pitch: PITCH[stageOf(zoom, sh)] })
   }
 
-  // 地图上的控件：玻璃底 + 细线胶囊
-  const chip =
-    'glass flex h-10 items-center gap-1.5 rounded-full border border-white/15 px-3.5 text-xs tracking-[0.04em] text-ink-800 transition-colors duration-300 hover:border-white/40 hover:text-ink-900 sm:h-9'
+  // 地图上的控件：与其他地图一致的玻璃底 + 细线胶囊
+  const chip = mapChipClass
   const photos = useMemo(() => data.points.filter((p) => p.photo_thumb_url).length, [data.points])
   const sel = picked != null ? data.points[picked] : null
 
@@ -658,7 +658,8 @@ export function FootprintMap({
     >
       {shift != null && (
         <BaseMap
-          className={cn('absolute inset-0', night && 'th-map-dark')}
+          // 手机上打开足迹卡片时，右下角的缩放按钮和版权信息会从卡片后面透出来：先收起
+          className={cn('absolute inset-0', night && 'th-map-dark', sel && 'max-sm:[&_.maplibregl-ctrl-bottom-right]:hidden')}
           kind="auto"
           center={CHINA_CENTER}
           zoom={3.2}

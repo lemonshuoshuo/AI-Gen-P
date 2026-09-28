@@ -6,6 +6,7 @@ import { api, errorMessage, type Waypoint } from '@/api'
 import { rememberedShareCode } from '@/api/client'
 import { BaseMap } from '@/components/map/BaseMap'
 import { FitOnce, RouteLines, WaypointMarkers } from '@/components/map/layers'
+import { CjkWords } from '@/components/trip/CjkWords'
 import { Reveal } from '@/components/trip/Reveal'
 import { ShareDialog } from '@/components/trip/ShareDialog'
 import { Button, Empty, PageLoader, buttonClass } from '@/components/ui'
@@ -31,29 +32,38 @@ function LabelRow({ eyebrow, count, aside, className }: { eyebrow: string; count
   )
 }
 
-/** 地点清单：宋体标题 + 细线列表；空列表显示一条短横 */
-function WpList({ eyebrow, title, mark, list, tone }: { eyebrow: string; title: string; mark: string; list: Waypoint[]; tone: string }) {
+/** 地点清单：宋体标题 + 细线列表（空清单不单独成块，由外层收成一行） */
+function WpList({
+  eyebrow,
+  title,
+  mark,
+  list,
+  tone,
+  className,
+}: {
+  eyebrow: string
+  title: string
+  mark: string
+  list: Waypoint[]
+  tone: string
+  className?: string
+}) {
   return (
-    // 手机上单列堆叠：空清单不占位置
-    <section className={cn('min-w-0', !list.length && 'hidden sm:block')}>
-      <LabelRow eyebrow={eyebrow} count={pad2(list.length)} />
+    <section className={cn('min-w-0', className)}>
+      <LabelRow eyebrow={eyebrow} count={list.length} />
       <h3 className="mt-6 flex items-baseline gap-3 text-[24px] leading-snug text-ink-900 md:text-[28px]">
         <span className={cn('font-sans text-base', tone)}>{mark}</span>
         {title}
       </h3>
-      {list.length ? (
-        <ul className="mt-5 divide-y divide-ink-200 border-t border-ink-200">
-          {list.map((w) => (
-            <li key={w.id} className="flex items-center gap-3 py-3">
-              <span className="size-1.5 shrink-0 rounded-full" style={{ background: categoryOf(w.category).color }} />
-              <span className="font-display min-w-0 flex-1 truncate text-[17px] text-ink-800">{w.name}</span>
-              {w.day > 0 && <span className="eyebrow shrink-0 !text-[10px]">Day {pad2(w.day)}</span>}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-5 border-t border-ink-200 pt-3 text-[13px] text-ink-500">—</p>
-      )}
+      <ul className="mt-5 divide-y divide-ink-200 border-t border-ink-200">
+        {list.map((w) => (
+          <li key={w.id} className="flex items-center gap-3 py-3">
+            <span className="size-1.5 shrink-0 rounded-full" style={{ background: categoryOf(w.category).color }} />
+            <span className="font-display min-w-0 flex-1 truncate text-[17px] text-ink-800">{w.name}</span>
+            {w.day > 0 && <span className="eyebrow shrink-0 !text-[10px]">Day {pad2(w.day)}</span>}
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }
@@ -121,8 +131,30 @@ export default function ComparePage() {
   const [plannedKmN, plannedKmU] = km(cmp.planned.distance_km)
   const [actualKmN, actualKmU] = km(actualKm)
   const [diffKmN, diffKmU] = km(Math.abs(distDiff))
+  const surprise = cmp.extra.length > 0
   const verdict =
-    pct >= 90 ? '几乎完美地执行了计划。' : pct >= 60 ? '大部分按计划进行，路上还有意外收获。' : '随性出发，走出了自己的路线。'
+    pct >= 100
+      ? surprise
+        ? '完美地执行了计划，路上还有意外收获。'
+        : '完美地执行了计划。'
+      : pct >= 90
+        ? '几乎完美地执行了计划。'
+        : pct >= 60
+          ? surprise
+            ? '大部分按计划进行，路上还有意外收获。'
+            : '大部分按计划进行。'
+          : '随性出发，走出了自己的路线。'
+
+  // 四份清单：有内容的才成块，空的收成一行细线小字
+  const lists = [
+    { key: 'done', eyebrow: 'Done · 完成', title: '按计划完成', short: '按计划完成', mark: '✓', list: plannedVisited, tone: 'text-emerald-700' },
+    { key: 'extra', eyebrow: 'Discovered · 新发现', title: '计划外的新发现', short: '新发现', mark: '+', list: cmp.extra, tone: 'text-violet-600' },
+    { key: 'skipped', eyebrow: 'Skipped · 跳过', title: '跳过的地点', short: '跳过', mark: '×', list: cmp.skipped, tone: 'text-ink-500' },
+    { key: 'todo', eyebrow: 'Missed · 未去', title: '没来得及去', short: '未去', mark: '?', list: cmp.todo, tone: 'text-amber-700' },
+  ]
+  const filled = lists.filter((l) => l.list.length > 0)
+  const empty = lists.filter((l) => !l.list.length)
+  const listSpan = ['', 'lg:col-span-6', 'lg:col-span-6', 'lg:col-span-4', 'lg:col-span-3'][filled.length]
 
   const counts: { label: string; value: number; dot?: string }[] = [
     { label: '计划地点', value: cmp.planned.count },
@@ -148,7 +180,7 @@ export default function ComparePage() {
               <span className="hidden sm:inline">分享</span>
             </Button>
           )}
-          <Link to={`/trips/${trip.id}/replay?compare=1`} className={buttonClass({ variant: 'primary' })}>
+          <Link to={`/trips/${trip.id}/replay?compare=1`} className={buttonClass({ variant: 'outline' })}>
             <Box className="size-4" strokeWidth={1.5} />
             <span className="hidden sm:inline">3D 对比回放</span>
             <span className="sm:hidden">3D 回放</span>
@@ -158,7 +190,9 @@ export default function ComparePage() {
 
       <header className="mt-12 md:mt-20">
         <p className="eyebrow animate-fade-in">Plan vs Actual · 计划与实际</p>
-        <h1 className="text-display-lg animate-slide-up mt-6 max-w-[20ch] text-balance text-ink-900">{trip.title}</h1>
+        <h1 className="text-display-lg animate-slide-up mt-6 max-w-[20ch] text-balance text-ink-900">
+          <CjkWords text={trip.title} />
+        </h1>
       </header>
 
       {nextSteps && (
@@ -231,7 +265,7 @@ export default function ComparePage() {
                     <span className={cn('size-1.5 rounded-full', c.dot ?? 'bg-ink-900')} aria-hidden />
                     {c.label}
                   </dt>
-                  <dd className="font-num text-[2rem] leading-none font-light text-ink-900">{pad2(c.value)}</dd>
+                  <dd className="font-num text-[2rem] leading-none font-light text-ink-900">{c.value}</dd>
                 </div>
               ))}
             </dl>
@@ -298,12 +332,25 @@ export default function ComparePage() {
         </figure>
       </Reveal>
 
-      {/* 四份清单 */}
-      <div className="mt-20 grid gap-x-8 gap-y-16 sm:grid-cols-2 md:mt-32 lg:grid-cols-4">
-        <WpList eyebrow="Done · 完成" title="按计划完成" mark="✓" list={plannedVisited} tone="text-emerald-700" />
-        <WpList eyebrow="Discovered · 新发现" title="计划外的新发现" mark="+" list={cmp.extra} tone="text-violet-600" />
-        <WpList eyebrow="Skipped · 跳过" title="跳过的地点" mark="×" list={cmp.skipped} tone="text-ink-500" />
-        <WpList eyebrow="Missed · 未去" title="没来得及去" mark="?" list={cmp.todo} tone="text-amber-700" />
+      {/* 清单：有内容的才成块；空的收成一行（跳过 0 · 未去 0 …） */}
+      <div className="mt-20 md:mt-32">
+        {filled.length > 0 && (
+          <div className="grid gap-x-8 gap-y-16 sm:grid-cols-2 lg:grid-cols-12">
+            {filled.map((l) => (
+              <WpList key={l.key} eyebrow={l.eyebrow} title={l.title} mark={l.mark} list={l.list} tone={l.tone} className={listSpan} />
+            ))}
+          </div>
+        )}
+        {empty.length > 0 && (
+          <p className={cn('flex flex-wrap items-baseline gap-x-6 gap-y-2 border-t border-ink-200 pt-4', filled.length > 0 && 'mt-14 md:mt-20')}>
+            <span className="eyebrow">Also · 其余</span>
+            {empty.map((l) => (
+              <span key={l.key} className="caption">
+                {l.short} <span className="font-num text-[15px] text-ink-900">0</span>
+              </span>
+            ))}
+          </p>
+        )}
       </div>
 
       {/* 每天的执行情况 */}

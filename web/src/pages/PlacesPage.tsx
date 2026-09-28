@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { LocateFixed, MapPinned, Search, X } from 'lucide-react'
+import { LocateFixed, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, type Category } from '@/api'
-import { FilterLinks, LabelRow, MoreButton, Note, PageHead } from '@/components/editorial'
+import { EmptyNote, FilterLinks, LabelRow, MoreButton, Note, PageHead } from '@/components/editorial'
 import { PlaceRow } from '@/components/place/PlaceCard'
-import { Button, Empty, LoadError } from '@/components/ui'
-import { cn } from '@/lib/cn'
+import { LoadError } from '@/components/ui'
 import { getCurrentPosition } from '@/lib/geo'
 import { categories, categoryList } from '@/lib/meta'
 import { flattenPages } from '@/lib/pages'
@@ -65,7 +64,7 @@ export default function PlacesPage() {
   const total = sort === 'nearby' ? (pos ? places.length : undefined) : list.data?.pages[0]?.total
 
   return (
-    <div className="mx-auto max-w-[90rem] px-4 pt-12 pb-24 md:px-8 md:pt-20 md:pb-32">
+    <div className="mx-auto max-w-[90rem] px-4 pt-12 pb-24 [font-variant-numeric:lining-nums] md:px-8 md:pt-20 md:pb-32">
       <PageHead
         eyebrow="Places · 打卡地"
         meta={total != null ? `${total} 处` : undefined}
@@ -122,42 +121,39 @@ export default function PlacesPage() {
 
           <div className="mt-8">
             <p className="eyebrow">Category · 分类</p>
-            <div
-              className="scrollbar-none -mx-4 mt-3 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0"
-              role="group"
-              aria-label="分类"
-            >
-              {city && (
+            {/* 与排序同一种写法：文字 + 当前项下划线，不用实心胶囊 */}
+            <FilterLinks<Category | ''>
+              className="mt-2 -ml-2 text-[15px]"
+              separator={false}
+              value={category as Category | ''}
+              onChange={(c) => set('category', c)}
+              options={(['', ...categoryList] as (Category | '')[]).map((c) => {
+                const Icon = c ? categories[c].icon : null
+                return {
+                  value: c,
+                  label: (
+                    <span className="inline-flex items-center gap-1.5">
+                      {Icon && <Icon className="size-3.5" strokeWidth={1.25} />}
+                      {c ? categories[c].label : '全部'}
+                    </span>
+                  ),
+                }
+              })}
+            />
+            {city && (
+              <p className="mt-4 flex items-center gap-3">
+                <span className="eyebrow">City · 城市</span>
                 <button
                   type="button"
                   onClick={() => set('city', '')}
-                  className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-ink-900 px-4 text-[13px] text-paper md:h-9"
+                  className="inline-flex h-10 items-center gap-1.5 rounded-full border border-ink-900 px-4 text-[13px] text-ink-900 transition-colors duration-300 hover:border-ink-500 md:h-9"
                   aria-label={`取消城市筛选：${city}`}
                 >
                   {city}
                   <X className="size-3.5" strokeWidth={1.5} />
                 </button>
-              )}
-              {(['', ...categoryList] as (Category | '')[]).map((c) => {
-                const on = category === c
-                const Icon = c ? categories[c].icon : null
-                return (
-                  <button
-                    key={c || 'all'}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => set('category', c)}
-                    className={cn(
-                      'inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-4 text-[13px] tracking-wide transition-colors duration-300 md:h-9',
-                      on ? 'border-ink-900 bg-ink-900 text-paper' : 'border-ink-200 text-ink-500 hover:border-ink-500 hover:text-ink-900',
-                    )}
-                  >
-                    {Icon && <Icon className="size-3.5" strokeWidth={1.25} />}
-                    {c ? categories[c].label : '全部'}
-                  </button>
-                )
-              })}
-            </div>
+              </p>
+            )}
           </div>
 
           {sort === 'avoid' && (
@@ -179,7 +175,6 @@ export default function PlacesPage() {
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="flex items-center gap-5 py-7">
                   <div className="h-10 w-12 animate-pulse rounded-sm bg-ink-100" />
-                  <div className="size-16 animate-pulse bg-ink-100 sm:size-24" />
                   <div className="flex-1 space-y-2.5">
                     <div className="h-5 w-2/5 animate-pulse rounded-sm bg-ink-100" />
                     <div className="h-3 w-3/5 animate-pulse rounded-sm bg-ink-100" />
@@ -190,11 +185,22 @@ export default function PlacesPage() {
           )}
           {!loading && failed && <LoadError error={active.error} onRetry={() => active.refetch()} />}
           {!loading && !failed && places.length === 0 && (
-            <Empty
-              icon={<MapPinned className="size-11" />}
-              title={sort === 'nearby' && !pos ? '需要定位权限' : '暂时没有打卡地'}
-              desc={sort === 'nearby' && !pos ? '允许定位后，查看附近大家打卡过的地方' : '公开旅程里的打卡点，会汇总到这里'}
-              action={sort === 'nearby' && !pos && <Button onClick={locate}>获取位置</Button>}
+            <EmptyNote
+              className="pt-8"
+              title={sort === 'nearby' && !pos ? '需要你的位置。' : '暂时没有打卡地。'}
+              desc={sort === 'nearby' && !pos ? '允许定位后，看看附近大家打卡过的地方。' : '公开旅程里的打卡点，会汇总到这里。'}
+              action={
+                sort === 'nearby' &&
+                !pos && (
+                  <button
+                    type="button"
+                    onClick={locate}
+                    className="inline-flex min-h-10 items-center gap-2 text-[13.5px] text-ink-900 underline decoration-ink-300 underline-offset-[6px] transition-colors hover:decoration-ink-900"
+                  >
+                    获取位置 <span aria-hidden>→</span>
+                  </button>
+                )
+              }
             />
           )}
           {places.length > 0 && (

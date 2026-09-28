@@ -1,8 +1,8 @@
-import { Fragment, useState } from 'react'
+import { useState } from 'react'
 import type { AdminStats } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { dayjs } from '@/lib/format'
-import { LabelRow } from './common'
+import { LabelRow, TextTabs } from './common'
 
 type Metric = 'users' | 'trips' | 'comments'
 const metrics: { value: Metric; label: string }[] = [
@@ -41,32 +41,7 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
     <div className="animate-slide-up [animation-delay:180ms] [animation-fill-mode:backwards]">
       <LabelRow
         label="Last 14 days · 近 14 天"
-        extra={
-          <div role="group" aria-label="指标" className="-mr-2 flex items-center text-[13px]">
-            {metrics.map((m, i) => (
-              <Fragment key={m.value}>
-                {i > 0 && (
-                  <span aria-hidden className="text-ink-300">
-                    /
-                  </span>
-                )}
-                <button
-                  type="button"
-                  aria-pressed={metric === m.value}
-                  onClick={() => setMetric(m.value)}
-                  className={cn(
-                    'inline-flex h-10 items-center px-2 tracking-wide whitespace-nowrap transition-colors duration-300',
-                    metric === m.value
-                      ? 'text-ink-900 underline decoration-ink-900 decoration-1 underline-offset-[7px]'
-                      : 'text-ink-400 hover:text-ink-900',
-                  )}
-                >
-                  {m.label}
-                </button>
-              </Fragment>
-            ))}
-          </div>
-        }
+        extra={<TextTabs label="指标" value={metric} onChange={setMetric} options={metrics} className="-mr-2" />}
       />
 
       <div className="mt-8 flex flex-wrap items-end justify-between gap-x-10 gap-y-4 md:mt-12">
@@ -169,9 +144,14 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
         </div>
       </div>
 
-      <details className="mt-10">
-        <summary className="inline-flex h-10 cursor-pointer items-center text-[13px] tracking-wide text-ink-500 transition-colors select-none hover:text-ink-900">
-          查看数据表
+      <details className="group/table mt-10">
+        <summary className="inline-flex h-10 cursor-pointer list-none items-center gap-2 text-[13px] tracking-wide text-ink-900 select-none [&::-webkit-details-marker]:hidden">
+          <span className="underline decoration-ink-300 underline-offset-4 transition-colors duration-300 hover:decoration-ink-900">
+            查看数据表
+          </span>
+          <span aria-hidden className="text-ink-500 transition-transform duration-300 group-open/table:rotate-90">
+            →
+          </span>
         </summary>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-[14px]">

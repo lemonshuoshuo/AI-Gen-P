@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Flag, MapPin, Phone, Plus, Share2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, isNotFound, type Photo, type Place, type TripCard, type Verdict } from '@/api'
 import { CommentSection } from '@/components/comments/CommentSection'
-import { FilterLinks, LabelRow, MoreButton, Note, Reveal, SectionHead } from '@/components/editorial'
+import { EmptyNote, FilterLinks, LabelRow, MoreButton, Note, Reveal, SectionHead } from '@/components/editorial'
 import { BaseMap } from '@/components/map/BaseMap'
 import { WaypointMarkers } from '@/components/map/layers'
 import { VerdictBar, recommendRate } from '@/components/place/PlaceCard'
@@ -13,20 +13,7 @@ import { ReportDialog, type ReportTarget } from '@/components/report/ReportDialo
 import { NavigateMenu } from '@/components/trip/NavigateMenu'
 import { PhotoViewer } from '@/components/trip/PhotoViewer'
 import { ShareSheet } from '@/components/trip/ShareDialog'
-import {
-  Avatar,
-  Button,
-  CategoryChip,
-  Empty,
-  LoadError,
-  Modal,
-  PageLoader,
-  Spinner,
-  Stars,
-  UserName,
-  VerdictBadge,
-  buttonClass,
-} from '@/components/ui'
+import { Avatar, Button, CategoryChip, Empty, LoadError, Modal, PageLoader, Spinner, Stars, buttonClass } from '@/components/ui'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useRequireAuth } from '@/hooks/useRequireAuth'
 import { invalidateTripLists } from '@/lib/cache'
@@ -35,6 +22,31 @@ import { fromNow } from '@/lib/format'
 import { phases, verdicts } from '@/lib/meta'
 import { dedupeBy } from '@/lib/pages'
 import { useAuth } from '@/stores/auth'
+
+/** 数字和紧跟的量词不拆行（「7 点」「40 分钟」），避免数字孤零零落在行尾 */
+function keepNumbers(text: string): ReactNode[] {
+  return text.split(/(\d[\d.,:]*\s?[^\s\d，。、！？,.!?]?)/).map((part, i) =>
+    i % 2 ? (
+      <span key={i} className="whitespace-nowrap">
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  )
+}
+
+/** 引语字号随长度变化：一句短评是展示字号，长段落回到阅读字号 */
+function quoteSize(text: string) {
+  const n = [...text].length
+  if (n <= 14 && !text.includes('\n')) return 'text-display-md leading-[1.25]'
+  if (n <= 60) return 'text-[1.45rem] leading-[1.6] md:text-[1.9rem] md:leading-[1.5]'
+  return 'text-[1.2rem] leading-[1.75] md:text-[1.4rem]'
+}
+
+// 地图右下角的版权说明：MapLibre 默认是白色胶囊，这里改成与左上角坐标一致的暗色毛玻璃细线胶囊
+const mapAttribution =
+  '[&_.maplibregl-ctrl-attrib]:!bg-[rgb(11_11_10/0.6)] [&_.maplibregl-ctrl-attrib]:!text-ink-500 [&_.maplibregl-ctrl-attrib]:ring-1 [&_.maplibregl-ctrl-attrib]:ring-ink-200 [&_.maplibregl-ctrl-attrib]:backdrop-blur-md [&_.maplibregl-ctrl-attrib_a]:!text-ink-500 [&_.maplibregl-ctrl-attrib-button]:!bg-transparent [&_.maplibregl-ctrl-attrib-button]:opacity-60 [&_.maplibregl-ctrl-attrib-button]:invert'
 
 /** 把地点加入自己还没结束的旅程：作为计划点追加到路线末尾 */
 function AddToTripModal({ place, open, onClose }: { place: Place; open: boolean; onClose: () => void }) {
@@ -191,11 +203,11 @@ export default function PlacePage() {
   }))
 
   return (
-    <div className="mx-auto max-w-[90rem] px-4 pt-10 pb-24 md:px-8 md:pt-16 md:pb-32">
+    <div className="mx-auto max-w-[90rem] px-4 pt-10 pb-24 [font-variant-numeric:lining-nums] md:px-8 md:pt-16 md:pb-32">
       <LabelRow
         label={
-          <nav aria-label="位置" className="flex flex-wrap items-center gap-2">
-            <Link to="/places" className="transition-colors hover:text-ink-500">
+          <nav aria-label="位置" className="-my-3 flex flex-wrap items-center gap-2 md:my-0">
+            <Link to="/places" className="inline-flex min-h-10 items-center transition-colors hover:text-ink-500 md:min-h-0">
               Places · 打卡地
             </Link>
             {place.city && (
@@ -203,7 +215,10 @@ export default function PlacePage() {
                 <span aria-hidden className="text-ink-300">
                   /
                 </span>
-                <Link to={`/places?city=${encodeURIComponent(place.city)}`} className="transition-colors hover:text-ink-500">
+                <Link
+                  to={`/places?city=${encodeURIComponent(place.city)}`}
+                  className="inline-flex min-h-10 min-w-10 items-center transition-colors hover:text-ink-500 md:min-h-0 md:min-w-0"
+                >
                   {place.city}
                 </Link>
               </>
@@ -317,7 +332,7 @@ export default function PlacePage() {
           </div>
         </div>
 
-        <figure className="relative aspect-[4/3] overflow-hidden rounded-sm bg-surface ring-1 ring-ink-200 md:aspect-[16/10] lg:col-span-8">
+        <figure className={cn('relative aspect-[4/3] overflow-hidden rounded-sm bg-surface ring-1 ring-ink-200 md:aspect-[16/10] lg:col-span-8', mapAttribution)}>
           <BaseMap className="absolute inset-0 size-full" center={[place.lng, place.lat]} zoom={15.5} navigation={false}>
             <WaypointMarkers waypoints={marker} labels={{ [place.id]: '◎' }} />
           </BaseMap>
@@ -390,80 +405,104 @@ export default function PlacePage() {
         <div className="mt-10 md:mt-16">
           {reviews.isLoadingError && <LoadError className="py-8" error={reviews.error} onRetry={() => reviews.refetch()} />}
           {!reviews.isLoading && !reviews.isLoadingError && items.length === 0 && (
-            <Empty title="暂无公开的打卡评价" desc="在旅程中打卡这里并给出评价，旅程公开后会显示在这里" className="py-10" />
+            <EmptyNote title="还没有公开的打卡评价。" desc="在旅程中打卡这里并给出评价，旅程公开后会显示在这里。" />
           )}
-          <ol className="border-b border-ink-200">
-            {items.map((r) => (
-              <li key={r.waypoint.id} className="grid gap-x-8 gap-y-5 border-t border-ink-200 py-8 md:py-12 lg:grid-cols-12">
-                {/* 左栏：谁、何时、评价（亮 + 灰的说明文字对） */}
-                <div className="flex items-start gap-3 lg:col-span-3 lg:flex-col lg:gap-4">
-                  <Avatar user={r.author} size={36} />
-                  <div className="min-w-0 flex-1">
-                    <UserName user={r.author} className="text-[13.5px] text-ink-900" />
-                    <p className="caption mt-0.5 truncate">
-                      <span className="font-num">{fromNow(r.waypoint.arrived_at ?? r.waypoint.created_at)}</span> · 来自
-                      <Link
-                        to={`/trips/${r.trip.id}`}
-                        className="ml-0.5 text-ink-600 underline decoration-ink-300 underline-offset-2 transition-colors hover:text-ink-900 hover:decoration-ink-900"
-                      >
-                        《{r.trip.title}》
-                      </Link>
-                    </p>
-                    <div className="mt-3 flex items-center gap-3">
-                      <VerdictBadge verdict={r.waypoint.verdict} className="shrink-0" />
-                      {/* 点评是那段旅程里的一个打卡点：举报这段旅程，管理员处理方式是隐藏旅程 */}
-                      {r.author.id !== me?.id && (
-                        <button
-                          type="button"
-                          className="inline-flex h-10 items-center text-xs text-ink-400 transition-colors hover:text-brand-600 md:h-8"
-                          onClick={() => requireAuth(() => setReport({ type: 'trip', id: r.trip.id }))}
-                        >
-                          举报
-                        </button>
+          {items.length > 0 && (
+            <ol className="border-b border-ink-200">
+              {items.map((r) => {
+                const v = r.waypoint.verdict ? verdicts[r.waypoint.verdict] : null
+                const photos = r.photos.slice(0, 6)
+                return (
+                  <li key={r.waypoint.id} className="grid gap-x-8 gap-y-6 border-t border-ink-200 py-8 md:py-10 lg:grid-cols-12">
+                    <div className={cn('min-w-0', photos.length ? 'lg:col-span-7' : 'lg:col-span-10')}>
+                      {r.waypoint.note ? (
+                        <blockquote>
+                          {/* 引语：宋体，半角的「」（halt）贴着栏线 */}
+                          <p
+                            className={cn(
+                              "font-display whitespace-pre-wrap text-ink-900 [font-feature-settings:'halt']",
+                              quoteSize(r.waypoint.note),
+                            )}
+                          >
+                            「{keepNumbers(r.waypoint.note)}」
+                          </p>
+                        </blockquote>
+                      ) : (
+                        <p className="caption">没有写下文字</p>
                       )}
-                    </div>
-                  </div>
-                </div>
-                <div className="min-w-0 lg:col-span-9">
-                  {r.waypoint.note ? (
-                    <p className="font-display max-w-3xl text-[1.3rem] leading-[1.7] whitespace-pre-wrap text-ink-800 md:text-[1.55rem]">{r.waypoint.note}</p>
-                  ) : (
-                    <p className="caption">没有写下文字</p>
-                  )}
-                  {(r.waypoint.rating > 0 || r.waypoint.cost > 0) && (
-                    <div className="caption mt-4 flex items-center gap-4">
-                      {r.waypoint.rating > 0 && <Stars value={r.waypoint.rating} size={12} />}
-                      {r.waypoint.cost > 0 && (
-                        <span>
-                          人均 <span className="font-num text-ink-800">¥{r.waypoint.cost}</span>
+                      {/* 一行元信息：谁 · 何时 · 来自哪段旅程 · 评价 · 评分人均 · 举报 */}
+                      <div className="mt-4 flex flex-wrap items-center gap-x-3 text-[13px] text-ink-500 md:mt-5">
+                        <Link to={`/u/${r.author.username}`} className="group/a inline-flex min-h-10 items-center gap-2.5 text-ink-900">
+                          <Avatar user={r.author} size={26} className="!bg-ink-100 !text-ink-700" />
+                          <span className="underline decoration-transparent underline-offset-4 transition-colors group-hover/a:decoration-ink-500">
+                            {r.author.nickname || r.author.username}
+                          </span>
+                        </Link>
+                        <span aria-hidden className="text-ink-300">
+                          ·
                         </span>
-                      )}
+                        <span className="font-num text-[14px]">{fromNow(r.waypoint.arrived_at ?? r.waypoint.created_at)}</span>
+                        <span aria-hidden className="text-ink-300">
+                          ·
+                        </span>
+                        <span className="inline-flex min-w-0 items-center">
+                          来自
+                          <Link
+                            to={`/trips/${r.trip.id}`}
+                            className="inline-flex min-h-10 min-w-0 items-center text-ink-700 underline decoration-ink-300 underline-offset-4 transition-colors hover:text-ink-900 hover:decoration-ink-900"
+                          >
+                            <span className="truncate">《{r.trip.title}》</span>
+                          </Link>
+                        </span>
+                        {v && (
+                          <span className="inline-flex items-center gap-1.5 tracking-wide" style={{ color: v.color }}>
+                            <span className="text-[10px] leading-none">{v.mark}</span>
+                            {v.label}
+                          </span>
+                        )}
+                        {r.waypoint.rating > 0 && <Stars value={r.waypoint.rating} size={11} />}
+                        {r.waypoint.cost > 0 && (
+                          <span>
+                            人均 <span className="font-num text-[14px] text-ink-800">¥{r.waypoint.cost}</span>
+                          </span>
+                        )}
+                        {/* 点评是那段旅程里的一个打卡点：举报这段旅程，管理员处理方式是隐藏旅程 */}
+                        {r.author.id !== me?.id && (
+                          <button
+                            type="button"
+                            className="ml-auto inline-flex min-h-10 min-w-10 items-center justify-end text-xs text-ink-400 transition-colors hover:text-brand-600"
+                            onClick={() => requireAuth(() => setReport({ type: 'trip', id: r.trip.id }))}
+                          >
+                            举报
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  )}
-                  {r.photos.length > 0 && (
-                    <div className="mt-6 grid grid-cols-3 gap-2 md:grid-cols-4 md:gap-3">
-                      {r.photos.slice(0, 8).map((p, i) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => setViewer({ list: r.photos, i })}
-                          className="group relative aspect-[4/5] overflow-hidden bg-surface"
-                          aria-label={`查看照片 ${i + 1}`}
-                        >
-                          <img
-                            src={p.thumb_url}
-                            alt=""
-                            loading="lazy"
-                            className="size-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03]"
-                          />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ol>
+                    {photos.length > 0 && (
+                      <div className="grid grid-cols-3 gap-2 self-start lg:col-span-5 lg:gap-3">
+                        {photos.map((p, i) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => setViewer({ list: r.photos, i })}
+                            className="group relative aspect-[4/5] overflow-hidden bg-surface"
+                            aria-label={`查看照片 ${i + 1}`}
+                          >
+                            <img
+                              src={p.thumb_url}
+                              alt=""
+                              loading="lazy"
+                              className="size-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03]"
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ol>
+          )}
           {reviews.hasNextPage && (
             <MoreButton loading={reviews.isFetchingNextPage} onClick={() => reviews.fetchNextPage()} className="pt-10">
               查看更多

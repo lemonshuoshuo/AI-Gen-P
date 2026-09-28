@@ -190,6 +190,8 @@
     font-synthesis-weight: none;
     letter-spacing: 0;
     line-height: 1.12;
+    /* 大字号里全角标点留白太宽：改用半角标点宽度 */
+    font-feature-settings: 'halt' 1;
   }
   ::selection {
     background: var(--color-ink-900);
@@ -279,6 +281,7 @@
 /* 超大展示标题：随屏幕宽度缩放 */
 @utility text-display-xl {
   font-family: var(--font-display);
+  font-feature-settings: 'halt' 1;
   font-weight: 400;
   font-size: clamp(2.75rem, 8.2vw, 7.5rem);
   line-height: 0.98;
@@ -286,6 +289,7 @@
 }
 @utility text-display-lg {
   font-family: var(--font-display);
+  font-feature-settings: 'halt' 1;
   font-weight: 400;
   font-size: clamp(2.25rem, 5.4vw, 4.75rem);
   line-height: 1.02;
@@ -293,6 +297,7 @@
 }
 @utility text-display-md {
   font-family: var(--font-display);
+  font-feature-settings: 'halt' 1;
   font-weight: 400;
   font-size: clamp(1.75rem, 3.4vw, 2.875rem);
   line-height: 1.08;

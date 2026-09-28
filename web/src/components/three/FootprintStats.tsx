@@ -1,5 +1,5 @@
 // 足迹的统计数字、时间线和照片：不依赖地图 / deck.gl，页面可以先显示这些，地图按需加载
-import type { CSSProperties } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { Link } from 'react-router'
 import { ArrowUpRight } from 'lucide-react'
 import type { Footprints } from '@/api/types'
@@ -48,15 +48,19 @@ export function FootprintStats({
   ]
   const line = dark ? 'border-white/12' : 'border-ink-200'
   return (
-    <div className={cn('grid grid-cols-3 border-t sm:grid-cols-6', line, className)}>
+    <div className={cn('grid grid-cols-2 border-t sm:grid-cols-3 lg:grid-cols-6', line, className)}>
       {items.map((i, k) => (
         <div
           key={i.label}
           className={cn(
-            'min-w-0 pt-3 pb-5 sm:pb-6',
-            k % 3 !== 0 ? 'border-l pl-3 sm:pl-5' : 'pr-3',
-            k >= 3 && 'border-t sm:border-t-0',
-            k === 3 && 'sm:border-l sm:pl-5',
+            'min-w-0 pt-3 pr-3 pb-5 sm:pb-6',
+            // 手机两列、平板三列、桌面一行六列：列之间竖细线，行之间横细线
+            k % 2 === 1 && 'border-l pl-3',
+            k >= 2 && 'border-t',
+            k % 3 === 0 ? 'sm:border-l-0 sm:pl-0' : 'sm:border-l sm:pl-5',
+            k >= 3 ? 'sm:border-t' : 'sm:border-t-0',
+            k > 0 && 'lg:border-l lg:pl-5',
+            'lg:border-t-0',
             line,
           )}
         >
@@ -65,7 +69,7 @@ export function FootprintStats({
             {i.label}
           </p>
           <div className="mt-3 flex items-baseline gap-1 sm:mt-4">
-            <span className={cn('font-num truncate text-[2.5rem] leading-[0.9] font-light sm:text-5xl', dark ? 'text-white' : 'text-ink-900')}>
+            <span className={cn('font-num text-[2.5rem] leading-[0.9] font-light whitespace-nowrap sm:text-5xl', dark ? 'text-white' : 'text-ink-900')}>
               {i.value}
             </span>
             {i.unit && <span className={cn('shrink-0 text-xs', dark ? 'text-white/45' : 'text-ink-400')}>{i.unit}</span>}
@@ -78,39 +82,51 @@ export function FootprintStats({
 
 /**
  * 页头的大号数字：城市、省份、里程、在路上的天数。
- * 每一格上方是细线 + 一行小标签（中文亮、英文灰），下面是超大细字 Cormorant
+ * 一行四格（手机上也是一行，数字小一号、单位并进标签），每一格上方是细线 + 一行小标签（中文亮、英文灰），下面是超大细字 Cormorant
  */
 export function FootprintNumerals({ data, className }: { data: Footprints; className?: string }) {
   const s = data.stats
   const [dist, distUnit] = km(s.distance_km)
   const items = [
-    { label: '城市', en: 'Cities', value: String(s.cities), unit: '座' },
-    { label: '省份', en: 'Provinces', value: String(s.provinces), unit: '个' },
-    { label: '里程', en: 'Distance', value: dist, unit: distUnit },
-    { label: '在路上', en: 'Days', value: String(s.days), unit: '天' },
+    { label: '城市', short: '城市', en: 'Cities', value: String(s.cities), unit: '座' },
+    { label: '省份', short: '省份', en: 'Provinces', value: String(s.provinces), unit: '个' },
+    { label: '里程', short: distUnit, en: 'Distance', value: dist, unit: distUnit },
+    { label: '在路上', short: '天数', en: 'Days', value: String(s.days), unit: '天' },
   ]
   return (
-    <div className={cn('grid grid-cols-2 lg:grid-cols-4', className)}>
+    <div className={cn('grid grid-cols-4', className)}>
       {items.map((it, k) => (
         <div
           key={it.label}
           style={stagger(k, 120)}
           className={cn(
-            'animate-slide-up min-w-0 border-t border-ink-200 pt-3 pr-4 pb-9 md:pr-6 md:pb-12 xl:pr-8',
-            k % 2 === 1 && 'border-l pl-4 max-lg:pr-0 md:pl-6',
-            k > 0 && 'lg:border-l lg:pl-6 xl:pl-8',
-            k === 3 && 'lg:pr-0',
+            'animate-slide-up min-w-0 border-t border-ink-200 pt-3 pr-2 pb-6 sm:pr-4 md:pr-6 md:pb-8 xl:pr-8',
+            k > 0 && 'border-l pl-2.5 sm:pl-4 md:pl-6 xl:pl-8',
+            k === 3 && 'pr-0 sm:pr-0 md:pr-0 xl:pr-0',
           )}
         >
           <p className="flex items-baseline justify-between gap-3">
-            <span className="text-[13px] text-ink-900">{it.label}</span>
-            <span className="eyebrow max-sm:hidden">{it.en}</span>
+            <span className="text-[12px] text-ink-900 sm:text-[13px]">
+              <span className="sm:hidden">{it.short}</span>
+              <span className="max-sm:hidden">{it.label}</span>
+            </span>
+            <span className="eyebrow max-lg:hidden">{it.en}</span>
           </p>
-          <p className="mt-7 flex min-w-0 items-baseline gap-2 md:mt-12">
-            <span className="font-num truncate text-[clamp(3.25rem,8.4vw,8.25rem)] leading-[0.8] font-light tracking-[-0.02em] text-ink-900">
+          <p className="mt-3 flex min-w-0 items-baseline gap-2 sm:mt-4 md:mt-6">
+            <span
+              className={cn(
+                'font-num font-light tracking-[-0.02em] whitespace-nowrap text-ink-900',
+                // 位数多的里程（如 12,345）小一号，保证一格放得下
+                it.value.length > 4
+                  ? 'text-[1.75rem] sm:text-[clamp(2.5rem,5.4vw,5.75rem)]'
+                  : 'text-[2.25rem] sm:text-[clamp(3rem,7vw,7.5rem)]',
+                // 行高放在字号之后：cn（tailwind-merge）会让后面的字号类覆盖前面的行高
+                'leading-[0.8]',
+              )}
+            >
               {it.value}
             </span>
-            <span className="shrink-0 text-xs text-ink-500">{it.unit}</span>
+            <span className="shrink-0 text-xs text-ink-500 max-sm:hidden">{it.unit}</span>
           </p>
         </div>
       ))}
@@ -137,18 +153,104 @@ function dateParts(start: string | null, end: string | null) {
   return { year: a.format('YYYY'), range }
 }
 
-/** 旅程时间线：一行一段旅程——左侧年份和日期，中间标题，右侧封面（没有封面时是大号宋体地名 + 细线邮戳） */
-export function FootprintTimeline({ data }: { data: Footprints }) {
-  const trips = [...data.trips].sort((a, b) => (b.start_date ?? '').localeCompare(a.start_date ?? ''))
-  if (!trips.length) return null
+/** 一行旅程（时间线）需要的数据：足迹页来自足迹数据，情侣空间来自一起的旅程列表 */
+export interface TripRowData {
+  id: number
+  title: string
+  start_date: string | null
+  end_date: string | null
+  cover: string
+  cities: string[]
+  places: number
+  distance_km: number
+  /** 打卡路线（经纬度）：没有封面时画成一条细线 */
+  path: [number, number][]
+}
+
+/** 足迹数据 → 时间线的行（按出发日期从新到旧） */
+export function footprintRows(data: Footprints): TripRowData[] {
+  return [...data.trips]
+    .sort((a, b) => (b.start_date ?? '').localeCompare(a.start_date ?? ''))
+    .map((t) => ({
+      id: t.id,
+      title: t.title,
+      start_date: t.start_date,
+      end_date: t.end_date,
+      cover: t.cover_url || t.cover_thumb_url,
+      cities: tripCities(data, t.id),
+      places: data.points.filter((p) => p.trip_id === t.id).length || t.path.length,
+      distance_km: t.distance_km,
+      path: t.path,
+    }))
+}
+
+/** 照片加载完再淡入（700ms），加载前是 surface 底色，不会「啪」地跳出来 */
+function FadeImg({ src, alt = '', className }: { src: string; alt?: string; className?: string }) {
+  const [loaded, setLoaded] = useState(false)
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      ref={(el) => {
+        // 已在缓存里的图片可能在挂上 onLoad 之前就加载完了
+        if (el?.complete && el.naturalWidth > 0 && !loaded) setLoaded(true)
+      }}
+      onLoad={() => setLoaded(true)}
+      className={cn('transition-[opacity,transform] duration-700 ease-out', loaded ? 'opacity-100' : 'opacity-0', className)}
+    />
+  )
+}
+
+/** 路线的细线：按经纬度等距投影到 4:3 的画框里，只作为排版封面的底纹 */
+function PathSketch({ path }: { path: [number, number][] }) {
+  if (path.length < 2) return null
+  const W = 400
+  const H = 300
+  const lat0 = (path.reduce((s, p) => s + p[1], 0) / path.length) * (Math.PI / 180)
+  const pts = path.map(([x, y]) => [x * Math.cos(lat0), -y] as const)
+  const xs = pts.map((p) => p[0])
+  const ys = pts.map((p) => p[1])
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+  // 画在画框的左上部（右上角是邮戳，下方是地名），像一张小小的路线图
+  const box = { x: 20, y: 30, w: 250, h: 150 }
+  const k = Math.min(box.w / (x1 - x0 || 1e-9), box.h / (y1 - y0 || 1e-9))
+  const ox = box.x + (box.w - (x1 - x0) * k) / 2
+  const oy = box.y + (box.h - (y1 - y0) * k) / 2
+  const xy = pts.map(([x, y]) => [ox + (x - x0) * k, oy + (y - y0) * k])
+  const [sx, sy] = xy[0]
+  const [ex, ey] = xy[xy.length - 1]
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="absolute inset-0 size-full" fill="none" aria-hidden>
+      <polyline
+        points={xy.map((p) => p.map((v) => v.toFixed(1)).join(',')).join(' ')}
+        className="stroke-ink-400"
+        strokeWidth={1}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      <circle cx={sx} cy={sy} r={2.5} className="fill-ink-500" />
+      <circle cx={ex} cy={ey} r={4} className="stroke-ink-500" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+    </svg>
+  )
+}
+
+/** 排版封面上的地名：字越多越小，保证一行放得下 */
+const leadSize = (n: number) =>
+  n <= 2 ? 'text-[5rem] md:text-[7rem]' : n === 3 ? 'text-[4.25rem] md:text-[5.5rem]' : 'text-[3.25rem] md:text-[4.25rem]'
+
+/** 旅程时间线：一行一段旅程——左侧年份和日期，中间标题，右侧封面（没有封面时是超大宋体地名 + 路线细线 + 邮戳） */
+export function TripRows({ rows }: { rows: TripRowData[] }) {
+  if (!rows.length) return null
   return (
     <ol className="border-b border-ink-200">
-      {trips.map((t, i) => {
-        const cities = tripCities(data, t.id)
-        const places = data.points.filter((p) => p.trip_id === t.id).length || t.path.length
-        const cover = t.cover_url || t.cover_thumb_url
+      {rows.map((t, i) => {
+        const cities = t.cities
         const d = dateParts(t.start_date, t.end_date)
         const days = t.start_date ? Math.max(1, dayjs(t.end_date ?? t.start_date).diff(dayjs(t.start_date), 'day') + 1) : null
+        const lead = cities[0] ?? t.title.slice(0, 2)
         return (
           <li key={t.id} className="border-t border-ink-200">
             <Link
@@ -165,7 +267,7 @@ export function FootprintTimeline({ data }: { data: Footprints }) {
                 <h3 className="font-display text-[1.875rem] leading-[1.08] font-normal text-ink-900 md:text-[2.75rem]">{t.title}</h3>
                 {cities.length > 0 && <p className="mt-4 text-[13px] text-ink-900">{cities.join(' · ')}</p>}
                 <p className={cn('caption', cities.length ? 'mt-0.5' : 'mt-4')}>
-                  <span className="font-num">{places}</span> 个地点 · <span className="font-num">{formatKm(t.distance_km)}</span>
+                  <span className="font-num">{t.places}</span> 个地点 · <span className="font-num">{formatKm(t.distance_km)}</span>
                 </p>
                 <span className="mt-auto hidden items-center gap-1 pt-8 text-[13px] text-ink-700 transition-colors group-hover:text-ink-900 md:inline-flex">
                   查看这段旅程
@@ -173,28 +275,23 @@ export function FootprintTimeline({ data }: { data: Footprints }) {
                 </span>
               </div>
               <div className="max-md:order-first md:col-span-4">
-                {cover ? (
-                  <div className="aspect-[4/3] overflow-hidden rounded-sm bg-ink-100">
-                    <img
-                      src={cover}
-                      alt=""
-                      loading="lazy"
-                      decoding="async"
-                      className="size-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03]"
-                    />
+                {t.cover ? (
+                  <div className="aspect-[4/3] overflow-hidden rounded-sm bg-surface">
+                    <FadeImg src={t.cover} className="size-full object-cover group-hover:scale-[1.03]" />
                   </div>
                 ) : (
-                  // 没有封面：近黑 + 超大宋体地名 + 细线邮戳
-                  <div className="relative flex aspect-[4/3] flex-col justify-end overflow-hidden rounded-sm border border-ink-200 p-5 transition-colors duration-500 group-hover:border-ink-300 md:p-6">
+                  // 没有封面：近黑 + 超大宋体地名 + 路线细线 + 邮戳，上方一条细线（不画整圈边框，不像空卡片）
+                  <div className="relative flex aspect-[4/3] flex-col justify-end overflow-hidden border-t border-ink-200 pb-1 transition-colors duration-500 group-hover:border-ink-400">
+                    <PathSketch path={t.path} />
                     <Postmark
-                      className="absolute top-4 right-4 w-20 text-ink-400 md:w-24"
-                      value={days ? String(days) : String(places)}
-                      unit={days ? 'DAYS' : 'STOPS'}
+                      className="absolute top-4 right-0 w-24 -rotate-[8deg] text-ink-500 md:w-28"
+                      value={days ? String(days).padStart(2, '0') : String(t.places)}
+                      unit={days ? (days > 1 ? 'DAYS' : 'DAY') : 'STOPS'}
                       ring={`TripHub · ${d.year} · ${Math.round(t.distance_km).toLocaleString()} km · `}
                     />
-                    <p className="font-display text-[3.5rem] leading-none text-ink-900 md:text-[4.25rem]">{cities[0] ?? t.title.slice(0, 2)}</p>
+                    <p className={cn('font-display relative text-ink-900', leadSize(lead.length), 'leading-[0.85]')}>{lead}</p>
                     {cities.length > 1 && (
-                      <p className="mt-4 flex items-center gap-3 text-xs tracking-[0.12em] text-ink-500">
+                      <p className="relative mt-4 flex items-center gap-3 text-xs tracking-[0.12em] text-ink-500">
                         <span className="h-px w-8 bg-ink-400" aria-hidden />
                         {cities.slice(1, 4).join(' · ')}
                         {cities.length > 4 && ' 等'}
@@ -211,23 +308,41 @@ export function FootprintTimeline({ data }: { data: Footprints }) {
   )
 }
 
-/** 足迹里的照片：错落的竖幅照片，说明文字在下方（地点亮、城市与日期灰） */
+/** 足迹页的旅程时间线 */
+export function FootprintTimeline({ data }: { data: Footprints }) {
+  return <TripRows rows={footprintRows(data)} />
+}
+
+// 照片的不对称网格（桌面 12 栏）：第一张是 5 栏宽的主图，其余按固定的节奏错落，像杂志的跨页而不是一排缩略图
+const MOMENT_LAYOUT = [
+  'lg:col-span-5',
+  'lg:col-span-3 lg:col-start-7 lg:mt-24',
+  'lg:col-span-3 lg:mt-48',
+  'lg:col-span-3 lg:col-start-2 lg:mt-16',
+  'lg:col-span-4 lg:col-start-6 lg:mt-40',
+  'lg:col-span-3 lg:col-start-10 lg:mt-8',
+  'lg:col-span-4 lg:col-start-1 lg:mt-12',
+  'lg:col-span-3 lg:col-start-7 lg:mt-32',
+]
+
+/** 足迹里的照片：不对称的竖幅照片，说明文字在下方（地点亮、城市与日期灰） */
 export function FootprintMoments({ data, limit = 8 }: { data: Footprints; limit?: number }) {
   const shots = data.points.filter((p) => p.photo_thumb_url).slice(-limit).reverse()
   if (!shots.length) return null
   return (
-    <ul className="grid grid-cols-2 gap-x-4 gap-y-10 sm:grid-cols-3 md:gap-x-6 lg:grid-cols-5">
+    <ul className="grid grid-cols-2 gap-x-4 gap-y-10 md:gap-x-6 lg:grid-cols-12 lg:gap-x-8 lg:gap-y-12">
       {shots.map((p, i) => (
-        <li key={`${p.trip_id}-${p.waypoint_id ?? i}-${p.name}`} className={cn(i % 2 === 1 && 'mt-12 md:mt-20', i % 5 === 2 && 'lg:mt-8')}>
+        <li
+          key={`${p.trip_id}-${p.waypoint_id ?? i}-${p.name}`}
+          className={cn(
+            // 手机 / 平板：第一张占满两栏，其余两栏错落
+            i === 0 ? 'col-span-2' : i % 2 === 0 && 'mt-12 md:mt-20',
+            MOMENT_LAYOUT[i % MOMENT_LAYOUT.length],
+          )}
+        >
           <Link to={`/trips/${p.trip_id}`} className="group block">
-            <div className="aspect-[4/5] overflow-hidden rounded-sm bg-ink-100">
-              <img
-                src={p.photo_thumb_url}
-                alt={p.name}
-                loading="lazy"
-                decoding="async"
-                className="size-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03]"
-              />
+            <div className={cn('overflow-hidden rounded-sm bg-surface', i === 0 ? 'aspect-[4/5] max-lg:aspect-[3/2]' : 'aspect-[4/5]')}>
+              <FadeImg src={p.photo_thumb_url!} alt={p.name} className="size-full object-cover group-hover:scale-[1.03]" />
             </div>
             <p className="mt-3 truncate text-[13px] text-ink-900">{p.name}</p>
             <p className="caption truncate">

@@ -22,6 +22,8 @@ export interface BaseMapProps {
   pitch?: number
   bearing?: number
   kind?: BaseKind
+  /** 覆盖主栅格图层（th-normal）的调色，如完全去色；只影响这张地图，卫星图不受影响 */
+  rasterTone?: Partial<Record<'raster-saturation' | 'raster-contrast' | 'raster-brightness-min' | 'raster-brightness-max' | 'raster-opacity', number>>
   /** 显示右上角底图切换 */
   kindSwitcher?: boolean
   /** 显示定位按钮 */
@@ -69,7 +71,7 @@ async function addAtlasFallback(map: MLMap, kind: () => BaseKind) {
 
 /** 地图上的细线小胶囊（底图切换、定位、全程等）：近黑玻璃 + 细亮线；手机上高 40px 方便手指点 */
 export const mapChipClass =
-  'glass flex h-10 items-center justify-center gap-1.5 rounded-full border border-white/15 px-3.5 text-xs font-medium tracking-[0.04em] text-ink-800 transition-colors duration-300 hover:border-white/40 hover:text-ink-900 disabled:opacity-45 sm:h-9'
+  'glass flex h-10 items-center justify-center gap-1.5 rounded-full border border-white/25 px-3.5 text-xs font-medium tracking-[0.04em] text-ink-800 transition-colors duration-300 hover:border-white/50 hover:text-ink-900 disabled:opacity-45 sm:h-9'
 
 export function BaseMap({
   className,
@@ -78,6 +80,7 @@ export function BaseMap({
   pitch = 0,
   bearing = 0,
   kind = 'normal',
+  rasterTone,
   kindSwitcher,
   locate,
   onLocate,
@@ -100,6 +103,8 @@ export function BaseMap({
   const attribution = site?.map.attribution || defaultAttribution
   const onReadyRef = useRef(onReady)
   onReadyRef.current = onReady
+  const toneRef = useRef(rasterTone)
+  toneRef.current = rasterTone
 
   useEffect(() => {
     // 等站点配置（瓦片地址）加载完再创建地图
@@ -148,7 +153,12 @@ export function BaseMap({
   }, [isPending])
 
   useEffect(() => {
-    if (map) setBaseKind(map, baseKind)
+    if (!map) return
+    setBaseKind(map, baseKind)
+    // 切换底图会重设调色：之后再覆盖
+    const tone = toneRef.current
+    if (tone && baseKind !== 'satellite' && map.getLayer('th-normal'))
+      for (const [k, v] of Object.entries(tone)) map.setPaintProperty('th-normal', k as 'raster-saturation', v)
   }, [map, baseKind])
 
   useEffect(() => setKind(kind), [kind])

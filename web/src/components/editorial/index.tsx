@@ -1,6 +1,7 @@
 // 「夜航」版式积木：细线区块头、页头、文字筛选、注记、细线邮戳、滚动淡入
 // 只给发现 / 社区相关页面用，样式全部取自 index.css 的令牌
-import { Fragment, useEffect, useId, useRef, useState, type CSSProperties, type ElementType, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type CSSProperties, type ElementType, type ReactNode } from 'react'
+import { Link } from 'react-router'
 import { cn } from '@/lib/cn'
 
 /* ---------------- 细线标签行：一条 border-t，下面左侧 eyebrow + 灰色计数，右侧操作 ---------------- */
@@ -20,10 +21,11 @@ export function LabelRow({
 }) {
   return (
     <div className={cn('flex min-h-12 flex-wrap items-center justify-between gap-x-6 gap-y-1 border-t border-ink-200 pt-3 pb-1', className)}>
-      <p id={id} className="flex min-w-0 items-baseline gap-3">
+      {/* div 而不是 p：标签里可能放导航（面包屑） */}
+      <div id={id} className="flex min-w-0 items-baseline gap-3">
         <span className="eyebrow !text-ink-800">{label}</span>
-        {count != null && count !== '' && <span className="font-num text-[13px] text-ink-400">{count}</span>}
-      </p>
+        {count != null && count !== '' && <span className="font-num text-[14px] leading-none text-ink-400">{count}</span>}
+      </div>
       {extra}
     </div>
   )
@@ -50,7 +52,7 @@ export function PageHead({
     <header className={cn('animate-slide-up', className)}>
       {eyebrow && <LabelRow label={eyebrow} extra={meta && <span className="font-num text-[13px] text-ink-400">{meta}</span>} />}
       <div className="mt-10 grid gap-x-8 gap-y-6 md:mt-16 lg:grid-cols-12 lg:items-end">
-        <h1 className="text-display-lg font-normal max-sm:text-[3.25rem] lg:col-span-7">{title}</h1>
+        <h1 className="text-display-lg font-normal [font-variant-numeric:lining-nums] max-sm:text-[3.25rem] lg:col-span-7">{title}</h1>
         {(dek || actions) && (
           <div className="flex flex-col items-start gap-6 lg:col-span-4 lg:col-start-9 lg:pb-3">
             {dek && <p className="max-w-sm text-[14.5px] leading-[1.8] text-pretty text-ink-500">{dek}</p>}
@@ -84,7 +86,7 @@ export function SectionHead({
     <div className={className}>
       <LabelRow label={eyebrow} count={count} extra={extra} />
       {title && (
-        <h2 id={id} className={cn('text-display-md mt-8 md:mt-12', titleClassName)}>
+        <h2 id={id} className={cn("text-display-md mt-8 [font-feature-settings:'halt'] [font-variant-numeric:lining-nums] md:mt-12", titleClassName)}>
           {title}
         </h2>
       )}
@@ -98,6 +100,7 @@ export function FilterLinks<T extends string>({
   onChange,
   options,
   label,
+  separator = true,
   className,
 }: {
   value: T
@@ -105,10 +108,12 @@ export function FilterLinks<T extends string>({
   options: { value: T; label: ReactNode }[]
   /** 组名：显示为 eyebrow，同时作为读屏的分组名称 */
   label?: string
+  /** 选项之间的斜线；false 时只用间距分隔（选项多、会折行时） */
+  separator?: boolean
   className?: string
 }) {
   return (
-    <div role="group" aria-label={label} className={cn('flex flex-wrap items-center text-[13.5px]', className)}>
+    <div role="group" aria-label={label} className={cn('flex flex-wrap items-center text-[13.5px]', !separator && 'gap-x-3', className)}>
       {label && (
         <span aria-hidden className="eyebrow mr-2">
           {label}
@@ -117,8 +122,9 @@ export function FilterLinks<T extends string>({
       {options.map((o, i) => {
         const active = o.value === value
         return (
-          <Fragment key={o.value || '_all'}>
-            {i > 0 && (
+          // 斜线和它后面的选项是一个整体：折行时斜线只会出现在行首，不会孤零零挂在行尾
+          <span key={o.value || '_all'} className="inline-flex items-center">
+            {separator && i > 0 && (
               <span aria-hidden className="text-ink-300">
                 /
               </span>
@@ -136,10 +142,49 @@ export function FilterLinks<T extends string>({
             >
               {o.label}
             </button>
-          </Fragment>
+          </span>
         )
       })}
     </div>
+  )
+}
+
+/* ---------------- 空状态：细线下左对齐的一行宋体 + 灰字说明 + 文字链接（不用图标和胶囊按钮） ---------------- */
+export function EmptyNote({
+  title,
+  desc,
+  action,
+  className,
+}: {
+  title: ReactNode
+  desc?: ReactNode
+  action?: ReactNode
+  className?: string
+}) {
+  return (
+    <div className={cn('animate-fade-in max-w-2xl', className)}>
+      <p className="text-display-md text-ink-900 [font-feature-settings:'halt'] [font-variant-numeric:lining-nums]">{title}</p>
+      {desc && <p className="caption mt-3 max-w-md text-[14px] leading-relaxed text-pretty">{desc}</p>}
+      {action && <div className="mt-5 flex flex-wrap items-center gap-x-8">{action}</div>}
+    </div>
+  )
+}
+
+/** 文字 + →：安静的链接式操作（手机上 40px 高） */
+export function TextLink({ to, children, className }: { to: string; children: ReactNode; className?: string }) {
+  return (
+    <Link
+      to={to}
+      className={cn(
+        'group inline-flex min-h-10 items-center gap-2 text-[13.5px] text-ink-900 underline decoration-ink-300 underline-offset-[6px] transition-colors duration-300 hover:decoration-ink-900',
+        className,
+      )}
+    >
+      {children}
+      <span aria-hidden className="no-underline transition-transform duration-300 group-hover:translate-x-0.5">
+        →
+      </span>
+    </Link>
   )
 }
 
@@ -177,6 +222,7 @@ export function Postmark({
   value,
   unit,
   ring,
+  ringClassName,
   className,
   waves,
 }: {
@@ -184,6 +230,8 @@ export function Postmark({
   unit: string
   /** 沿外圈排的一行小字，自动撑满一圈 */
   ring: string
+  /** 环形小字的类名：窄小的邮戳上可以按容器宽度隐藏 */
+  ringClassName?: string
   className?: string
   /** 邮戳左侧的波浪注销线 */
   waves?: boolean
@@ -208,7 +256,16 @@ export function Postmark({
         ))}
       <circle cx={50} cy={50} r={47} strokeWidth={0.7} />
       <circle cx={50} cy={50} r={31} strokeWidth={0.5} />
-      <text fill="currentColor" stroke="none" fontFamily="var(--font-sans)" fontSize={5.6} fontWeight={500} letterSpacing={0.6} style={{ textTransform: 'uppercase' }}>
+      <text
+        className={ringClassName}
+        fill="currentColor"
+        stroke="none"
+        fontFamily="var(--font-sans)"
+        fontSize={5.6}
+        fontWeight={500}
+        letterSpacing={0.6}
+        style={{ textTransform: 'uppercase' }}
+      >
         <textPath href={`#${id}`} textLength={circ - 5} lengthAdjust="spacing">
           {ring}
         </textPath>

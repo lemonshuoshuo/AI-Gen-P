@@ -54,10 +54,12 @@ export function ReportDialog({ target, onClose }: { target: ReportTarget | null;
               aria-pressed={on}
               onClick={() => pick(r)}
               className={cn(
-                'h-9 rounded-full border px-3.5 text-[13px] tracking-wide transition-colors duration-300',
-                on ? 'border-ink-900 bg-ink-900 text-paper' : 'border-ink-200 text-ink-500 hover:border-ink-500 hover:text-ink-900',
+                'inline-flex h-10 items-center gap-2 rounded-full border px-4 text-[13px] tracking-wide transition-colors duration-300 md:h-9',
+                on ? 'border-ink-900 text-ink-900' : 'border-ink-200 text-ink-500 hover:border-ink-500 hover:text-ink-900',
               )}
             >
+              {/* 选中：细线 + 象牙白小圆点，不用实心底色（弹窗里只有「提交」一个实心按钮） */}
+              {on && <span aria-hidden className="size-[5px] rounded-full bg-ink-900" />}
               {r}
             </button>
           )

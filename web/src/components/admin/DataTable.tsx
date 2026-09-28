@@ -1,6 +1,5 @@
-import type { ReactNode } from 'react'
-import { Inbox } from 'lucide-react'
-import { Empty, Pagination, Spinner } from '@/components/ui'
+import { Fragment, type ReactNode } from 'react'
+import { Pagination, Spinner } from '@/components/ui'
 import { cn } from '@/lib/cn'
 
 export interface Column<T> {
@@ -9,10 +8,12 @@ export interface Column<T> {
   cell: (row: T) => ReactNode
   /** 桌面端单元格样式（宽度、对齐等） */
   className?: string
-  /** 移动端卡片中作为标题区域展示（不带标签） */
-  primary?: boolean
-  /** 移动端卡片中隐藏 */
-  hideOnMobile?: boolean
+  /**
+   * 小屏列表中的位置：primary = 标题区域；meta（默认）= 标题下一行灰色说明，各列用「 · 」连接；hide = 不显示
+   */
+  mobile?: 'primary' | 'meta' | 'hide'
+  /** 小屏说明行里的简短写法（默认用 cell）；返回空值时该项不显示 */
+  meta?: (row: T) => ReactNode
 }
 
 /**
@@ -25,6 +26,7 @@ export function DataTable<T>({
   rowKey,
   actions,
   compactActions,
+  metaClassName,
   loading,
   fetching,
   emptyText = '暂无数据',
@@ -39,6 +41,8 @@ export function DataTable<T>({
   actions?: (row: T) => ReactNode
   /** 操作只有一个图标（如「更多」菜单）时，移动端放在卡片右上角 */
   compactActions?: boolean
+  /** 小屏说明行的缩进（与标题区域里头像右侧的文字对齐） */
+  metaClassName?: string
   loading?: boolean
   /** 翻页 / 筛选时的后台刷新 */
   fetching?: boolean
@@ -55,15 +59,16 @@ export function DataTable<T>({
         <Spinner className="size-6" />
       </div>
     )
+  // 空状态：左对齐的一句宋体，不用图标
   if (!rows?.length)
     return (
-      <div className="border-y border-ink-200">
-        <Empty className="py-20" icon={<Inbox className="size-9" />} title={emptyText} />
+      <div className="border-y border-ink-200 py-14 md:py-20">
+        <p className="text-display-md font-normal text-ink-700">{emptyText}</p>
       </div>
     )
 
-  const primary = columns.filter((c) => c.primary)
-  const rest = columns.filter((c) => !c.primary && !c.hideOnMobile)
+  const primary = columns.filter((c) => c.mobile === 'primary')
+  const meta = columns.filter((c) => (c.mobile ?? 'meta') === 'meta')
 
   return (
     <div className={cn('transition-opacity duration-300', fetching && 'opacity-60')}>
@@ -102,31 +107,38 @@ export function DataTable<T>({
         </table>
       </div>
 
-      {/* 移动端：排版 + 细线的列表，而不是一张张卡片 */}
+      {/* 移动端：标题区域 + 一行灰色说明（「Lv.1 新手旅人 · 1 段旅程 · 5 小时前」），细线分隔 */}
       <ul className="divide-y divide-ink-200 border-y border-ink-200 lg:hidden">
-        {rows.map((r) => (
-          <li key={rowKey(r)} className="relative py-6">
-            {primary.map((c) => (
-              <div key={c.key} className={cn('min-w-0', compactActions && 'pr-11')}>
-                {c.cell(r)}
-              </div>
-            ))}
-            {actions && compactActions && <div className="absolute top-5 -right-1.5">{actions(r)}</div>}
-            {rest.length > 0 && (
-              <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 text-[14px]">
-                {rest.map((c) => (
-                  <div key={c.key} className="min-w-0">
-                    <dt className="eyebrow">{c.header}</dt>
-                    <dd className="mt-1 min-w-0">{c.cell(r)}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
-            {actions && !compactActions && (
-              <div className="-mr-2 mt-4 flex flex-wrap items-center justify-end gap-1">{actions(r)}</div>
-            )}
-          </li>
-        ))}
+        {rows.map((r) => {
+          const metas = meta.map((c) => ({ key: c.key, node: (c.meta ?? c.cell)(r) })).filter((m) => m.node != null && m.node !== false && m.node !== '')
+          return (
+            <li key={rowKey(r)} className="relative py-5">
+              {primary.map((c) => (
+                <div key={c.key} className={cn('min-w-0', compactActions && 'pr-11')}>
+                  {c.cell(r)}
+                </div>
+              ))}
+              {actions && compactActions && <div className="absolute top-4 -right-2">{actions(r)}</div>}
+              {metas.length > 0 && (
+                <p className={cn('caption mt-2 flex flex-wrap items-center gap-x-2 gap-y-1', metaClassName)}>
+                  {metas.map((m, i) => (
+                    <Fragment key={m.key}>
+                      {i > 0 && (
+                        <span aria-hidden className="text-ink-300">
+                          ·
+                        </span>
+                      )}
+                      <span className="min-w-0">{m.node}</span>
+                    </Fragment>
+                  ))}
+                </p>
+              )}
+              {actions && !compactActions && (
+                <div className="-mr-2 mt-3 flex flex-wrap items-center justify-end gap-1">{actions(r)}</div>
+              )}
+            </li>
+          )
+        })}
       </ul>
 
       <div className="pt-6">

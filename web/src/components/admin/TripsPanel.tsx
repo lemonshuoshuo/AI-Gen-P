@@ -3,34 +3,53 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { Check, Eye, EyeOff, Heart, MessageCircle, Route, Star, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type TripCard } from '@/api'
-import { Select, UserName, confirmDialog } from '@/components/ui'
+import { MenuItem, Select, confirmDialog } from '@/components/ui'
 import { invalidateTripLists } from '@/lib/cache'
 import { cn } from '@/lib/cn'
 import { fmtCount, fromNow } from '@/lib/format'
 import { phases, visibilities } from '@/lib/meta'
-import { ActionButton, ADMIN_PAGE_SIZE, FilterBar, FilterSlot, PanelHeader, Pill, SearchInput, useFilters, usePageGuard } from './common'
+import {
+  ADMIN_PAGE_SIZE,
+  FilterBar,
+  FilterSlot,
+  PanelHeader,
+  PersonName,
+  Pill,
+  RowMenu,
+  SearchInput,
+  useFilters,
+  usePageGuard,
+} from './common'
 import { DataTable, type Column } from './DataTable'
 
-// 没有封面时：淡矿物色块 + 宋体城市首字；颜色按字取，同一座城市颜色一致
-const thumbColors = ['#3f6975', '#3e7a68', '#6b5b8a', '#b7832f', '#9d4a5f', '#4b4740']
-
+/**
+ * 封面：4:5 照片，悬停缓慢放大。没有封面时不画框，近黑底上一个灰色大号宋体城市首字（邮戳是字，不是方块）
+ */
 function Thumb({ trip }: { trip: TripCard }) {
   const label = (trip.cities[0] || trip.title).trim().slice(0, 1)
-  const color = thumbColors[(label.codePointAt(0) ?? trip.id) % thumbColors.length]
   return (
-    <div
-      className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md"
-      style={trip.cover_url ? undefined : { background: color + '1a', boxShadow: `inset 0 0 0 1px ${color}33`, color }}
-    >
+    <div className="flex h-20 w-16 shrink-0 items-center justify-center overflow-hidden rounded-[2px]">
       {trip.cover_url ? (
-        <img src={trip.cover_thumb_url || trip.cover_url} alt="" loading="lazy" className="size-full object-cover" />
+        <img
+          src={trip.cover_thumb_url || trip.cover_url}
+          alt=""
+          loading="lazy"
+          className="size-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]"
+        />
       ) : label ? (
-        <span className="font-display text-lg">{label}</span>
+        <span className="font-display text-[2rem] leading-none text-ink-500 transition-colors duration-300 group-hover:text-ink-700">{label}</span>
       ) : (
-        <Route className="size-5" strokeWidth={1.5} />
+        <Route className="size-6 text-ink-500" strokeWidth={1} />
       )}
     </div>
   )
+}
+
+/** 状态胶囊：待审核是全站统一的朱砂小点，已隐藏是空心点；正常不显示胶囊 */
+function StatusPill({ t }: { t: TripCard }) {
+  if (t.status === 'pending') return <Pill tone="brand">待审核</Pill>
+  if (t.status === 'hidden') return <Pill tone="hollow">已隐藏</Pill>
+  return null
 }
 
 export function TripsPanel() {
@@ -116,14 +135,36 @@ export function TripsPanel() {
     {
       key: 'trip',
       header: '旅程',
-      primary: true,
+      mobile: 'primary',
       cell: (t) => (
-        <Link to={`/trips/${t.id}`} className="group flex min-w-0 items-center gap-3">
+        <Link to={`/trips/${t.id}`} className="group flex min-w-0 items-center gap-4 lg:gap-5">
           <Thumb trip={t} />
           <div className="min-w-0">
-            <div className="font-display line-clamp-1 text-[15px] text-ink-900 group-hover:text-brand-600">{t.title}</div>
-            <div className="truncate text-xs text-ink-400">
+            <div className="font-display line-clamp-1 text-[19px] leading-snug text-ink-900 underline decoration-transparent underline-offset-4 transition-colors duration-300 group-hover:decoration-ink-500 lg:text-[20px]">
+              {t.title}
+            </div>
+            <div className="caption mt-1 truncate">
               {t.cities.slice(0, 3).join(' · ') || '未设置城市'} · {fromNow(t.created_at)}
+            </div>
+            {/* 小屏：作者、可见性和不正常的状态并成一行 */}
+            <div className="caption mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 lg:hidden">
+              <span className="max-w-[9rem] truncate text-ink-700">{t.author.nickname || t.author.username}</span>
+              <span aria-hidden className="text-ink-300">
+                ·
+              </span>
+              <span>{visibilities[t.visibility]?.label ?? t.visibility}</span>
+              {t.featured && (
+                <>
+                  <span aria-hidden className="text-ink-300">
+                    ·
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-ink-700">
+                    <Star className="size-3 fill-current" strokeWidth={1.5} />
+                    精选
+                  </span>
+                </>
+              )}
+              <StatusPill t={t} />
             </div>
           </div>
         </Link>
@@ -132,33 +173,29 @@ export function TripsPanel() {
     {
       key: 'author',
       header: '作者',
-      className: 'max-w-36',
-      cell: (t) => <UserName user={t.author} className="max-w-full text-sm" />,
+      className: 'max-w-40',
+      mobile: 'hide',
+      cell: (t) => <PersonName user={t.author} className="max-w-full text-[14px]" />,
     },
     {
       key: 'visibility',
       header: '可见性',
       className: 'whitespace-nowrap',
-      cell: (t) => <span className="text-ink-700">{visibilities[t.visibility]?.label ?? t.visibility}</span>,
+      mobile: 'hide',
+      cell: (t) => <span className="text-[13px] text-ink-700">{visibilities[t.visibility]?.label ?? t.visibility}</span>,
     },
     {
       key: 'status',
       header: '状态',
+      mobile: 'hide',
       cell: (t) => (
         <div className="flex flex-wrap gap-1">
-          {t.status === 'pending' ? (
-            <Pill tone="amber">待审核</Pill>
-          ) : t.status === 'hidden' ? (
-            <Pill tone="red">已隐藏</Pill>
-          ) : (
-            <span className="px-0.5 text-xs leading-5 text-ink-500">正常</span>
+          <StatusPill t={t} />
+          {t.status !== 'pending' && t.status !== 'hidden' && (
+            <span className="px-0.5 text-[13px] leading-[22px] text-ink-500">正常</span>
           )}
-          {t.featured && (
-            <Pill tone="amber" icon={<Star className="size-3 fill-current" strokeWidth={1.5} />}>
-              精选
-            </Pill>
-          )}
-          <Pill tone="gray">{phases[t.phase]?.label ?? t.phase}</Pill>
+          {t.featured && <Pill icon={<Star className="size-3 fill-current" strokeWidth={1.5} />}>精选</Pill>}
+          <Pill>{phases[t.phase]?.label ?? t.phase}</Pill>
         </div>
       ),
     },
@@ -166,18 +203,19 @@ export function TripsPanel() {
       key: 'data',
       header: '数据',
       className: 'whitespace-nowrap',
+      mobile: 'hide',
       cell: (t) => (
-        <span className="font-num inline-flex items-center gap-3 text-[13px] text-ink-500">
-          <span className="inline-flex items-center gap-1" title="浏览">
-            <Eye className="size-3.5 text-ink-400" strokeWidth={1.5} />
+        <span className="font-num inline-flex items-center gap-4 text-[15px] text-ink-700">
+          <span className="inline-flex items-center gap-1.5" title="浏览">
+            <Eye className="size-3.5 text-ink-400" strokeWidth={1.25} />
             {fmtCount(t.view_count)}
           </span>
-          <span className="inline-flex items-center gap-1" title="点赞">
-            <Heart className="size-3.5 text-ink-400" strokeWidth={1.5} />
+          <span className="inline-flex items-center gap-1.5" title="点赞">
+            <Heart className="size-3.5 text-ink-400" strokeWidth={1.25} />
             {fmtCount(t.like_count)}
           </span>
-          <span className="inline-flex items-center gap-1" title="评论">
-            <MessageCircle className="size-3.5 text-ink-400" strokeWidth={1.5} />
+          <span className="inline-flex items-center gap-1.5" title="评论">
+            <MessageCircle className="size-3.5 text-ink-400" strokeWidth={1.25} />
             {fmtCount(t.comment_count)}
           </span>
         </span>
@@ -185,37 +223,48 @@ export function TripsPanel() {
     },
   ]
 
+  // 每行只有一个「…」：审核、精选、隐藏与删除都收在菜单里，危险操作的朱砂只在菜单里出现
   const actions = (t: TripCard) => (
-    <>
-      {t.status === 'pending' ? (
+    <RowMenu>
+      {(close) => (
         <>
-          <ActionButton
-            label="通过"
-            className="text-emerald-700 hover:bg-emerald-50"
-            icon={<Check className="size-3.5" />}
-            onClick={() => update.mutate({ id: t.id, body: { status: 'normal' }, ok: '已通过，旅程已公开' })}
-          />
-          <ActionButton label="驳回" danger icon={<X className="size-3.5" />} onClick={() => reject(t)} />
-        </>
-      ) : (
-        <>
-          <ActionButton
-            label={t.featured ? '取消精选' : '设为精选'}
-            className={cn(t.featured && 'text-amber-600')}
-            icon={<Star className={cn('size-3.5', t.featured && 'fill-amber-400 text-amber-400')} />}
-            onClick={() =>
-              update.mutate({ id: t.id, body: { featured: !t.featured }, ok: t.featured ? '已取消精选' : '已设为精选' })
-            }
-          />
-          <ActionButton
-            label={t.status === 'hidden' ? '恢复显示' : '隐藏'}
-            icon={t.status === 'hidden' ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-            onClick={() => toggleHidden(t)}
-          />
+          {t.status === 'pending' ? (
+            <>
+              <MenuItem
+                icon={<Check className="size-4" />}
+                onClick={() => (close(), update.mutate({ id: t.id, body: { status: 'normal' }, ok: '已通过，旅程已公开' }))}
+              >
+                通过审核
+              </MenuItem>
+              <MenuItem icon={<X className="size-4" />} onClick={() => (close(), reject(t))}>
+                驳回
+              </MenuItem>
+            </>
+          ) : (
+            <>
+              <MenuItem
+                icon={<Star className={cn('size-4', t.featured && 'fill-current')} />}
+                onClick={() => (
+                  close(),
+                  update.mutate({ id: t.id, body: { featured: !t.featured }, ok: t.featured ? '已取消精选' : '已设为精选' })
+                )}
+              >
+                {t.featured ? '取消精选' : '设为精选'}
+              </MenuItem>
+              <MenuItem
+                icon={t.status === 'hidden' ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+                onClick={() => (close(), toggleHidden(t))}
+              >
+                {t.status === 'hidden' ? '恢复显示' : '隐藏'}
+              </MenuItem>
+            </>
+          )}
+          <MenuItem icon={<Trash2 className="size-4" />} danger onClick={() => (close(), del(t))}>
+            删除
+          </MenuItem>
         </>
       )}
-      <ActionButton label="删除" danger icon={<Trash2 className="size-3.5" />} onClick={() => del(t)} />
-    </>
+    </RowMenu>
   )
 
   return (
@@ -227,11 +276,11 @@ export function TripsPanel() {
           data ? (
             f.status === 'pending' ? (
               <>
-                <span className="font-num text-base text-ink-900">{data.total}</span> 段公开旅程等待审核
+                <span className="font-num text-[17px] text-ink-900">{data.total}</span> 段公开旅程等待审核
               </>
             ) : (
               <>
-                共 <span className="font-num text-base text-ink-900">{data.total}</span> 段旅程
+                共 <span className="font-num text-[17px] text-ink-900">{data.total}</span> 段旅程
               </>
             )
           ) : undefined
@@ -263,6 +312,7 @@ export function TripsPanel() {
         columns={columns}
         rowKey={(t) => t.id}
         actions={actions}
+        compactActions
         loading={isLoading}
         fetching={isFetching}
         emptyText="没有符合条件的旅程"

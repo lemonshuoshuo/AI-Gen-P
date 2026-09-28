@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Heart, Map as MapIcon, Plus } from 'lucide-react'
+import { Heart, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type Phase, type TripCard, type UserBrief, type Visibility } from '@/api'
-import { FilterLinks, LabelRow, MoreButton, PageHead, cityShort } from '@/components/editorial'
+import { EmptyNote, FilterLinks, LabelRow, MoreButton, PageHead, TextLink, cityShort } from '@/components/editorial'
 import { TripGrid, TripGridSkeleton } from '@/components/trip/TripCard'
-import { Avatar, Button, Empty, LoadError } from '@/components/ui'
+import { Avatar, Button, LoadError } from '@/components/ui'
 import { fromNow } from '@/lib/format'
 import { phases, visibilities } from '@/lib/meta'
 import { flattenPages } from '@/lib/pages'
@@ -22,7 +22,6 @@ function MiniCover({ trip }: { trip: TripCard }) {
       ) : (
         <span className="font-display absolute bottom-2 left-2 text-[1.35rem] leading-none">{cityShort(trip.cities?.[0] ?? '').slice(0, 2) || '旅'}</span>
       )}
-      <span aria-hidden className="pointer-events-none absolute inset-0 ring-1 ring-ink-200 ring-inset" />
     </div>
   )
 }
@@ -84,7 +83,7 @@ export default function MyTripsPage() {
   const partnerInvites = invites.data?.partner_invites ?? []
 
   return (
-    <div className="mx-auto max-w-[90rem] px-4 pt-12 pb-24 md:px-8 md:pt-20 md:pb-32">
+    <div className="mx-auto max-w-[90rem] px-4 pt-12 pb-24 [font-variant-numeric:lining-nums] md:px-8 md:pt-20 md:pb-32">
       <PageHead
         eyebrow="My Journeys · 我的旅程"
         meta={total != null && !filtered ? `${total} 段` : undefined}
@@ -154,17 +153,12 @@ export default function MyTripsPage() {
           <LoadError error={q.error} onRetry={() => q.refetch()} />
         ) : trips.length === 0 ? (
           filtered ? (
-            <Empty icon={<MapIcon className="size-11" />} title="没有符合条件的旅程" desc="换个筛选条件试试" />
+            <EmptyNote title="没有符合条件的旅程。" desc="换个筛选条件试试。" />
           ) : (
-            <Empty
-              icon={<MapIcon className="size-11" />}
-              title="还没有旅程"
-              desc="规划一条路线，或者记录一次说走就走的旅行"
-              action={
-                <Button icon={<Plus className="size-4" strokeWidth={1.5} />} onClick={() => nav('/trips/new')}>
-                  创建第一段旅程
-                </Button>
-              }
+            <EmptyNote
+              title="还没有旅程。"
+              desc="规划一条路线，或者记录一次说走就走的旅行。"
+              action={<TextLink to="/trips/new">创建第一段旅程</TextLink>}
             />
           )
         ) : (

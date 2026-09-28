@@ -3,7 +3,7 @@ import { Copy, Globe, ImageIcon, Link2, RefreshCw, Share2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type TripDetail, type Visibility } from '@/api'
 import { Note, cityShort } from '@/components/editorial'
-import { Button, Input, Modal } from '@/components/ui'
+import { Button, Input, Modal, Spinner } from '@/components/ui'
 import { useSite } from '@/hooks/useSite'
 import { copyText } from '@/lib/clipboard'
 import { dateRange } from '@/lib/format'
@@ -15,7 +15,41 @@ import type { PosterOptions } from './SharePoster'
 // 海报（canvas 绘制 + 二维码）只在点「生成分享海报」时加载
 const PosterModal = lazy(() => import('./SharePoster').then((m) => ({ default: m.PosterModal })))
 
-/** 二维码、链接、复制、系统分享：旅程、地点、打卡点共用（二维码库按需加载） */
+/** 次要操作：细线分隔的一行（图标 + 文字 + →），左缘与上面的内容对齐 */
+function ActionRow({
+  icon,
+  children,
+  onClick,
+  loading,
+  disabled,
+}: {
+  icon: ReactNode
+  children: ReactNode
+  onClick: () => void
+  loading?: boolean
+  disabled?: boolean
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled || loading}
+        className="group flex min-h-11 w-full items-center gap-3 py-2 text-left text-[14px] text-ink-800 transition-colors duration-300 hover:text-ink-900 disabled:opacity-50"
+      >
+        <span className="flex size-4 shrink-0 items-center justify-center text-ink-500 transition-colors group-hover:text-ink-900">
+          {loading ? <Spinner className="size-3.5" /> : icon}
+        </span>
+        <span className="min-w-0 flex-1">{children}</span>
+        <span aria-hidden className="text-ink-400 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:text-ink-900">
+          →
+        </span>
+      </button>
+    </li>
+  )
+}
+
+/** 二维码、链接、复制、系统分享：旅程、地点、打卡点共用（二维码库按需加载）；children 是更多的 ActionRow */
 function ShareBody({ url, title, text, children }: { url: string; title: string; text?: string; children?: ReactNode }) {
   const { data: site } = useSite()
   const [qr, setQr] = useState('')
@@ -41,26 +75,25 @@ function ShareBody({ url, title, text, children }: { url: string; title: string;
       /* 用户取消 */
     }
   }
+  const canShare = 'share' in navigator
   return (
-    <div className="space-y-4">
-      {/* 票根式：左边二维码（象牙白底才扫得出），细虚线齿孔，右边标题 */}
-      <div className="flex items-stretch rounded-md border border-ink-200">
-        <div className="flex shrink-0 items-center justify-center p-3.5">
+    <div className="space-y-5">
+      {/* 左边二维码（象牙白底才扫得出），一条细虚线，右边标题：不再套一层边框 */}
+      <div className="flex items-stretch gap-5">
+        <div className="flex shrink-0 items-center">
           {qr ? (
             <img src={qr} alt="二维码" className="size-28 rounded-sm sm:size-32" />
           ) : (
             <div className="size-28 animate-pulse rounded-sm bg-ink-100 sm:size-32" aria-hidden />
           )}
         </div>
-        <div className="relative flex min-w-0 flex-1 flex-col justify-between border-l border-dashed border-ink-300 py-4 pr-4 pl-5">
-          <span aria-hidden className="absolute -top-2 -left-2 size-4 rounded-full border border-ink-200 bg-surface [clip-path:inset(50%_0_0_0)]" />
-          <span aria-hidden className="absolute -bottom-2 -left-2 size-4 rounded-full border border-ink-200 bg-surface [clip-path:inset(0_0_50%_0)]" />
+        <div className="flex min-w-0 flex-1 flex-col justify-between border-l border-dashed border-ink-300 py-1 pl-5">
           <div className="min-w-0">
             <p className="eyebrow">Scan · 扫码打开</p>
-            <p className="font-display mt-2 line-clamp-2 text-[1.3rem] leading-snug text-ink-900">{title}</p>
+            <p className="font-display mt-2 line-clamp-2 text-[1.3rem] leading-snug text-ink-900 [font-variant-numeric:lining-nums]">{title}</p>
             {text && <p className="caption mt-1 line-clamp-2">{text}</p>}
           </div>
-          <p className="caption mt-3 text-[12px]">微信扫一扫，或长按保存二维码</p>
+          <p className="caption mt-3 text-[12px] text-balance">微信扫一扫，或长按保存二维码</p>
         </div>
       </div>
       <div className="flex gap-2">
@@ -69,14 +102,16 @@ function ShareBody({ url, title, text, children }: { url: string; title: string;
           复制
         </Button>
       </div>
-      <div className="flex flex-wrap gap-2">
-        {'share' in navigator && (
-          <Button variant="outline" onClick={native} icon={<Share2 className="size-4" strokeWidth={1.5} />}>
-            系统分享
-          </Button>
-        )}
-        {children}
-      </div>
+      {(canShare || children) && (
+        <ul className="divide-y divide-ink-200 border-y border-ink-200">
+          {canShare && (
+            <ActionRow icon={<Share2 className="size-4" strokeWidth={1.5} />} onClick={native}>
+              系统分享
+            </ActionRow>
+          )}
+          {children}
+        </ul>
+      )}
     </div>
   )
 }
@@ -250,23 +285,18 @@ export function ShareDialog({
               </Note>
             )}
             <ShareBody url={url} title={trip.title} text={trip.summary || '来看看这段旅程'}>
-              <Button variant="outline" onClick={openPoster} icon={<ImageIcon className="size-4" strokeWidth={1.5} />}>
+              <ActionRow icon={<ImageIcon className="size-4" strokeWidth={1.5} />} onClick={openPoster}>
                 生成分享海报
-              </Button>
+              </ActionRow>
               {trip.is_owner && trip.visibility === 'unlisted' && (
-                <Button variant="ghost" onClick={reset} icon={<RefreshCw className="size-4" strokeWidth={1.5} />}>
+                <ActionRow icon={<RefreshCw className="size-4" strokeWidth={1.5} />} onClick={reset}>
                   重置分享链接
-                </Button>
+                </ActionRow>
               )}
               {trip.is_owner && trip.visibility === 'unlisted' && onUpdated && (
-                <Button
-                  variant="ghost"
-                  loading={saving === 'public'}
-                  onClick={() => changeVisibility('public')}
-                  icon={<Globe className="size-4" strokeWidth={1.5} />}
-                >
+                <ActionRow icon={<Globe className="size-4" strokeWidth={1.5} />} loading={saving === 'public'} onClick={() => changeVisibility('public')}>
                   公开到发现广场
-                </Button>
+                </ActionRow>
               )}
             </ShareBody>
           </div>

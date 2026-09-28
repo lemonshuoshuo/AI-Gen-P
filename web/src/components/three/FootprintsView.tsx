@@ -45,7 +45,7 @@ function GlobeLayers({ data, theme }: { data: Footprints; theme: LitTheme }) {
         id: 'globe-points',
         type: 'circle',
         source: 'globe-points',
-        paint: { 'circle-radius': 2.6, 'circle-color': pal.column, 'circle-stroke-color': pal.high, 'circle-stroke-width': 1 },
+        paint: { 'circle-radius': 2.6, 'circle-color': pal.column, 'circle-stroke-color': pal.line, 'circle-stroke-width': 1 },
       })
     }
     let raf = 0
@@ -90,15 +90,15 @@ function CityList({ data }: { data: Footprints }) {
         <div
           key={prov}
           style={{ animationDelay: `${Math.min(i, 8) * 60}ms`, animationFillMode: 'backwards' }}
-          className="animate-slide-up grid gap-x-8 gap-y-3 border-t border-ink-200 pt-3 pb-7 md:grid-cols-12 md:pb-9"
+          className="animate-slide-up grid grid-cols-[1fr_auto] gap-x-6 gap-y-3 border-t border-ink-200 pt-3 pb-7 md:grid-cols-12 md:gap-x-8 md:pb-9"
         >
-          <p className="flex items-baseline gap-3 text-xs text-ink-500 md:col-span-3 md:flex-col md:gap-1">
+          <p className="col-span-2 flex items-baseline gap-3 text-xs text-ink-500 md:col-span-3 md:flex-col md:gap-1">
             <span className="font-num text-[13px] text-ink-900">{String(i + 1).padStart(2, '0')}</span>
             <span>
-              <span className="font-num text-ink-700">{cities.length}</span> 座城市 · <span className="font-num text-ink-700">{count}</span> 处足迹
+              <span className="font-num text-ink-700">{cities.length}</span> 座城市
             </span>
           </p>
-          <div className="min-w-0 md:col-span-9">
+          <div className="min-w-0 md:col-span-6">
             <p className="font-display text-[2.5rem] leading-none text-ink-900 md:text-[3.75rem]">{prov.replace(/(省|市|自治区|壮族自治区|回族自治区|维吾尔自治区|特别行政区)$/, '') || prov}</p>
             <p className="mt-4 flex flex-wrap gap-x-5 gap-y-1.5 text-[13px] text-ink-700">
               {cities.map((c) => (
@@ -109,6 +109,11 @@ function CityList({ data }: { data: Footprints }) {
               ))}
             </p>
           </div>
+          {/* 右侧：这个省的足迹数，大号细字 */}
+          <p className="flex flex-col items-end text-right md:col-span-3">
+            <span className="font-num text-[2.75rem] leading-[0.85] font-light text-ink-900 md:text-6xl">{count}</span>
+            <span className="caption mt-2 !text-xs">处足迹</span>
+          </p>
         </div>
       ))}
     </div>
@@ -140,18 +145,21 @@ export function FootprintsView({
 }) {
   const [mode, setMode] = useState<Mode>('map')
   const love = theme === 'love'
+  // 标签随视图变化
+  const labels: Record<Mode, ReactNode> = { map: label, globe: 'Globe · 足迹地球', list: 'Index · 城市清单' }
   return (
     <div>
       {/* 细线标签行：左侧标签 + 计数，右侧文字切换和回放 */}
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-ink-200 pt-2 pb-3 md:pb-4">
         <p className="flex min-w-0 items-baseline gap-3 py-2">
-          <span className="eyebrow !text-ink-800">{label}</span>
+          <span className="eyebrow !text-ink-800">{labels[mode]}</span>
           <span className="text-[13px] text-ink-400">
             <span className="font-num">{data.stats.provinces}</span> 省 · <span className="font-num">{data.stats.cities}</span> 城
           </span>
         </p>
         <div className="flex items-center gap-x-4 gap-y-2 max-sm:w-full max-sm:justify-between">
-          <div role="group" aria-label="足迹视图" className="flex items-center text-[13px]">
+          {/* -mx-2.5：按钮留出 40px 的点按区域，文字仍与栅格边缘对齐 */}
+          <div role="group" aria-label="足迹视图" className="-mx-2.5 flex items-center text-[13px]">
             {modes.map((o, i) => (
               <Fragment key={o.value}>
                 {i > 0 && (

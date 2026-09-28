@@ -14,14 +14,14 @@ type Size = 'xs' | 'sm' | 'md' | 'lg'
 
 // 主按钮是象牙白实心胶囊；次要按钮是细线胶囊；朱砂只用于每页最重要的一个动作（accent）
 const variantCls: Record<Variant, string> = {
-  primary: 'bg-ink-900 text-paper hover:bg-ink-700 active:bg-ink-800',
-  accent: 'bg-brand-400 text-white hover:bg-brand-500 active:bg-brand-300',
+  primary: 'bg-ink-900 text-paper hover:bg-ink-700 active:bg-ink-800 disabled:bg-ink-200 disabled:text-ink-400',
+  accent: 'bg-brand-400 text-white hover:bg-brand-500 active:bg-brand-300 disabled:bg-ink-200 disabled:text-ink-400',
   secondary: 'bg-ink-100 text-ink-900 hover:bg-ink-200',
   outline: 'border border-ink-900/20 bg-transparent text-ink-900 hover:border-ink-900/60',
   ghost: 'text-ink-700 hover:bg-ink-900/[0.06] hover:text-ink-900',
-  danger: 'bg-brand-400 text-white hover:bg-brand-500',
-  love: 'bg-love-gradient text-white ring-1 ring-pink-400/40 ring-inset hover:ring-pink-500/70',
-  dark: 'bg-ink-900 text-paper hover:bg-ink-700',
+  danger: 'bg-brand-400 text-white hover:bg-brand-500 disabled:bg-ink-200 disabled:text-ink-400',
+  love: 'border border-pink-500/60 text-pink-700 hover:border-pink-600 hover:text-pink-800',
+  dark: 'bg-ink-900 text-paper hover:bg-ink-700 disabled:bg-ink-200 disabled:text-ink-400',
 }
 const sizeCls: Record<Size, string> = {
   xs: 'h-7 px-3 text-xs gap-1 rounded-full',
@@ -49,7 +49,7 @@ export function buttonClass({
   className,
 }: { variant?: Variant; size?: Size; block?: boolean; className?: string } = {}) {
   return cn(
-    'inline-flex shrink-0 items-center justify-center font-medium tracking-[0.02em] whitespace-nowrap transition-colors duration-300 select-none disabled:opacity-40',
+    'inline-flex shrink-0 items-center justify-center font-medium tracking-[0.02em] whitespace-nowrap transition-colors duration-300 select-none disabled:opacity-60',
     variantCls[variant],
     sizeCls[size],
     block && 'w-full',
@@ -284,10 +284,7 @@ export function Avatar({
 
 export function LevelBadge({ level, className }: { level: number; className?: string }) {
   return (
-    <span
-      className={cn('font-num inline-flex h-4 items-center rounded-sm border px-1 text-[11px] leading-none font-medium italic', className)}
-      style={{ color: levelColor(level), borderColor: levelColor(level) + '66' }}
-    >
+    <span className={cn('font-num inline-flex items-baseline text-[12px] leading-none italic', className)} style={{ color: levelColor(level) }}>
       Lv.{level}
     </span>
   )
@@ -299,9 +296,7 @@ export function UserName({ user, className, link = true }: { user: UserBrief; cl
       <span className="truncate font-medium">{user.nickname || user.username}</span>
       <LevelBadge level={user.level} />
       {user.role === 'admin' && (
-        <span className="inline-flex h-4 items-center rounded-sm border border-ink-300 px-1 text-[10px] leading-none text-ink-600">
-          管理员
-        </span>
+        <span className="text-[10px] leading-none tracking-[0.12em] text-ink-500">管理员</span>
       )}
     </span>
   )

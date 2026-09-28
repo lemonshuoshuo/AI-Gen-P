@@ -4,21 +4,21 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { CalendarHeart, Copy, Heart, HeartCrack, PenLine, Plus, Send, Settings2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type PartnerInfo } from '@/api'
-import { FootprintStats } from '@/components/three/FootprintStats'
-import { TripGrid, TripGridSkeleton } from '@/components/trip/TripCard'
+import { cityShort } from '@/components/editorial'
+import { FootprintNumerals, TripRows, type TripRowData } from '@/components/three/FootprintStats'
 import {
   Avatar,
   Button,
   Empty,
   Field,
   Input,
+  LevelBadge,
   LoadError,
   Menu,
   MenuItem,
   Modal,
   PageLoader,
   Switch,
-  UserName,
 } from '@/components/ui'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useSite } from '@/hooks/useSite'
@@ -44,6 +44,18 @@ function LabelRow({ label, count, extra }: { label: string; count?: ReactNode; e
     </div>
   )
 }
+
+/** 默认的空间名称在「我们一起 / 走过的地方」处换行，不把一个词拆到两行 */
+function SpaceTitle({ text }: { text: string }) {
+  if (text !== DEFAULT_TITLE) return <>{text}</>
+  return (
+    <>
+      <span className="inline-block">我们一起</span>
+      <span className="inline-block">走过的地方</span>
+    </>
+  )
+}
+const DEFAULT_TITLE = '我们一起走过的地方'
 
 /** 两个相交的细线圆 + 胭脂色的「&」：情侣空间的标记 */
 function UnionMark({ className }: { className?: string }) {
@@ -102,9 +114,11 @@ function Invites({ info, refresh }: { info: PartnerInfo; refresh: () => void }) 
       <div className="mt-12 grid gap-x-8 gap-y-16 md:mt-20 lg:grid-cols-12">
         <div className="animate-slide-up lg:col-span-6 [animation-delay:80ms] [animation-fill-mode:backwards]">
           <UnionMark className="w-28 text-ink-400 md:w-36" />
-          <h1 className="text-display-xl mt-10 font-normal md:mt-14">我们一起走过的地方</h1>
-          <p className="mt-8 max-w-md text-[15px] leading-[1.8] text-ink-900">和 TA 绑定情侣空间，一起的旅程会汇成共同的足迹地图。</p>
-          <p className="caption mt-1 max-w-md leading-[1.8]">点亮你们一起去过的城市，还能 3D 回放你们走过的每一段路。</p>
+          <h1 className="text-display-xl mt-10 font-normal md:mt-14">
+            <SpaceTitle text={DEFAULT_TITLE} />
+          </h1>
+          <p className="mt-8 max-w-md text-[15px] leading-[1.8] text-pretty text-ink-900">和 TA 绑定情侣空间，一起的旅程会汇成共同的足迹地图。</p>
+          <p className="caption mt-1 max-w-md leading-[1.8] text-pretty">点亮你们一起去过的城市，还能 3D 回放你们走过的每一段路。</p>
         </div>
 
         <div className="animate-slide-up space-y-14 lg:col-span-5 lg:col-start-8 [animation-delay:160ms] [animation-fill-mode:backwards]">
@@ -117,7 +131,11 @@ function Invites({ info, refresh }: { info: PartnerInfo; refresh: () => void }) 
                     <div className="flex items-center gap-3">
                       <Avatar user={inv.from} size={44} />
                       <div className="min-w-0 flex-1">
-                        <UserName user={inv.from} className="text-[15px] text-ink-900" />
+                        {/* 等级标签用中性灰：绿色只表示「推荐」 */}
+                        <Link to={`/u/${inv.from.username}`} className="inline-flex min-w-0 items-center gap-1.5 text-[15px] text-ink-900 hover:text-ink-700">
+                          <span className="truncate font-medium">{inv.from.nickname || inv.from.username}</span>
+                          <LevelBadge level={inv.from.level} className="!border-ink-300 !text-ink-500" />
+                        </Link>
                         <div className="caption">{fromNow(inv.created_at)} 邀请你绑定情侣空间</div>
                       </div>
                     </div>
@@ -133,9 +151,11 @@ function Invites({ info, refresh }: { info: PartnerInfo; refresh: () => void }) 
                       >
                         婉拒
                       </Button>
+                      {/* 情侣空间唯一的胭脂色按钮：细线胶囊，不用渐变 */}
                       <Button
-                        variant="love"
-                        icon={<Heart className="size-4" strokeWidth={1.5} />}
+                        variant="outline"
+                        className="!border-pink-500/60 hover:!border-pink-600"
+                        icon={<Heart className="size-4 text-pink-600" strokeWidth={1.5} />}
                         disabled={!!busy}
                         loading={busy === `accept-${inv.id}`}
                         onClick={() => act(`accept-${inv.id}`, () => api.partner.accept(inv.id), '绑定成功')}
@@ -167,10 +187,11 @@ function Invites({ info, refresh }: { info: PartnerInfo; refresh: () => void }) 
               <Field label="想说的话（可选）">
                 <Input value={message} onChange={(e) => setMessage(e.target.value)} maxLength={100} placeholder="以后的旅行，都一起记录吧" />
               </Field>
+              {/* 填好用户名之前是细线胶囊（禁用时不是一块灰色的实心条），填好后亮成象牙白 */}
               <Button
                 block
                 size="lg"
-                variant="love"
+                variant={username.trim() ? 'primary' : 'outline'}
                 loading={busy === 'send'}
                 disabled={!username.trim() || !!busy}
                 icon={<Send className="size-4" strokeWidth={1.5} />}
@@ -198,7 +219,7 @@ function Invites({ info, refresh }: { info: PartnerInfo; refresh: () => void }) 
             <p className="mt-4 text-[15px] text-ink-900">把邀请链接发给 TA</p>
             <p className="caption mt-0.5">TA 打开链接、注册或登录后点「发送邀请」，你在通知里接受就绑定啦</p>
             <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-              <Input readOnly value={inviteUrl} onFocus={(e) => e.target.select()} aria-label="邀请链接" className="font-num" />
+              <Input readOnly value={inviteUrl} onFocus={(e) => e.target.select()} aria-label="邀请链接" className="font-sans text-[13px] tabular-nums" />
               <Button variant="outline" icon={<Copy className="size-4" strokeWidth={1.5} />} onClick={copyInvite}>
                 复制邀请链接
               </Button>
@@ -249,7 +270,6 @@ function EditSpace({ info, onClose, onSaved }: { info: PartnerInfo; onClose: () 
       title="编辑我们的空间"
       footer={
         <Button
-          variant="love"
           loading={saving}
           onClick={async () => {
             // 日期是 YYYY-MM-DD，可以直接按字符串比较
@@ -279,7 +299,7 @@ function EditSpace({ info, onClose, onSaved }: { info: PartnerInfo; onClose: () 
         <Field label="在一起的日子" hint="用来计算「在一起 N 天」">
           <Input type="date" value={since} max={today} onChange={(e) => setSince(e.target.value)} />
         </Field>
-        <div className="space-y-1 rounded-lg border border-ink-200 p-3">
+        <div className="space-y-1 border-t border-ink-200 pt-4">
           <Switch checked={pub} onChange={setPub} label="在个人主页公开情侣关系" />
           <p className="pl-12 text-xs leading-relaxed text-ink-400">
             开启后，你们的个人主页会显示对方；关闭时只有你们自己能看到（双方共享此设置）
@@ -324,7 +344,7 @@ function UnbindDialog({ onClose, onUnbind }: { onClose: () => void; onUnbind: (r
       }
     >
       <p className="text-sm leading-relaxed text-ink-500">解除后共同足迹页面将不再显示，一起的旅程不会被删除。</p>
-      <div className="mt-4 space-y-1 rounded-lg border border-ink-200 p-3">
+      <div className="mt-5 space-y-1 border-t border-ink-200 pt-4">
         <Switch checked={removeShared} onChange={setRemoveShared} label="同时结束共同作者关系" />
         <p className="pl-12 text-xs leading-relaxed text-ink-400">
           开启后，你们将不再是对方所创建旅程的共同作者（包括待接受的邀请）；不开启时仍可以一起编辑这些旅程，之后也可以在旅程「成员」中移除。
@@ -381,6 +401,19 @@ export default function TogetherPage() {
 
   const days = info.since ? dayjs().startOf('day').diff(dayjs(info.since), 'day') + 1 : null
   const sharedTrips = flattenPages(tripsQ.data?.pages)
+  // 路线细线（没有封面时画在排版封面上）来自共同足迹
+  const fpPaths = new Map((fpQ.data?.trips ?? []).map((t) => [t.id, t.path]))
+  const tripRows: TripRowData[] = sharedTrips.map((t) => ({
+    id: t.id,
+    title: t.title,
+    start_date: t.start_date,
+    end_date: t.end_date,
+    cover: t.cover_url || t.cover_thumb_url,
+    cities: t.cities.map(cityShort),
+    places: t.waypoint_count,
+    distance_km: t.distance_km,
+    path: fpPaths.get(t.id) ?? [],
+  }))
   const unbind = async (removeShared: boolean) => {
     try {
       await api.partner.unbind(removeShared)
@@ -449,7 +482,9 @@ export default function TogetherPage() {
               </span>
               <Avatar user={partner} size={44} ring />
             </div>
-            <h1 className="text-display-xl mt-8 font-normal text-balance md:mt-10">{info.title || '我们一起走过的地方'}</h1>
+            <h1 className="text-display-xl mt-8 font-normal text-balance md:mt-10">
+              <SpaceTitle text={info.title || DEFAULT_TITLE} />
+            </h1>
           </div>
           <div className="lg:col-span-4 lg:pb-2">
             {days != null && days > 0 ? (
@@ -482,28 +517,29 @@ export default function TogetherPage() {
       </header>
 
       {fpQ.isLoading ? (
-        <div className="mt-16 h-[62vh] min-h-80 animate-pulse bg-ink-100 md:mt-24" />
+        <div className="mt-16 h-[62vh] min-h-80 animate-pulse bg-surface md:mt-24" />
       ) : fpQ.isLoadingError ? (
         <LoadError className="py-8" title="足迹加载失败" error={fpQ.error} onRetry={() => fpQ.refetch()} />
       ) : fpQ.data && (
         <>
-          <FootprintStats data={fpQ.data} className="animate-slide-up mt-16 md:mt-24 [animation-delay:120ms] [animation-fill-mode:backwards]" accent="text-pink-500" />
+          {/* 与「我的足迹」同一套大号数字：城市、省份、里程、在路上 */}
+          <FootprintNumerals data={fpQ.data} className="mt-10 md:mt-16" />
           <section className="mt-10 md:mt-16" aria-label="共同足迹">
             {fpQ.data.stats.waypoints === 0 ? (
               <div className="border-t border-ink-200">
                 <Empty
-                  icon={<Heart className="size-10 text-pink-500" />}
+                  icon={<Heart className="size-10 text-pink-500" strokeWidth={1} />}
                   title="还没有一起的足迹"
                   desc="创建旅程时打开「和 TA 一起」，你们的打卡就会出现在这里"
                   action={
-                    <Button variant="love" icon={<Plus className="size-4" strokeWidth={1.5} />} onClick={() => nav('/trips/new')}>
+                    <Button variant="outline" icon={<Plus className="size-4" strokeWidth={1.5} />} onClick={() => nav('/trips/new')}>
                       规划一次一起的旅行
                     </Button>
                   }
                 />
               </div>
             ) : (
-              <Suspense fallback={<div className="h-[68svh] min-h-[26rem] animate-pulse border-t border-ink-200 bg-ink-100 md:h-[80vh]" />}>
+              <Suspense fallback={<div className="h-[68svh] min-h-[26rem] animate-pulse border-t border-ink-200 bg-surface md:h-[80vh]" />}>
                 <FootprintsView
                   data={fpQ.data}
                   theme="love"
@@ -534,12 +570,21 @@ export default function TogetherPage() {
         />
         <h2 className="text-display-md mt-8 mb-10 font-normal md:mt-12 md:mb-14">一起的旅程</h2>
         {tripsQ.isLoading ? (
-          <TripGridSkeleton n={2} />
+          <div className="space-y-px border-t border-ink-200">
+            {[0, 1].map((i) => (
+              <div key={i} className="grid gap-8 py-10 md:grid-cols-12">
+                <div className="h-12 w-28 animate-pulse bg-surface md:col-span-3" />
+                <div className="h-10 animate-pulse bg-surface md:col-span-5" />
+                <div className="aspect-[4/3] animate-pulse bg-surface md:col-span-4" />
+              </div>
+            ))}
+          </div>
         ) : tripsQ.isLoadingError ? (
           <LoadError className="py-8" error={tripsQ.error} onRetry={() => tripsQ.refetch()} />
         ) : sharedTrips.length ? (
           <>
-            <TripGrid trips={sharedTrips} />
+            {/* 与「我的足迹」的时间线同一种行：年份 + 大标题 + 封面 */}
+            <TripRows rows={tripRows} />
             {tripsQ.hasNextPage && (
               <div className="mt-12 flex justify-center">
                 <Button variant="outline" loading={tripsQ.isFetchingNextPage} onClick={() => tripsQ.fetchNextPage()}>

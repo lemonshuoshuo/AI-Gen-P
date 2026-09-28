@@ -246,16 +246,36 @@ function drawRoute(ctx: CanvasRenderingContext2D, path: LngLat[], dots: { lng: n
     ctx.stroke()
     ctx.restore()
   }
+  // 相距不到 12px 的点合成一个标记（如环线的起终点、在同一处连打两次卡），不画两个错开的圆；
+  // 起点所在的一组画成「圈里一点」
+  const groups: { x: number; y: number; start: boolean; n: number }[] = []
   dots.forEach((d, i) => {
     const [x, y] = at([d.lng, d.lat])
+    const g = groups.find((g) => Math.hypot(g.x - x, g.y - y) < 12)
+    if (g) g.n++
+    else groups.push({ x, y, start: i === 0, n: 1 })
+  })
+  const ring = (x: number, y: number, r: number, fill: string) => {
     ctx.beginPath()
-    ctx.arc(x, y, i === 0 ? 9 : 7, 0, Math.PI * 2)
-    ctx.fillStyle = i === 0 ? IVORY : BG
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fillStyle = fill
     ctx.fill()
     ctx.lineWidth = 2
     ctx.strokeStyle = IVORY
     ctx.stroke()
-  })
+  }
+  groups
+    .slice()
+    .sort((a, b) => Number(a.start) - Number(b.start))
+    .forEach((g) => {
+      if (!g.start) return ring(g.x, g.y, g.n > 1 ? 9 : 7, BG)
+      if (g.n === 1) return ring(g.x, g.y, 9, IVORY)
+      ring(g.x, g.y, 13, BG)
+      ctx.beginPath()
+      ctx.arc(g.x, g.y, 6, 0, Math.PI * 2)
+      ctx.fillStyle = IVORY
+      ctx.fill()
+    })
 }
 
 /** 画海报，返回 JPEG 的 data URL（微信里长按保存不支持 blob: 链接） */

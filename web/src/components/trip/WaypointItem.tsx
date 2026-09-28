@@ -81,8 +81,21 @@ export function PlaceStatsBadge({ stats, className }: { stats?: PlaceStats | nul
 const quietBtn =
   'inline-flex h-10 items-center gap-1.5 rounded-full px-3 text-xs tracking-[0.04em] text-ink-500 transition-colors hover:bg-ink-900/[0.06] hover:text-ink-900 sm:h-8'
 
-/** 地点的照片：第一张整栏大图（3:2），其余两两并排竖图；图片下方两行说明 */
-function StopPhotos({ photos, onPhoto, name }: { photos: Photo[]; onPhoto?: (p: Photo) => void; name: string }) {
+/**
+ * 地点的照片：每天第一站的首图是整栏横幅（3:2）；其余站的首图在宽屏上是 7/12 宽的竖幅（4:5），
+ * 左右交替，避免一整列同样大小的横图；其余照片两两并排竖图；图片下方两行说明
+ */
+function StopPhotos({
+  photos,
+  onPhoto,
+  name,
+  plate = 'wide',
+}: {
+  photos: Photo[]
+  onPhoto?: (p: Photo) => void
+  name: string
+  plate?: 'wide' | 'left' | 'right'
+}) {
   const [first, ...rest] = photos
   const shown = rest.slice(0, 4)
   const more = rest.length - shown.length
@@ -91,13 +104,13 @@ function StopPhotos({ photos, onPhoto, name }: { photos: Photo[]; onPhoto?: (p: 
     onPhoto?.(p)
   }
   return (
-    // 手机上照片向左探出到序号栏，占满整个内容宽度
-    <div className="mt-8 -ml-[3.25rem] space-y-3 md:mt-10 md:ml-0">
-      <figure>
+    // 手机上照片向左探出到序号栏，占满整个内容宽度；relative 让照片盖住序号栏里选中的细线
+    <div className="relative mt-8 -ml-[3.25rem] space-y-3 md:mt-10 md:ml-0">
+      <figure className={cn(plate !== 'wide' && 'md:w-7/12', plate === 'right' && 'md:ml-auto')}>
         <button
           type="button"
           onClick={open(first)}
-          className="group/ph block aspect-[3/2] w-full overflow-hidden bg-ink-100"
+          className={cn('group/ph block aspect-[3/2] w-full overflow-hidden bg-ink-100', plate !== 'wide' && 'md:aspect-[4/5]')}
           aria-label={first.caption || `查看「${name}」的照片`}
         >
           <img
@@ -157,6 +170,7 @@ export function WaypointItem({
   onComment,
   actions,
   showStatus,
+  plate,
 }: {
   w: Waypoint
   label: string
@@ -167,6 +181,8 @@ export function WaypointItem({
   onComment?: () => void
   actions?: ReactNode
   showStatus?: boolean
+  /** 首图版式：wide 整栏横幅（默认），left / right 宽屏上 7/12 宽的竖幅 */
+  plate?: 'wide' | 'left' | 'right'
 }) {
   const st = waypointStatus[w.status]
   const skipped = w.status === 'skipped'
@@ -179,15 +195,15 @@ export function WaypointItem({
       onClick={onSelect}
       className="group/wp relative grid cursor-pointer scroll-mt-24 grid-cols-[2.25rem_minmax(0,1fr)] gap-x-4 py-10 md:grid-cols-[3.5rem_minmax(0,1fr)] md:gap-x-6 md:py-14"
     >
-      {/* 选中：左侧一条象牙白细线 + 印章外圈 */}
-      <span
-        aria-hidden
-        className={cn(
-          'absolute top-10 bottom-10 -left-4 w-px bg-ink-900 transition-opacity duration-500 md:top-14 md:bottom-14 lg:-left-5',
-          selected ? 'opacity-100' : 'opacity-0',
-        )}
-      />
-      <div className="flex items-start pt-1">
+      {/* 选中：印章外圈 + 从印章垂下的一条象牙白细线（在序号栏里，和印章中心对齐） */}
+      <div className="relative flex items-start pt-1">
+        <span
+          aria-hidden
+          className={cn(
+            'absolute top-[3.25rem] bottom-0 left-4 w-px origin-top bg-ink-900 transition-[opacity,scale] duration-700 ease-out-expo',
+            selected ? 'scale-y-100 opacity-100' : 'scale-y-0 opacity-0',
+          )}
+        />
         <WaypointNumber
           w={w}
           label={label}
@@ -246,7 +262,7 @@ export function WaypointItem({
             {w.note}
           </p>
         )}
-        {photos.length > 0 && <StopPhotos photos={photos} onPhoto={onPhoto} name={name} />}
+        {photos.length > 0 && <StopPhotos photos={photos} onPhoto={onPhoto} name={name} plate={plate} />}
         <div className="-ml-3 mt-5 flex flex-wrap items-center gap-0.5 md:mt-6" onClick={(e) => e.stopPropagation()}>
           <NavigateMenu
             variant="ghost"

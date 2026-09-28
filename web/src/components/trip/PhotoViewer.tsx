@@ -39,7 +39,7 @@ export function PhotoViewer({
       role="dialog"
       aria-modal="true"
       aria-label="查看照片"
-      className="animate-fade-in fixed inset-0 z-[120] flex flex-col bg-paper/[0.97] text-white"
+      className="animate-fade-in fixed inset-0 z-[120] flex flex-col bg-paper text-white"
       onClick={onClose}
     >
       <div className="flex items-center justify-between px-4 py-3 md:px-8 md:py-5">
@@ -70,7 +70,7 @@ export function PhotoViewer({
       </div>
       {/* 说明文字对：第一行亮、第二行灰 */}
       <div
-        className="px-4 pt-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-[13px] leading-[1.5] md:px-8 md:pb-7"
+        className="mx-4 border-t border-white/10 pt-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-[13px] leading-[1.5] md:mx-8 md:pb-7"
         onClick={(e) => e.stopPropagation()}
       >
         <p className="text-white">
