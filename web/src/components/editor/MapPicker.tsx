@@ -114,7 +114,9 @@ export function MapPicker({
   useEffect(() => setHover(null), [lng, lat])
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && cb.current.onClose()
+    // 上面还开着确认框（如多人踩雷提示）时，Esc 只关确认框
+    const onKey = (e: KeyboardEvent) =>
+      e.key === 'Escape' && !document.querySelector('[role="dialog"][aria-modal="true"]') && cb.current.onClose()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])

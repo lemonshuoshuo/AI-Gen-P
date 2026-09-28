@@ -172,7 +172,8 @@ export function BaseMap({
     <div
       className={cn(
         !/\b(absolute|fixed)\b/.test(className ?? '') && 'relative',
-        'overflow-hidden',
+        // 独立的层叠上下文：地图内部（deck.gl 画布、标记、控件）的 z-index 不会盖住页面上的卡片和浮层
+        'isolate overflow-hidden',
         baseKind === 'dark' && 'th-map-dark',
         className,
       )}

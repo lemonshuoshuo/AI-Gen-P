@@ -167,7 +167,7 @@ export function PhotoImporter({
                     className="absolute top-0.5 right-0.5 rounded-full bg-ink-900/60 p-0.5 text-paper hover:bg-ink-900/80"
                     aria-label="移除这张"
                   >
-                    <X className="size-3" />
+                    <X className="size-3" strokeWidth={1.75} />
                   </button>
                 )}
               </div>

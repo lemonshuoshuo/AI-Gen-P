@@ -609,7 +609,8 @@ export default function ReplayPage() {
   }
   const seek = (t: number) => {
     setIntro(false)
-    setTime(t)
+    // 进度条按 0.01 秒取整，拖到最右端时也要算作播放结束
+    setTime(t >= model.duration - 0.02 ? model.duration : t)
     setPlaying(false)
   }
   const togglePlay = () => {
@@ -662,16 +663,15 @@ export default function ReplayPage() {
             )}
             <p className={cn('eyebrow', love ? '!text-[#dcb0bb]' : '!text-gold/90')}>{eyebrow}</p>
             <h1 className="mt-1.5 truncate text-[22px] leading-tight text-paper sm:text-[30px]">{title}</h1>
-            <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-white/55">
+            <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-white/55">
               {subtitle && <span className="font-num">{subtitle}</span>}
-              {subtitle && <span className="text-white/25">·</span>}
               <span>
-                <span className="font-num text-white/80">{formatKm(d / 1000).replace(' 公里', '')}</span>
+                <span className="font-num text-white/80">{formatKm(d / 1000).replace(/ ?(公里|米)$/, '')}</span>
                 <span className="text-white/35"> / </span>
                 <span className="font-num">{formatKm(model.total / 1000)}</span>
               </span>
-              {plan && <span className="text-white/40">· 按计划顺序直线连接</span>}
-              {data.planned && <span className="text-white/40">· 虚线为计划路线</span>}
+              {plan && <span className="text-white/40">按计划顺序直线连接</span>}
+              {data.planned && <span className="text-white/40">虚线为计划路线</span>}
             </p>
           </div>
           <Link

@@ -601,13 +601,13 @@ function MembersPanel({ trip }: { trip: TripDetail }) {
         <button
           type="button"
           onClick={() => invite(partner.username)}
-          className="bg-love-gradient flex w-full items-center gap-3 rounded-xl p-3 text-left text-white transition hover:brightness-110"
+          className="group flex w-full items-center gap-3 rounded-xl border border-pink-200 bg-pink-50/60 p-3 text-left text-pink-800 transition-colors hover:border-pink-400"
         >
           <Avatar user={partner} size={36} ring />
           <span className="flex-1 text-sm">
-            把 <span className="font-display text-[15px]">{partner.nickname || partner.username}</span> 加入这段旅程
+            把 <span className="font-display text-[15px] text-pink-900">{partner.nickname || partner.username}</span> 加入这段旅程
           </span>
-          <Heart className="size-4 opacity-80" strokeWidth={1.75} />
+          <Heart className="size-4 text-pink-500 transition-colors group-hover:fill-pink-500" strokeWidth={1.75} />
         </button>
       )}
       {trip.is_owner && (
@@ -885,7 +885,10 @@ export default function TripEditPage() {
             >
               <ArrowLeft className="size-5" strokeWidth={1.5} />
             </Link>
-            <p className="eyebrow min-w-0 flex-1 truncate">Editing · {phases[trip.phase].label}</p>
+            <p className="eyebrow min-w-0 flex-1 truncate">
+              <span className="hidden sm:inline">Editing · </span>
+              {phases[trip.phase].label}
+            </p>
             <Link
               to={`/trips/${trip.id}`}
               className={buttonClass({ size: 'sm', variant: 'ghost', className: 'px-2 sm:px-3' })}
@@ -955,7 +958,7 @@ export default function TripEditPage() {
               )}
               {order.length === 0 ? (
                 <Empty
-                  icon={<Route className="size-9" />}
+                  icon={<Route className="size-9" strokeWidth={1.75} />}
                   title="还没有打卡点"
                   desc="搜索地点、在地图上点选，或者到「照片」里从照片自动生成"
                 />

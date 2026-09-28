@@ -183,11 +183,11 @@ function ForkDialog({ trip, onClose }: { trip: TripDetail; onClose: () => void }
 function BigStat({ label, value, unit, sub }: { label: string; value: ReactNode; unit?: string; sub?: ReactNode }) {
   return (
     <div className="min-w-0 px-2.5 first:pl-0 last:pr-0 sm:px-5">
-      <div className="flex items-baseline gap-1">
-        <span className="font-num text-[1.7rem] leading-none font-[450] tracking-tight text-ink-900 sm:text-[2.35rem]">
+      <div className="flex flex-wrap items-baseline gap-x-1">
+        <span className="font-num text-[1.55rem] leading-none font-[450] tracking-tight whitespace-nowrap text-ink-900 sm:text-[2.35rem]">
           {value}
         </span>
-        {unit && <span className="text-xs text-ink-400">{unit}</span>}
+        {unit && <span className="text-[11px] whitespace-nowrap text-ink-400 sm:text-xs">{unit}</span>}
         {sub}
       </div>
       <div className="mt-2 text-[11px] tracking-[0.04em] whitespace-nowrap text-ink-400 sm:tracking-[0.12em]">{label}</div>
@@ -223,7 +223,7 @@ function Itinerary({
   const hasPlan = trip.waypoints.some((w) => w.planned)
   if (!trip.waypoints.length)
     return (
-      <Empty icon={<MapIcon className="size-9" />} title="还没有打卡点" desc="路线规划好之后，行程会像旅行指南一样排在这里" />
+      <Empty icon={<MapIcon className="size-9" strokeWidth={1.75} />} title="还没有打卡点" desc="路线规划好之后，行程会像旅行指南一样排在这里" />
     )
   return (
     <div className="space-y-12">
@@ -547,20 +547,17 @@ function TripDetailView() {
                   </span>
                 ))}
               </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[12px] tracking-[0.06em] text-ink-400">
-                {dates && <span className="font-num text-ink-500">{dates}</span>}
-                {trip.cities.length > 0 && (
-                  <>
-                    {dates && <span className="text-ink-300">·</span>}
-                    <span className="truncate">{trip.cities.join(' / ')}</span>
-                  </>
-                )}
-                {(dates || trip.cities.length > 0) && <span className="text-ink-300">·</span>}
-                <span>
-                  {trip.published_at ? `发布于 ${fromNow(trip.published_at)}` : `更新于 ${fromNow(trip.updated_at)}`}
-                  {' · '}
-                  <span className="font-num">{fmtCount(trip.view_count)}</span> 浏览
-                </span>
+              {(dates || trip.cities.length > 0) && (
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[12px] tracking-[0.06em] text-ink-500">
+                  {dates && <span className="font-num">{dates}</span>}
+                  {dates && trip.cities.length > 0 && <span className="text-ink-300">·</span>}
+                  {trip.cities.length > 0 && <span className="truncate">{trip.cities.join(' / ')}</span>}
+                </div>
+              )}
+              <div className="mt-0.5 text-[11.5px] tracking-[0.04em] text-ink-400">
+                {trip.published_at ? `发布于 ${fromNow(trip.published_at)}` : `更新于 ${fromNow(trip.updated_at)}`}
+                {' · '}
+                <span className="font-num">{fmtCount(trip.view_count)}</span> 浏览
               </div>
             </div>
           </div>
@@ -670,12 +667,12 @@ function TripDetailView() {
               {(close) => (
                 <>
                   {!trip.is_owner && (
-                    <MenuItem icon={<Flag className="size-4" />} onClick={() => (close(), requireAuth(() => setReport(true)))}>
+                    <MenuItem icon={<Flag className="size-4" strokeWidth={1.75} />} onClick={() => (close(), requireAuth(() => setReport(true)))}>
                       举报
                     </MenuItem>
                   )}
                   {trip.is_owner && (
-                    <MenuItem icon={<Trash2 className="size-4" />} danger onClick={() => (close(), remove())}>
+                    <MenuItem icon={<Trash2 className="size-4" strokeWidth={1.75} />} danger onClick={() => (close(), remove())}>
                       删除旅程
                     </MenuItem>
                   )}

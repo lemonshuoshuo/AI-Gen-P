@@ -92,10 +92,10 @@ const FIX_MAX_ACC = 100 // 米
 const isFresh = (f: GeoFix) => Date.now() - f.t <= FIX_MAX_AGE && f.accuracy <= FIX_MAX_ACC
 
 const sourceLabel: Record<Suggestion['source'], { label: string; cls: string }> = {
-  plan: { label: '计划中', cls: 'bg-sky-50 text-sky-700' },
-  community: { label: '大家推荐', cls: 'bg-emerald-50 text-emerald-700' },
-  amap: { label: '附近', cls: 'bg-ink-100 text-ink-600' },
-  ai: { label: 'AI 推荐', cls: 'bg-violet-50 text-violet-700' },
+  plan: { label: '计划中', cls: 'border-sky-300 text-sky-700' },
+  community: { label: '大家推荐', cls: 'border-emerald-300 text-emerald-700' },
+  amap: { label: '附近', cls: 'border-ink-200 text-ink-500' },
+  ai: { label: 'AI 推荐', cls: 'border-violet-300 text-violet-700' },
 }
 
 /** 点地图标记或行程清单弹出的地点面板：导航、打卡、跳过、看大家的评价 */
@@ -130,15 +130,19 @@ function StopSheet({
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <CategoryChip category={w.category} />
           {w.planned ? (
-            <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', st.cls)}>{st.label}</span>
+            <span className={cn('rounded-sm px-1.5 py-0.5 text-xs font-medium tracking-wide', st.cls)}>{st.label}</span>
           ) : (
-            <span className="rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700">计划外</span>
+            <span className="rounded-sm border border-violet-300 px-1.5 py-0.5 text-xs tracking-wide text-violet-700">计划外</span>
           )}
-          {distM != null && <span className="text-xs text-ink-500">距离 {formatDistance(distM)}</span>}
+          {distM != null && (
+            <span className="text-xs text-ink-500">
+              距离 <span className="font-num text-ink-700">{formatDistance(distM)}</span>
+            </span>
+          )}
         </div>
       </div>
-      {w.address && <p className="text-sm text-ink-500">{w.address}</p>}
-      {w.note && <p className="text-sm leading-relaxed whitespace-pre-wrap text-ink-700">{w.note}</p>}
+      {w.address && <p className="text-sm leading-relaxed text-ink-500">{w.address}</p>}
+      {w.note && <p className="border-l-2 border-ink-200 pl-3 text-sm leading-relaxed whitespace-pre-wrap text-ink-700">{w.note}</p>}
       <div className="flex flex-wrap items-center gap-2">
         <NavigateMenu target={{ lng: w.lng, lat: w.lat, name: w.name, address: w.address }} distanceM={distM} size="md" variant="primary" />
         {w.place_id != null && (
@@ -147,19 +151,19 @@ function StopSheet({
             href={`/places/${w.place_id}`}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex h-10 items-center gap-1.5 rounded-xl px-3 text-sm font-medium text-ink-700 hover:bg-ink-100"
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-ink-700 transition-colors hover:bg-ink-900/5"
           >
-            <MessageCircle className="size-4" />
+            <MessageCircle className="size-4" strokeWidth={1.6} />
             大家怎么说
             {place && (place.rating_avg > 0 || place.recommend_count > 0 || place.avoid_count > 0) && (
-              <span className={cn('text-xs', place.avoid_count > place.recommend_count ? 'text-red-600' : 'text-ink-400')}>
+              <span className={cn('font-num text-xs', place.avoid_count > place.recommend_count ? 'text-red-600' : 'text-ink-400')}>
                 {[
-                  place.rating_avg > 0 && `★${place.rating_avg.toFixed(1)}`,
-                  place.recommend_count > 0 && `👍${place.recommend_count}`,
-                  place.avoid_count > 0 && `⚠️${place.avoid_count}`,
+                  place.rating_avg > 0 && `★ ${place.rating_avg.toFixed(1)}`,
+                  place.recommend_count > 0 && `◎ ${place.recommend_count}`,
+                  place.avoid_count > 0 && `✕ ${place.avoid_count}`,
                 ]
                   .filter(Boolean)
-                  .join(' ')}
+                  .join(' · ')}
               </span>
             )}
           </a>
@@ -168,25 +172,25 @@ function StopSheet({
       <div className="grid grid-cols-2 gap-3 pt-1">
         {todo && (
           <>
-            <Button size="lg" block icon={<Check className="size-4" />} onClick={onCheckin}>
+            <Button size="lg" block variant="accent" icon={<Check className="size-4" strokeWidth={1.75} />} onClick={onCheckin}>
               我到了
             </Button>
-            <Button size="lg" block variant="outline" icon={<SkipForward className="size-4" />} onClick={onSkip}>
+            <Button size="lg" block variant="outline" icon={<SkipForward className="size-4" strokeWidth={1.75} />} onClick={onSkip}>
               跳过
             </Button>
           </>
         )}
         {w.status === 'skipped' && (
-          <Button size="lg" block variant="outline" icon={<Undo2 className="size-4" />} onClick={onUnskip}>
+          <Button size="lg" block variant="outline" icon={<Undo2 className="size-4" strokeWidth={1.75} />} onClick={onUnskip}>
             恢复为待前往
           </Button>
         )}
         {w.status === 'visited' ? (
-          <Button size="lg" block variant="outline" icon={<PenLine className="size-4" />} className="col-span-2" onClick={onEdit}>
+          <Button size="lg" block variant="outline" icon={<PenLine className="size-4" strokeWidth={1.75} />} className="col-span-2" onClick={onEdit}>
             写点评
           </Button>
         ) : (
-          <Button size="lg" block variant="ghost" icon={<PenLine className="size-4" />} className={cn(todo && 'col-span-2')} onClick={onEdit}>
+          <Button size="lg" block variant="ghost" icon={<PenLine className="size-4" strokeWidth={1.75} />} className={cn(todo && 'col-span-2')} onClick={onEdit}>
             编辑
           </Button>
         )}
@@ -394,7 +398,7 @@ export default function TravelModePage() {
         toast(`刚才已经打过卡了：${r.waypoint.name}`)
         return
       }
-      toast.success(r.matched_plan ? `已打卡：${r.waypoint.name} ✅` : `新的打卡点：${r.waypoint.name}（计划外）`)
+      toast.success(r.matched_plan ? `已打卡：${r.waypoint.name}` : `新的打卡点：${r.waypoint.name}（计划外）`)
       setReview(r.waypoint)
       // 到了一个地方就推荐下一站：在填写点评时后台加载，关掉点评就能看到；旧的推荐作废
       setRec(null)
