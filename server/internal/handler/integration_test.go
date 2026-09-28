@@ -177,9 +177,10 @@ func fakeAI(t *testing.T) *httptest.Server {
 			content = "好的：\n```json\n{\"picks\":[{\"index\":1,\"reason\":\"顺路先去计划中的下一站\"}],\"text\":\"傍晚适合去湖边散步\",\"ideas\":[]}\n```"
 		} else {
 			content = `{"title":"杭州两日·湖光山色","summary":"轻松游西湖","items":[` +
-				`{"day":1,"name":"断桥残雪","address":"北山街","category":"scenic","note":"清晨人少","lng":120.1513,"lat":30.2610},` +
+				`{"day":1,"name":"断桥残雪","address":"北山街","category":"scenic","note":"清晨人少","lng":120.1520,"lat":30.2615},` +
 				`{"day":1,"name":"楼外楼","category":"food","note":"西湖醋鱼","lng":999,"lat":999},` +
-				`{"day":5,"name":"灵隐寺","category":"temple","note":"早去"}]}`
+				`{"day":5,"name":"灵隐寺","category":"temple","note":"早去"},` +
+				`{"day":2,"name":"西溪湿地","category":"scenic","note":"坐摇橹船","lng":120.0700,"lat":30.2700}]}`
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": content}}}})
 	}))
@@ -441,17 +442,21 @@ func TestIntegration(t *testing.T) {
 	e.must(403, "GET", fmt.Sprintf("/trips/%d/recommend", tripID), bob, nil)
 	plan := e.must(200, "POST", "/ai/plan", bob, map[string]any{"destination": "杭州", "days": 2, "preferences": "美食"}).obj(t)
 	pitems := plan["items"].([]any)
-	if plan["title"] == "" || len(pitems) != 3 {
+	if plan["title"] == "" || len(pitems) != 4 {
 		t.Fatalf("ai plan: %v", plan)
 	}
-	if p0 := pitems[0].(map[string]any); p0["located"] != false || p0["lng"] == nil {
-		t.Fatalf("plausible AI coordinates should be kept: %v", p0)
+	// Linked to a community place but not located by AMap: the place's position, not the model's guess.
+	if p0 := pitems[0].(map[string]any); p0["located"] != false || p0["place_id"] == nil || num(p0["lng"]) != 120.1513 || num(p0["lat"]) != 30.2610 {
+		t.Fatalf("community place coordinates: %v", p0)
 	}
-	if p1 := pitems[1].(map[string]any); p1["place_id"] == nil {
+	if p1 := pitems[1].(map[string]any); p1["place_id"] == nil || p1["lng"] == nil {
 		t.Fatalf("community place should be linked by name: %v", p1)
 	}
 	if p2 := pitems[2].(map[string]any); num(p2["day"]) != 2 || p2["category"] != "other" || p2["lng"] != nil {
 		t.Fatalf("AI item not sanitised: %v", p2)
+	}
+	if p3 := pitems[3].(map[string]any); p3["located"] != false || p3["place_id"] != nil || num(p3["lng"]) != 120.07 || num(p3["lat"]) != 30.27 {
+		t.Fatalf("plausible AI coordinates should be kept: %v", p3)
 	}
 
 	// ---- places ----
@@ -2273,4 +2278,418 @@ func TestMigrateIsIdempotent(t *testing.T) {
 			t.Errorf("second Migrate on an up-to-date schema issued: %s", s)
 		}
 	}
+}
+
+// Rule-based reasons do not repeat the distance: clients show distance_m
+// next to them ("2372 公里 · 计划中的下一站").
+func TestRecommendReasons(t *testing.T) {
+	e := setup(t)
+	alice, _, _ := e.register("alice")
+	bob, _, _ := e.register("bob")
+	// A community place nearby: bob's public, finished trip.
+	bt := id(e.must(200, "POST", "/trips", bob, map[string]any{"title": "杭州美食", "visibility": "public", "phase": "finished"}).obj(t))
+	e.must(200, "POST", fmt.Sprintf("/trips/%d/waypoints", bt), bob, map[string]any{
+		"name": "知味观", "lng": 120.1650, "lat": 30.2550, "category": "food", "verdict": "recommend", "rating": 4, "cost": 60})
+	trip := id(e.must(200, "POST", "/trips", alice, map[string]any{"title": "西湖一日", "phase": "ongoing"}).obj(t))
+	e.must(200, "POST", fmt.Sprintf("/trips/%d/waypoints/batch", trip), alice, map[string]any{"items": []any{
+		map[string]any{"name": "断桥残雪", "lng": 120.1513, "lat": 30.2610, "planned": true},
+		map[string]any{"name": "雷峰塔", "lng": 120.1488, "lat": 30.2317, "planned": true, "note": "傍晚看日落"},
+	}})
+	rec := e.must(200, "GET", fmt.Sprintf("/trips/%d/recommend?lng=120.1600&lat=30.2560", trip), alice, nil).obj(t)
+	reasons := map[string]string{}
+	for _, s := range rec["suggestions"].([]any) {
+		m := s.(map[string]any)
+		if strings.Contains(m["reason"].(string), "距离") || num(m["distance_m"]) <= 0 {
+			t.Fatalf("suggestion %v: the distance belongs in distance_m only", m)
+		}
+		reasons[m["name"].(string)] = m["reason"].(string)
+	}
+	if reasons["断桥残雪"] != "计划中的下一站" || reasons["雷峰塔"] != "计划中的后续站点；备注：傍晚看日落" ||
+		reasons["知味观"] != "附近 1 人打卡，推荐率 100%，评分 4.0，人均 ¥60" {
+		t.Fatalf("reasons: %v", reasons)
+	}
+}
+
+// A 踩雷 warning lists each person's latest note, at most three of them, and
+// notes that read the same once shortened only once.
+func TestAvoidWarningNotes(t *testing.T) {
+	e := setup(t)
+	diner := func(i int, note string) {
+		tok, _, _ := e.register(fmt.Sprintf("diner%d", i))
+		trip := id(e.must(200, "POST", "/trips", tok, map[string]any{"title": "探店", "visibility": "public", "phase": "finished"}).obj(t))
+		e.must(200, "POST", fmt.Sprintf("/trips/%d/waypoints", trip), tok, map[string]any{
+			"name": "某网红店", "lng": 120.1600, "lat": 30.2700, "verdict": "avoid", "note": note})
+	}
+	for i, note := range []string{"价格贵", "人太多了，排队排了整整两个小时，还不如去别家", "服务\n态度差", "人太多了，排队排了整整两个小时，菜也一般"} {
+		diner(i, note)
+	}
+	walker, _, _ := e.register("walker")
+	ot := id(e.must(200, "POST", "/trips", walker, map[string]any{"title": "逛街", "phase": "ongoing"}).obj(t))
+	warning := func() string {
+		t.Helper()
+		ws := e.must(200, "GET", fmt.Sprintf("/trips/%d/recommend?lng=120.1605&lat=30.2705", ot), walker, nil).obj(t)["warnings"].([]any)
+		if len(ws) != 1 {
+			t.Fatalf("warnings: %v", ws)
+		}
+		return ws[0].(map[string]any)["reason"].(string)
+	}
+	// Newest first; the second note reads like the fourth once cut to 15 characters.
+	if r := warning(); r != "4 人踩雷：人太多了，排队排了整整两个小时…；服务 态度差；价格贵" {
+		t.Fatalf("warning: %q", r)
+	}
+	diner(4, "环境一般")
+	if r := warning(); r != "5 人踩雷：环境一般；人太多了，排队排了整整两个小时…；服务 态度差" {
+		t.Fatalf("at most three notes: %q", r)
+	}
+}
+
+// Check-ins of an ongoing trip without live sharing are left out of place
+// statistics, covers and 踩雷 notes until the trip ends or turns live sharing
+// on, as on the trip page: they would show where the travellers are now.
+func TestLiveCheckinsHiddenFromPlaces(t *testing.T) {
+	e := setup(t)
+	alice, _, _ := e.register("alice")
+	placeOf := func(w map[string]any) int64 {
+		t.Helper()
+		pid := int64(num(w["place_id"]))
+		if pid == 0 || w["status"] != "visited" {
+			t.Fatalf("check-in: %v", w)
+		}
+		return pid
+	}
+	stats := func(pid int64) map[string]any {
+		return e.must(200, "GET", fmt.Sprintf("/places/%d", pid), "", nil).obj(t)
+	}
+	nearby := func(pid int64) bool {
+		for _, p := range e.must(200, "GET", "/places/nearby?lng=120.2&lat=30.3&radius=500", "", nil).arr(t) {
+			if id(p.(map[string]any)) == pid {
+				return true
+			}
+		}
+		return false
+	}
+
+	trip := fmt.Sprintf("/trips/%d", id(e.must(200, "POST", "/trips", alice, map[string]any{"title": "正在旅行", "visibility": "public"}).obj(t)))
+	e.must(200, "PATCH", trip, alice, map[string]any{"phase": "ongoing", "live_share": false})
+	w := e.must(200, "POST", trip+"/waypoints", alice, map[string]any{
+		"name": "湖边小馆", "lng": 120.2000, "lat": 30.3000, "planned": false, "verdict": "avoid", "note": "上菜太慢"}).obj(t)
+	pid := placeOf(w)
+	if r := e.upload(trip+"/photos", alice, testJPEG(t, 64, 48), map[string]string{"waypoint_id": fmt.Sprint(id(w))}); r.status != 200 {
+		t.Fatalf("upload: %d %s", r.status, r.body)
+	}
+	check := func(step string, counted bool) {
+		t.Helper()
+		n := 0.0
+		if counted {
+			n = 1
+		}
+		p := stats(pid)
+		if num(p["checkin_count"]) != n || num(p["avoid_count"]) != n || (p["cover_url"] != "") != counted || nearby(pid) != counted {
+			t.Fatalf("%s: checkin_count=%v avoid_count=%v cover_url=%q listed nearby=%v", step, p["checkin_count"], p["avoid_count"],
+				p["cover_url"], nearby(pid))
+		}
+	}
+	check("ongoing without live sharing", false)
+	e.must(200, "PATCH", trip, alice, map[string]any{"live_share": true})
+	check("live sharing on", true)
+	e.must(200, "PATCH", trip, alice, map[string]any{"live_share": false})
+	check("live sharing off", false)
+	e.must(200, "PATCH", trip, alice, map[string]any{"phase": "finished"})
+	check("finished", true)
+
+	// Nor does such a check-in add its note to a 踩雷 warning.
+	bob, _, _ := e.register("bob")
+	carol, _, _ := e.register("carol")
+	var shop int64
+	for _, v := range []struct{ tok, note string }{{bob, "服务差"}, {carol, "太贵了"}} {
+		ft := id(e.must(200, "POST", "/trips", v.tok, map[string]any{"title": "逛街", "visibility": "public", "phase": "finished"}).obj(t))
+		p := placeOf(e.must(200, "POST", fmt.Sprintf("/trips/%d/waypoints", ft), v.tok, map[string]any{
+			"name": "某网红店", "lng": 120.1600, "lat": 30.2700, "verdict": "avoid", "note": v.note}).obj(t))
+		if shop != 0 && p != shop {
+			t.Fatalf("carol's check-in did not join bob's place: %d, %d", p, shop)
+		}
+		shop = p
+	}
+	e.must(200, "PATCH", trip, alice, map[string]any{"phase": "ongoing"})
+	if p := placeOf(e.must(200, "POST", trip+"/waypoints", alice, map[string]any{
+		"name": "某网红店", "lng": 120.1601, "lat": 30.2701, "planned": false, "verdict": "avoid", "note": "正在排队"}).obj(t)); p != shop {
+		t.Fatalf("alice's check-in did not join the public place: %d, %d", p, shop)
+	}
+	ct := id(e.must(200, "POST", "/trips", carol, map[string]any{"title": "附近逛逛", "phase": "ongoing"}).obj(t))
+	warning := func() string {
+		t.Helper()
+		ws := e.must(200, "GET", fmt.Sprintf("/trips/%d/recommend?lng=120.1605&lat=30.2705", ct), carol, nil).obj(t)["warnings"].([]any)
+		if len(ws) != 1 {
+			t.Fatalf("warnings: %v", ws)
+		}
+		return ws[0].(map[string]any)["reason"].(string)
+	}
+	if r := warning(); r != "2 人踩雷：太贵了；服务差" {
+		t.Fatalf("warning while alice's trip is under way: %q", r)
+	}
+	e.must(200, "PATCH", trip, alice, map[string]any{"live_share": true})
+	if r := warning(); r != "3 人踩雷：正在排队；太贵了；服务差" {
+		t.Fatalf("warning with live sharing: %q", r)
+	}
+
+	// A public trip that starts (a check-in or a GPS track in the planning
+	// phase) stops counting at once.
+	for i, start := range []func(path string, stop int64){
+		func(path string, stop int64) {
+			e.must(200, "POST", path+"/checkin", alice, map[string]any{"waypoint_id": stop})
+		},
+		func(path string, _ int64) {
+			e.must(200, "POST", path+"/track", alice, map[string]any{"points": []any{
+				map[string]any{"lng": 120.25, "lat": 30.35, "t": time.Now().UnixMilli()}}})
+		},
+	} {
+		plan := fmt.Sprintf("/trips/%d", id(e.must(200, "POST", "/trips", alice, map[string]any{"title": fmt.Sprintf("攻略 %d", i), "visibility": "public"}).obj(t)))
+		lng := 120.25 + float64(i)*0.05
+		// Marked visited in the editor while still planning: counted, the trip has not started.
+		pid := placeOf(e.must(200, "POST", plan+"/waypoints", alice, map[string]any{
+			"name": fmt.Sprintf("书店 %d", i), "lng": lng, "lat": 30.35, "status": "visited"}).obj(t))
+		stop := e.must(200, "POST", plan+"/waypoints", alice, map[string]any{"name": fmt.Sprintf("景点 %d", i), "lng": lng + 0.01, "lat": 30.35}).obj(t)
+		if n := num(stats(pid)["checkin_count"]); n != 1 {
+			t.Fatalf("planning trip %d: checkin_count %v", i, n)
+		}
+		start(plan, id(stop))
+		if d := e.must(200, "GET", plan, alice, nil).obj(t); d["phase"] != "ongoing" {
+			t.Fatalf("trip %d not started: %v", i, d["phase"])
+		}
+		if n := num(stats(pid)["checkin_count"]); n != 0 {
+			t.Fatalf("started trip %d still counted: %v", i, n)
+		}
+	}
+}
+
+// The partner_invite notice carries only the sender's own message.
+func TestPartnerInviteNotice(t *testing.T) {
+	e := setup(t)
+	alice, _, _ := e.register("alice")
+	bob, _, _ := e.register("bob")
+	carol, _, _ := e.register("carol")
+	e.must(200, "POST", "/partner/invites", alice, map[string]any{"username": "bob"})
+	e.must(200, "POST", "/partner/invites", carol, map[string]any{"username": "bob", "message": "一起记录吧"})
+	content := map[string]any{}
+	for _, n := range items(t, e.must(200, "GET", "/notifications", bob, nil)) {
+		if m := n.(map[string]any); m["type"] == "partner_invite" {
+			content[m["actor"].(map[string]any)["username"].(string)] = m["content"]
+		}
+	}
+	if len(content) != 2 || content["alice"] != "" || content["carol"] != "一起记录吧" {
+		t.Fatalf("partner_invite contents: %v", content)
+	}
+}
+
+// Favourites are what GET /me/favorites lists: public trips and one's own.
+func TestFavoriteVisibility(t *testing.T) {
+	e := setup(t)
+	alice, _, _ := e.register("alice")
+	bob, _, _ := e.register("bob")
+	unlisted := e.must(200, "POST", "/trips", alice, map[string]any{"title": "链接可见", "visibility": "unlisted"}).obj(t)
+	shared := fmt.Sprintf("/trips/%d/favorite?share_code=%s", id(unlisted), unlisted["share_code"])
+	e.must(200, "GET", fmt.Sprintf("/trips/%d?share_code=%s", id(unlisted), unlisted["share_code"]), bob, nil)
+	e.must(403, "POST", shared, bob, nil)
+	e.must(200, "DELETE", shared, bob, nil) // removing is always allowed
+	pub := id(e.must(200, "POST", "/trips", alice, map[string]any{"title": "公开", "visibility": "public"}).obj(t))
+	e.must(200, "POST", fmt.Sprintf("/trips/%d/favorite", pub), bob, nil)
+	priv := id(e.must(200, "POST", "/trips", alice, map[string]any{"title": "私密"}).obj(t))
+	e.must(200, "POST", fmt.Sprintf("/trips/%d/favorite", priv), alice, nil)
+	for tok, want := range map[string]int64{bob: pub, alice: priv} {
+		if favs := items(t, e.must(200, "GET", "/me/favorites", tok, nil)); len(favs) != 1 || id(favs[0].(map[string]any)) != want {
+			t.Fatalf("favorites: %v, want trip %d", favs, want)
+		}
+	}
+}
+
+// The admin trip search also matches cities and the author.
+func TestAdminTripSearch(t *testing.T) {
+	e := setup(t)
+	tok, _, _ := e.register("zhangsan")
+	e.must(200, "PATCH", "/me", tok, map[string]any{"nickname": "小张"})
+	trip := id(e.must(200, "POST", "/trips", tok, map[string]any{"title": "周末"}).obj(t))
+	e.must(200, "POST", fmt.Sprintf("/trips/%d/waypoints", trip), tok, map[string]any{"name": "断桥残雪", "lng": 120.1513, "lat": 30.2610})
+	e.must(200, "POST", "/trips", e.adminToken(), map[string]any{"title": "站务"})
+	admin := e.adminToken()
+	for _, q := range []string{"zhangsan", "小张", "杭州", "周末"} {
+		if found := items(t, e.must(200, "GET", "/admin/trips?q="+url.QueryEscape(q), admin, nil)); len(found) != 1 || id(found[0].(map[string]any)) != trip {
+			t.Fatalf("q=%s: %v", q, found)
+		}
+	}
+	if found := items(t, e.must(200, "GET", "/admin/trips?q=nobody", admin, nil)); len(found) != 0 {
+		t.Fatalf("q=nobody: %v", found)
+	}
+}
+
+// Re-sending a stop's current name (an app saving the whole form) is no
+// rename: an auto name such as "杭州市" must not become a user-given one.
+func TestUnchangedWaypointName(t *testing.T) {
+	e := setup(t)
+	alice, _, _ := e.register("alice")
+	trip := id(e.must(200, "POST", "/trips", alice, map[string]any{"title": "随手记", "visibility": "public", "phase": "finished"}).obj(t))
+	w := e.must(200, "POST", fmt.Sprintf("/trips/%d/waypoints", trip), alice, map[string]any{"lng": 120.1500, "lat": 30.2600}).obj(t)
+	name, _ := w["name"].(string)
+	if name == "" || w["place_id"] != nil {
+		t.Fatalf("auto-named stop: %v", w)
+	}
+	path := fmt.Sprintf("/waypoints/%d", id(w))
+	if same := e.must(200, "PATCH", path, alice, map[string]any{"name": name, "note": "x"}).obj(t); same["name"] != name ||
+		same["note"] != "x" || same["place_id"] != nil {
+		t.Fatalf("unchanged auto name: %v", same)
+	}
+	renamed := e.must(200, "PATCH", path, alice, map[string]any{"name": "湖边长椅"}).obj(t)
+	if renamed["name"] != "湖边长椅" || renamed["place_id"] == nil {
+		t.Fatalf("rename: %v", renamed)
+	}
+	if again := e.must(200, "PATCH", path, alice, map[string]any{"name": "湖边长椅", "note": "y"}).obj(t); again["place_id"] != renamed["place_id"] {
+		t.Fatalf("unchanged user name: %v", again)
+	}
+}
+
+// Checking the password of a signed-in account (change password, close the
+// account) is limited like logins, so a stolen token cannot find it.
+func TestPasswordAttempts(t *testing.T) {
+	e := setup(t)
+	tok, _, _ := e.register("guessed")
+	for i := 0; i < 5; i++ {
+		e.must(400, "POST", "/me/password", tok, map[string]any{"old_password": fmt.Sprintf("wrong-%d", i), "new_password": "newsecret1"})
+	}
+	r := e.must(429, "POST", "/me/password", tok, map[string]any{"old_password": "secret123", "new_password": "newsecret1"}).obj(t)
+	if msg := r["error"].(map[string]any)["message"].(string); !strings.HasPrefix(msg, "密码错误次数过多，请 ") {
+		t.Fatalf("message: %q", msg)
+	}
+	e.must(429, "DELETE", "/me", tok, map[string]any{"password": "secret123"})
+	e.must(200, "GET", "/me", tok, nil)
+	// Right answers do not count; each account has its own limit.
+	other, _, _ := e.register("owner")
+	for i := 0; i < 4; i++ {
+		e.must(400, "DELETE", "/me", other, map[string]any{"password": "wrong-password"})
+	}
+	e.must(200, "POST", "/me/password", other, map[string]any{"old_password": "secret123", "new_password": "newsecret1"})
+	e.must(200, "POST", "/me/password", other, map[string]any{"old_password": "newsecret1", "new_password": "newsecret2"})
+	e.must(400, "POST", "/me/password", other, map[string]any{"old_password": "wrong-password", "new_password": "newsecret3"})
+	e.must(429, "POST", "/me/password", other, map[string]any{"old_password": "newsecret2", "new_password": "newsecret3"})
+}
+
+// Without live sharing, non-members see an ongoing trip's plan on list cards
+// and in region searches too, as on the trip page: no check-ins (unplanned
+// ones included), photos, GPS distance, cities reached or last activity.
+func TestLiveProgressHiddenFromCards(t *testing.T) {
+	e := setup(t)
+	alice, _, _ := e.register("alice")
+	bob, _, _ := e.register("bob")
+	carol, _, _ := e.register("carol")
+	admin := e.adminToken()
+	tripID := id(e.must(200, "POST", "/trips", alice, map[string]any{"title": "杭州行", "visibility": "public"}).obj(t))
+	trip := fmt.Sprintf("/trips/%d", tripID)
+	plan := e.must(200, "POST", trip+"/waypoints/batch", alice, map[string]any{"items": []any{
+		map[string]any{"name": "断桥残雪", "lng": 120.1513, "lat": 30.2610},
+		map[string]any{"name": "灵隐寺", "lng": 120.1010, "lat": 30.2410},
+	}}).arr(t)
+	e.must(200, "PATCH", trip, alice, map[string]any{"phase": "ongoing", "live_share": false})
+	e.must(200, "POST", fmt.Sprintf("/waypoints/%d/checkin", id(plan[0].(map[string]any))), alice,
+		map[string]any{"arrived_at": "2026-05-01T09:00:00+08:00"})
+	extra := e.must(200, "POST", trip+"/checkin", alice, map[string]any{"lng": 121.4737, "lat": 31.2304, "name": "外滩",
+		"arrived_at": "2026-05-01T18:00:00+08:00"}).obj(t)["waypoint"].(map[string]any)
+	if extra["planned"] != false || extra["city"] != "上海市" {
+		t.Fatalf("unplanned check-in: %v", extra)
+	}
+	if r := e.upload(trip+"/photos", alice, testJPEG(t, 64, 48), map[string]string{"waypoint_id": fmt.Sprint(id(extra))}); r.status != 200 {
+		t.Fatalf("upload: %d %s", r.status, r.body)
+	}
+	zigzag := []any{}
+	for i := 0; i < 4; i++ {
+		zigzag = append(zigzag, map[string]any{"lng": 120.0 + float64(i%2), "lat": 30.5, "t": int64(1777600000000) + int64(i)*600000})
+	}
+	e.must(200, "POST", trip+"/track", alice, map[string]any{"points": zigzag})
+	planKm := num(e.must(200, "GET", trip+"/compare", alice, nil).obj(t)["planned"].(map[string]any)["distance_km"])
+	if planKm < 4 || planKm > 7 {
+		t.Fatalf("planned route: %v km", planKm)
+	}
+
+	card := func(path, tok string) map[string]any {
+		t.Helper()
+		for _, it := range items(t, e.must(200, "GET", path, tok, nil)) {
+			if m := it.(map[string]any); id(m) == tripID {
+				return m
+			}
+		}
+		return nil
+	}
+	masked := func(what string, m map[string]any) {
+		t.Helper()
+		if m == nil {
+			t.Fatalf("%s: trip not listed", what)
+		}
+		if num(m["waypoint_count"]) != 2 || num(m["planned_count"]) != 2 || num(m["visited_count"]) != 0 || num(m["photo_count"]) != 0 ||
+			math.Abs(num(m["distance_km"])-planKm) > 0.051 || num(m["days"]) != 0 || m["cover_url"] != "" || m["cover_thumb_url"] != "" ||
+			fmt.Sprint(m["cities"]) != "[杭州市]" || fmt.Sprint(m["provinces"]) != "[浙江省]" || m["updated_at"] != m["created_at"] {
+			t.Fatalf("%s shows the trip's progress: %v", what, m)
+		}
+	}
+	full := func(what string, m map[string]any) {
+		t.Helper()
+		if m == nil {
+			t.Fatalf("%s: trip not listed", what)
+		}
+		if num(m["waypoint_count"]) != 3 || num(m["planned_count"]) != 2 || num(m["visited_count"]) != 2 || num(m["photo_count"]) != 1 ||
+			num(m["distance_km"]) < 250 || num(m["days"]) != 1 || m["cover_url"] == "" || len(m["cities"].([]any)) != 2 {
+			t.Fatalf("%s: %v", what, m)
+		}
+	}
+	listed := func(path, tok string) bool {
+		t.Helper()
+		return card(path, tok) != nil
+	}
+
+	// Guests and other users see the plan, on every list and the trip page alike.
+	masked("guest list", card("/trips", ""))
+	masked("guest list, by user", card("/users/alice/trips", ""))
+	masked("guest detail", e.must(200, "GET", trip, "", nil).obj(t))
+	masked("non-member list", card("/trips?tab=hot", bob))
+	e.must(200, "POST", trip+"/favorite", bob, nil)
+	masked("non-member favorites", card("/me/favorites", bob))
+	masked("non-member detail", e.must(200, "GET", trip, bob, nil).obj(t))
+	// Region searches only match the plan for them: not where they checked in.
+	for _, q := range []string{"?city=" + url.QueryEscape("上海"), "?province=" + url.QueryEscape("上海"), "?q=" + url.QueryEscape("上海")} {
+		if listed("/trips"+q, "") || listed("/trips"+q, bob) {
+			t.Fatalf("/trips%s finds the trip by an unplanned check-in", q)
+		}
+		if !listed("/trips"+q, alice) || !listed("/trips"+q, admin) {
+			t.Fatalf("/trips%s: members and admins search the actual route", q)
+		}
+	}
+	masked("planned city", card("/trips?city="+url.QueryEscape("杭州"), ""))
+	masked("planned province", card("/trips?q="+url.QueryEscape("浙江"), bob))
+
+	// Members and admins are not affected.
+	full("owner list", card("/trips", alice))
+	full("owner's trips", card("/me/trips", alice))
+	full("owner detail", e.must(200, "GET", trip, alice, nil).obj(t))
+	full("admin list", card("/trips", admin))
+	full("admin trips", card("/admin/trips", admin))
+	full("admin detail", e.must(200, "GET", trip, admin, nil).obj(t))
+	// An invitee sees the plan until accepting, as on the trip page.
+	e.must(200, "POST", trip+"/members", alice, map[string]any{"username": "carol"})
+	inv := e.must(200, "GET", "/me/invites", carol, nil).obj(t)["trip_invites"].([]any)
+	if len(inv) != 1 {
+		t.Fatalf("invites: %v", inv)
+	}
+	masked("invite", inv[0].(map[string]any)["trip"].(map[string]any))
+	e.must(200, "POST", trip+"/members/accept", carol, nil)
+	full("co-author list", card("/users/alice/trips", carol))
+	if !listed("/trips?city="+url.QueryEscape("上海"), carol) {
+		t.Fatal("co-author search of the actual route")
+	}
+
+	// Live sharing, or the end of the trip, shows everybody the progress.
+	e.must(200, "PATCH", trip, alice, map[string]any{"live_share": true})
+	full("live list", card("/trips", ""))
+	full("live detail", e.must(200, "GET", trip, bob, nil).obj(t))
+	if !listed("/trips?city="+url.QueryEscape("上海"), "") {
+		t.Fatal("live trip search")
+	}
+	e.must(200, "PATCH", trip, alice, map[string]any{"live_share": false, "phase": "finished"})
+	full("finished list", card("/trips", ""))
+	full("finished favorites", card("/me/favorites", bob))
 }

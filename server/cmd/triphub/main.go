@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -41,10 +42,14 @@ func main() {
 		return
 	}
 	showVersion := flag.Bool("version", false, "print version and exit")
+	healthcheck := flag.Bool("healthcheck", false, "check that the server on TRIPHUB_ADDR answers /api/v1/health, exit 0 if healthy (for Docker HEALTHCHECK)")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println("triphub", version.Version)
 		return
+	}
+	if *healthcheck {
+		os.Exit(runHealthcheck())
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	if err := run(); err != nil {
@@ -52,6 +57,50 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+// healthURL is the health endpoint of a server listening on addr
+// (TRIPHUB_ADDR): a wildcard or empty host is reached via 127.0.0.1.
+func healthURL(addr string) string {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		addr = ":8080"
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil { // not host:port; let the request report it
+		host, port = addr, ""
+	}
+	switch host {
+	case "", "0.0.0.0", "::":
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port) + "/api/v1/health"
+}
+
+// runHealthcheck implements -healthcheck: the images are FROM scratch (no
+// shell, curl or wget), so the binary probes itself. It returns the exit code.
+func runHealthcheck() int {
+	client := &http.Client{
+		Timeout:   3 * time.Second,
+		Transport: &http.Transport{}, // no HTTP(S)_PROXY: the server is local
+	}
+	url := healthURL(os.Getenv("TRIPHUB_ADDR"))
+	res, err := client.Get(url)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "healthcheck:", err)
+		return 1
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		fmt.Fprintln(os.Stderr, "healthcheck:", url, "returned", res.Status)
+		return 1
+	}
+	return 0
+}
+
+// shutdownTimeout is how long in-flight requests (an AI plan takes up to
+// TRIPHUB_AI_TIMEOUT) may run after SIGTERM. It must stay below the compose
+// stop_grace_period (45s), after which Docker kills the process.
+const shutdownTimeout = 40 * time.Second
 
 func run() error {
 	cfg, err := config.Load()
@@ -145,11 +194,13 @@ func run() error {
 		return err
 	case <-ctx.Done():
 	}
+	stop() // a second Ctrl-C / SIGTERM kills the process right away
 	slog.Info("shutting down")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		return err
+		slog.Warn("graceful shutdown timed out, closing remaining connections", "err", err)
+		_ = srv.Close()
 	}
 	if sqlDB, err := gdb.DB(); err == nil {
 		_ = sqlDB.Close()

@@ -79,8 +79,9 @@ func (h *Handler) Router() *gin.Engine {
 	// (default: loopback and private networks, i.e. reverse proxies), so
 	// clients cannot spoof their IP for rate limits. Docker's userland proxy
 	// (IPv6 clients of an IPv4-only network, rootless Docker, frp-style
-	// tunnels) makes every client appear as a private address, which is why
-	// the compose file publishes the port on IPv4 only.
+	// tunnels) makes every client appear as a private address: when the app
+	// port is exposed without a reverse proxy, set TRIPHUB_TRUSTED_PROXIES=none
+	// (compose: TRUSTED_PROXIES=none in .env); see docs/DEPLOY.md.
 	if err := r.SetTrustedProxies(h.cfg.TrustedProxies); err != nil {
 		slog.Error("invalid trusted proxies", "err", err)
 	}

@@ -52,6 +52,7 @@ type waypointInput struct {
 // wpChange records what an input changed, for follow-up work.
 type wpChange struct {
 	coords       bool // position changed → re-locate
+	renamed      bool // name set to a different value (or cleared) → re-name
 	relink       bool // name / amap_id / position changed → re-resolve Place
 	wantDetail   bool // district/address should come from reverse geocoding
 	addressGiven bool // user supplied a non-empty address
@@ -65,8 +66,14 @@ func (h *Handler) applyWaypoint(c *gin.Context, t *model.Trip, wp *model.Waypoin
 		if err != nil {
 			return ch, err
 		}
-		wp.Name, ch.relink = s, true
-		wp.AutoNamed = s == ""
+		// The current name sent back unchanged (e.g. an app re-sending the whole
+		// form) is no rename: an auto name such as "西湖区" must not become a
+		// user-given name, which would create a Place for it.
+		if creating || s != wp.Name {
+			wp.Name, ch.relink = s, true
+			wp.AutoNamed = s == ""
+			ch.renamed = true
+		}
 	} else if creating {
 		wp.AutoNamed = true
 	}
@@ -567,7 +574,7 @@ func (h *Handler) updateWaypoint(c *gin.Context) error {
 	if err != nil {
 		return err
 	}
-	if ch.coords || in.Name != nil {
+	if ch.coords || ch.renamed {
 		h.locateWaypoint(c.Request.Context(), wp, ch, &in)
 	} else if ch.relink {
 		h.svc.WarmPOI(c.Request.Context(), wp.AmapID)

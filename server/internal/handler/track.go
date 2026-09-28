@@ -110,7 +110,7 @@ func (h *Handler) appendTrack(c *gin.Context) error {
 			}
 		}
 		if accepted > 0 {
-			if err := startTripIfPlanning(tx, t); err != nil {
+			if err := h.startTripIfPlanning(tx, t); err != nil {
 				return err
 			}
 		}

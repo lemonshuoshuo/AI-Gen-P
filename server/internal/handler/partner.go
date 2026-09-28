@@ -226,11 +226,9 @@ func (h *Handler) createPartnerInvite(c *gin.Context) error {
 		if err := tx.Create(&inv).Error; err != nil {
 			return err
 		}
-		content := "邀请你一起记录「我们一起走过的地方」"
-		if msg != "" {
-			content = msg
-		}
-		return h.svc.Notify(tx, service.Notice{UserID: target.ID, Type: "partner_invite", ActorID: u.ID, Content: content})
+		// content is the sender's own words only: clients show it as a quote
+		// (none when empty) next to their own invitation text.
+		return h.svc.Notify(tx, service.Notice{UserID: target.ID, Type: "partner_invite", ActorID: u.ID, Content: msg})
 	})
 	if err != nil {
 		return err
@@ -358,7 +356,7 @@ func (h *Handler) partnerTrips(c *gin.Context) error {
 		return nil
 	}
 	q := db.Model(&model.Trip{}).Where("id IN (?)", sharedTripIDs(db, u.ID, partnerID))
-	return h.respondTripPage(c, q, "start_date DESC NULLS LAST, created_at DESC")
+	return h.respondTripPage(c, q, "start_date DESC NULLS LAST, created_at DESC, id DESC")
 }
 
 func (h *Handler) partnerFootprints(c *gin.Context) error {

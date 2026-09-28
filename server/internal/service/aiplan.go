@@ -246,7 +246,9 @@ func (s *Service) groundPlanItems(ctx context.Context, items []PlanItem, dest, c
 		}
 		id := p.ID
 		it.PlaceID = &id
-		if it.Lng == nil {
+		// Not located by AMap: the place's real position replaces the model's guess
+		// (clients treat an item with a place_id as verified).
+		if !it.Located {
 			lng, lat := p.Lng, p.Lat
 			it.Lng, it.Lat = &lng, &lat
 		}

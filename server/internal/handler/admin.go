@@ -273,7 +273,9 @@ func (h *Handler) adminTrips(c *gin.Context) error {
 	q := h.db.WithContext(c.Request.Context()).Model(&model.Trip{})
 	if kw := strings.TrimSpace(c.Query("q")); kw != "" {
 		like := escapeLike(kw)
-		q = q.Where("(title ILIKE ? OR summary ILIKE ?)", like, like)
+		// Title, summary, cities, or the author's username / nickname.
+		q = q.Where("(title ILIKE ? OR summary ILIKE ? OR cities::text ILIKE ? OR owner_id IN (SELECT id FROM users WHERE username ILIKE ? OR nickname ILIKE ?))",
+			like, like, like, like, like)
 	}
 	if s := c.Query("status"); s != "" {
 		q = q.Where("status = ?", s)
@@ -375,7 +377,7 @@ func (h *Handler) adminUpdateTrip(c *gin.Context) error {
 	if err := db.First(&t, t.ID).Error; err != nil {
 		return err
 	}
-	card, err := h.tripCard(ctx, &t)
+	card, err := h.tripCard(ctx, &t, currentUser(c))
 	if err != nil {
 		return err
 	}

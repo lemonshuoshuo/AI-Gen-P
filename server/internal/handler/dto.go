@@ -399,8 +399,98 @@ func (h *Handler) cardFrom(t *model.Trip, author *model.User, members []*UserBri
 	}
 }
 
-// tripCards builds cards for trips with batched lookups of authors, members and partners.
-func (h *Handler) tripCards(ctx context.Context, trips []model.Trip) ([]TripCard, error) {
+// tripCards builds the cards of trips as viewer (nil for guests) may see
+// them: ongoing trips whose progress is hidden from the viewer
+// (service.Access.HideLive) show their plan instead (see maskLive).
+func (h *Handler) tripCards(ctx context.Context, trips []model.Trip, viewer *model.User) ([]TripCard, error) {
+	cards, err := h.storedTripCards(ctx, trips)
+	if err != nil {
+		return nil, err
+	}
+	hidden, err := h.liveHiddenTrips(ctx, trips, viewer)
+	if err != nil || len(hidden) == 0 {
+		return cards, err
+	}
+	ids := make([]int64, 0, len(hidden))
+	for id := range hidden {
+		ids = append(ids, id)
+	}
+	var wps []model.Waypoint
+	if err := h.db.WithContext(ctx).Select("id", "trip_id", "seq", "day", "planned", "status", "lng", "lat", "province", "city").
+		Where("trip_id IN ? AND planned", ids).Find(&wps).Error; err != nil {
+		return nil, err
+	}
+	byTrip := make(map[int64][]model.Waypoint, len(ids))
+	for _, w := range wps {
+		byTrip[w.TripID] = append(byTrip[w.TripID], w)
+	}
+	for i := range trips {
+		if hidden[trips[i].ID] {
+			h.maskLive(&cards[i], &trips[i], byTrip[trips[i].ID])
+		}
+	}
+	return cards, nil
+}
+
+// liveHiddenTrips returns the IDs of the trips whose progress viewer may not
+// see (service.Access.HideLive: ongoing without live sharing, and viewer is
+// neither an accepted member nor an admin).
+func (h *Handler) liveHiddenTrips(ctx context.Context, trips []model.Trip, viewer *model.User) (map[int64]bool, error) {
+	if viewer != nil && viewer.IsAdmin() {
+		return nil, nil
+	}
+	var ids []int64
+	for i := range trips {
+		t := &trips[i]
+		if (service.Access{Member: viewer != nil && viewer.ID == t.OwnerID}).HideLive(t) {
+			ids = append(ids, t.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	member := map[int64]bool{}
+	if viewer != nil {
+		var mine []int64
+		if err := service.MemberTripIDs(h.db.WithContext(ctx), viewer.ID).Where("trip_id IN ?", ids).
+			Pluck("trip_id", &mine).Error; err != nil {
+			return nil, err
+		}
+		for _, id := range mine {
+			member[id] = true
+		}
+	}
+	out := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		if !member[id] {
+			out[id] = true
+		}
+	}
+	return out, nil
+}
+
+// maskLive replaces what a card shows of an ongoing trip's progress with its
+// plan, for viewers who may not see the progress (service.Access.HideLive),
+// as redactLive does for its waypoints: the stored statistics count
+// check-ins (unplanned ones too), arrival times, photos and the GPS track.
+// wps are the trip's waypoints; only the planned ones are used.
+func (h *Handler) maskLive(card *TripCard, t *model.Trip, wps []model.Waypoint) {
+	ps := service.TripPlanStats(t.StartDate, t.EndDate, wps, h.loc)
+	card.WaypointCount, card.PlannedCount, card.VisitedCount, card.PhotoCount = ps.Count, ps.Count, 0, 0
+	card.DistanceKm, card.Days = geo.Round(ps.DistanceKm, 1), ps.Days
+	card.Cities, card.Provinces = ps.Cities, ps.Provinces
+	if t.CoverURL == "" {
+		card.CoverURL, card.CoverThumbURL = "", "" // the automatic cover is one of the trip's photos
+	}
+	// Check-ins, photos and track uploads touch the trip: its last change
+	// would tell when the travellers were last active.
+	card.UpdatedAt = card.CreatedAt
+}
+
+// storedTripCards builds cards from the stored trip statistics, for viewers
+// who may see the trips' progress, with batched lookups of authors, members
+// and partners.
+func (h *Handler) storedTripCards(ctx context.Context, trips []model.Trip) ([]TripCard, error) {
 	out := make([]TripCard, 0, len(trips))
 	if len(trips) == 0 {
 		return out, nil
@@ -452,8 +542,8 @@ func (h *Handler) tripCards(ctx context.Context, trips []model.Trip) ([]TripCard
 	return out, nil
 }
 
-func (h *Handler) tripCard(ctx context.Context, t *model.Trip) (TripCard, error) {
-	cards, err := h.tripCards(ctx, []model.Trip{*t})
+func (h *Handler) tripCard(ctx context.Context, t *model.Trip, viewer *model.User) (TripCard, error) {
+	cards, err := h.tripCards(ctx, []model.Trip{*t}, viewer)
 	if err != nil {
 		return TripCard{}, err
 	}
@@ -501,12 +591,12 @@ func redactLive(wps []model.Waypoint) []model.Waypoint {
 
 func (h *Handler) tripDetail(ctx context.Context, t *model.Trip, a service.Access, viewer *model.User) (*TripDetail, error) {
 	db := h.db.WithContext(ctx)
-	card, err := h.tripCard(ctx, t)
+	cards, err := h.storedTripCards(ctx, []model.Trip{*t})
 	if err != nil {
 		return nil, err
 	}
 	hide := a.HideLive(t)
-	d := &TripDetail{TripCard: card, Content: t.Content, CanEdit: a.CanEdit(), IsOwner: a.Owner,
+	d := &TripDetail{TripCard: cards[0], Content: t.Content, CanEdit: a.CanEdit(), IsOwner: a.Owner,
 		InvitePending: a.Pending, HasTrack: t.TrackPointCount > 0 && !hide, LiveShare: t.LiveShare}
 	d.Summary = t.Summary // the raw summary (cards derive one from content when empty)
 	if a.Member {
@@ -519,10 +609,7 @@ func (h *Handler) tripDetail(ctx context.Context, t *model.Trip, a service.Acces
 	}
 	if hide {
 		wps = redactLive(wps)
-		d.WaypointCount, d.VisitedCount, d.PhotoCount = len(wps), 0, 0
-		if t.CoverURL == "" {
-			d.CoverURL, d.CoverThumbURL = "", "" // the automatic cover is one of the trip's photos
-		}
+		h.maskLive(&d.TripCard, t, wps)
 	}
 	d.Waypoints = h.waypointDTOs(wps)
 	if !(a.Admin || a.Member || a.Pending || (t.Visibility == model.VisPublic && t.Status == model.TripNormal)) {

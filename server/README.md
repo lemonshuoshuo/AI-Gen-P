@@ -10,7 +10,13 @@ and the embedded web frontend (SPA). Single static binary; data lives in Postgre
 cd server
 go run ./cmd/triphub                 # listens on :8080
 go run ./cmd/triphub -version
+go run ./cmd/triphub -healthcheck    # exit 0 if the server on TRIPHUB_ADDR answers /api/v1/health, else 1
 ```
+
+`-healthcheck` is the Docker `HEALTHCHECK` of the `FROM scratch` images (no shell or curl there): it reads only
+`TRIPHUB_ADDR` (a wildcard host such as `:8080` or `0.0.0.0:8080` is probed at `127.0.0.1`), ignores `HTTP(S)_PROXY`
+and gives up after 3 s. On SIGTERM / Ctrl-C the server lets requests in flight finish for up to 40 s (keep the
+compose `stop_grace_period` above that), then closes the remaining connections; a second signal exits at once.
 
 Forgotten password (e.g. the admin's): set a new one from the server shell. It reads the same
 `TRIPHUB_*` environment (DB DSN), signs the user out everywhere and prints the password.
@@ -52,11 +58,12 @@ The binary embeds CA roots and zoneinfo, so it runs in a `FROM scratch` image.
 | `TRIPHUB_AI_API_KEY` | – | API key (optional for local models) |
 | `TRIPHUB_AI_MODEL` | – | Model name, e.g. `deepseek-chat`, `qwen2.5:7b`. AI is enabled when base URL and model are set |
 | `TRIPHUB_AI_TIMEOUT` | `30s` | AI request timeout (Go duration or seconds) |
+| `GOMEMLIMIT` | unlimited (compose: `800MiB`) | Go runtime soft memory limit, e.g. `1500MiB` (units `MiB` / `GiB`), so the server leaves memory to Postgres on small hosts |
 
 ## Layout
 
 ```
-cmd/triphub          main: config, DB connect + migrate, admin seed, HTTP server, graceful shutdown
+cmd/triphub          main: config, DB connect + migrate, admin seed, HTTP server, graceful shutdown, -healthcheck
 internal/config      environment configuration
 internal/model       GORM models
 internal/db          Postgres connection + AutoMigrate + extra indexes

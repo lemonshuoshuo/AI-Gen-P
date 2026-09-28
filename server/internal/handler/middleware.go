@@ -34,14 +34,19 @@ func recovery() gin.HandlerFunc {
 	}
 }
 
+// quietPaths are polled API endpoints whose successful requests are not
+// logged: the container health check (every 30 s) and the unread
+// notification count (every 60 s from every open tab).
+var quietPaths = map[string]bool{"/api/v1/health": true, "/api/v1/notifications/unread-count": true}
+
 func requestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
 		status := c.Writer.Status()
 		path := c.Request.URL.Path
-		// Keep logs readable: skip successful static asset requests.
-		if status < 400 && !strings.HasPrefix(path, "/api/") {
+		// Keep logs readable: skip successful static asset requests and polling.
+		if status < 400 && (!strings.HasPrefix(path, "/api/") || quietPaths[path]) {
 			return
 		}
 		lvl := slog.LevelInfo

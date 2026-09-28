@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 
@@ -96,6 +97,24 @@ func (h *Handler) updateMe(c *gin.Context) error {
 	return h.getMe(c)
 }
 
+// checkOwnPassword verifies the signed-in user's password (changing it,
+// closing the account); a wrong one gives 400 with the message wrong. Wrong
+// guesses are limited like logins (5 per 15 minutes, one key per account for
+// both endpoints), so a stolen access token cannot be used to find the
+// password.
+func (h *Handler) checkOwnPassword(u *model.User, password, wrong string) error {
+	key := fmt.Sprintf("pw:%d", u.ID)
+	// Counted before the slow bcrypt check (as in login), given back if right.
+	if ok, wait := h.loginAccount.Acquire(key); !ok {
+		return errTooMany(fmt.Sprintf("密码错误次数过多，请 %d 分钟后再试", int(math.Ceil(wait.Minutes()))))
+	}
+	if !auth.CheckPassword(u.PasswordHash, password) {
+		return errBad(wrong)
+	}
+	h.loginAccount.Release(key)
+	return nil
+}
+
 func (h *Handler) changePassword(c *gin.Context) error {
 	var req struct {
 		OldPassword  string `json:"old_password"`
@@ -106,8 +125,8 @@ func (h *Handler) changePassword(c *gin.Context) error {
 		return err
 	}
 	u := currentUser(c)
-	if !auth.CheckPassword(u.PasswordHash, req.OldPassword) {
-		return errBad("原密码不正确")
+	if err := h.checkOwnPassword(u, req.OldPassword, "原密码不正确"); err != nil {
+		return err
 	}
 	if err := validatePassword(req.NewPassword); err != nil {
 		return err
@@ -155,8 +174,8 @@ func (h *Handler) deleteMe(c *gin.Context) error {
 	if u.IsAdmin() {
 		return errBad("管理员账号不能注销")
 	}
-	if !auth.CheckPassword(u.PasswordHash, req.Password) {
-		return errBad("密码不正确")
+	if err := h.checkOwnPassword(u, req.Password, "密码不正确"); err != nil {
+		return err
 	}
 	ctx := c.Request.Context()
 	db := h.db.WithContext(ctx)
@@ -440,7 +459,7 @@ func (h *Handler) respondTripPage(c *gin.Context, q *gorm.DB, order string) erro
 	if err := h.loadSummarySources(c.Request.Context(), trips); err != nil {
 		return err
 	}
-	cards, err := h.tripCards(c.Request.Context(), trips)
+	cards, err := h.tripCards(c.Request.Context(), trips, currentUser(c))
 	if err != nil {
 		return err
 	}
@@ -484,14 +503,14 @@ func (h *Handler) myFavorites(c *gin.Context) error {
 	q := db.Model(&model.Trip{}).Joins("JOIN favorites f ON f.trip_id = trips.id AND f.user_id = ?", u.ID).
 		Where("trips.id IN (?)", visible)
 	var trips []model.Trip
-	total, err := paginate(q.Omit("content"), p, "f.created_at DESC", &trips)
+	total, err := paginate(q.Omit("content"), p, "f.created_at DESC, trips.id DESC", &trips)
 	if err != nil {
 		return err
 	}
 	if err := h.loadSummarySources(c.Request.Context(), trips); err != nil {
 		return err
 	}
-	cards, err := h.tripCards(c.Request.Context(), trips)
+	cards, err := h.tripCards(c.Request.Context(), trips, currentUser(c))
 	if err != nil {
 		return err
 	}
@@ -537,7 +556,7 @@ func (h *Handler) myInvites(c *gin.Context) error {
 		if err := h.loadSummarySources(ctx, trips); err != nil {
 			return err
 		}
-		cards, err := h.tripCards(ctx, trips)
+		cards, err := h.tripCards(ctx, trips, u)
 		if err != nil {
 			return err
 		}

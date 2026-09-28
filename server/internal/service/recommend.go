@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -21,7 +22,7 @@ type Suggestion struct {
 	Lat        float64 `json:"lat"`
 	Category   string  `json:"category"`
 	DistanceM  int     `json:"distance_m"`
-	Reason     string  `json:"reason"`
+	Reason     string  `json:"reason"` // without the distance: clients show distance_m themselves
 	Source     string  `json:"source"`
 	PlaceID    *int64  `json:"place_id"`
 	AmapID     string  `json:"amap_id"`
@@ -181,9 +182,6 @@ func (s *Service) Recommend(ctx context.Context, trip *model.Trip, pos *geo.Poin
 		} else if i > 0 {
 			reason = "计划中的后续站点"
 		}
-		if pos != nil {
-			reason += "，距离 " + FormatDistance(d)
-		}
 		if w.Note != "" {
 			reason += "；备注：" + Truncate(w.Note, 20)
 		}
@@ -243,7 +241,6 @@ func (s *Service) Recommend(ctx context.Context, trip *model.Trip, pos *geo.Poin
 			if p.AvgCost > 0 {
 				parts = append(parts, fmt.Sprintf("人均 ¥%d", int(math.Round(p.AvgCost))))
 			}
-			parts = append(parts, "距离 "+FormatDistance(d))
 			id := p.ID
 			cands = append(cands, Suggestion{
 				Name: p.Name, Address: p.Address, Lng: p.Lng, Lat: p.Lat, Category: p.Category,
@@ -274,7 +271,6 @@ func (s *Service) Recommend(ctx context.Context, trip *model.Trip, pos *geo.Poin
 					if sub != "" {
 						reason += " · " + sub
 					}
-					reason += " · 距离 " + FormatDistance(d)
 					cands = append(cands, Suggestion{
 						Name: p.Name, Address: p.Address, Lng: p.Lng, Lat: p.Lat, Category: p.Category,
 						DistanceM: int(math.Round(d)), Reason: reason, Source: "amap", AmapID: p.ID,
@@ -351,7 +347,9 @@ func pickRuleBased(cands []Suggestion, limit int) []Suggestion {
 }
 
 // avoidReason summarises a 踩雷 place (avoidCount people): the number of
-// people and the latest notes, at most one per person.
+// people and up to 3 of the latest notes, at most one per person and each
+// shown once (two people's notes often read the same once shortened). Like
+// the place statistics, it leaves out ongoing trips without live sharing.
 func (s *Service) avoidReason(ctx context.Context, placeID int64, avoidCount int) string {
 	var notes []string
 	s.DB.WithContext(ctx).Raw(`
@@ -359,15 +357,22 @@ SELECT note FROM (
   SELECT DISTINCT ON (COALESCE(NULLIF(w.created_by_id, 0), t.owner_id)) w.note, w.updated_at
   FROM waypoints w JOIN trips t ON t.id = w.trip_id
   WHERE w.place_id = ? AND w.verdict = 'avoid' AND w.status = 'visited' AND w.note <> ''
-    AND t.visibility = 'public' AND t.status = 'normal'
+    AND t.visibility = 'public' AND t.status = 'normal' AND (t.phase <> 'ongoing' OR t.live_share)
   ORDER BY COALESCE(NULLIF(w.created_by_id, 0), t.owner_id), w.updated_at DESC
-) x ORDER BY updated_at DESC LIMIT 3`, placeID).Scan(&notes)
+) x ORDER BY updated_at DESC LIMIT 10`, placeID).Scan(&notes)
 	reason := fmt.Sprintf("%d 人踩雷", avoidCount)
-	if len(notes) > 0 {
-		for i, n := range notes {
-			notes[i] = Truncate(strings.ReplaceAll(strings.TrimSpace(n), "\n", " "), 15)
+	var shown []string
+	for _, n := range notes {
+		n = Truncate(strings.Join(strings.Fields(n), " "), 15)
+		if n == "" || slices.Contains(shown, n) {
+			continue
 		}
-		reason += "：" + strings.Join(notes, "；")
+		if shown = append(shown, n); len(shown) == 3 {
+			break
+		}
+	}
+	if len(shown) > 0 {
+		reason += "：" + strings.Join(shown, "；")
 	}
 	return reason
 }
@@ -435,7 +440,7 @@ func (s *Service) aiRerank(ctx context.Context, trip *model.Trip, wps, todo, act
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString(`请结合时间（饭点优先推荐美食、夜晚考虑住宿与夜景）、距离和计划，从候选地点中挑选最多 5 个现在最适合去的地点，按推荐顺序排列，每个给出 30 字以内的中文理由；再写一段 80 字以内的整体建议。
+	b.WriteString(`请结合时间（饭点优先推荐美食、夜晚考虑住宿与夜景）、距离和计划，从候选地点中挑选最多 5 个现在最适合去的地点，按推荐顺序排列，每个给出 30 字以内的中文理由（不要写距离，界面会单独显示）；再写一段 80 字以内的整体建议。
 如果你知道候选之外、附近非常值得一去的地点，可以在 ideas 中给出最多 2 个（只写确实存在的真实地点名称）。
 只输出 JSON，格式：{"picks":[{"index":1,"reason":"…"}],"text":"…","ideas":[{"name":"…","reason":"…"}]}`)
 

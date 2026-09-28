@@ -154,3 +154,28 @@ func distinctRegions(wps []model.Waypoint) (cities, provinces []string) {
 	}
 	return cities, provinces
 }
+
+// PlanStats are a trip's statistics as planned: computed from its planned
+// stops alone, as if none had been reached yet. Viewers who may not see an
+// ongoing trip's progress (Access.HideLive) get these instead of the stored
+// ones, which count check-ins, arrivals, photos and the GPS track.
+type PlanStats struct {
+	Count      int // planned stops
+	DistanceKm float64
+	Cities     []string
+	Provinces  []string
+	Days       int
+}
+
+// TripPlanStats computes PlanStats from a trip's waypoints (any others than
+// the planned ones are ignored); the rules are RecomputeTrip's for a trip
+// without check-ins or a track.
+func TripPlanStats(start, end *time.Time, wps []model.Waypoint, loc *time.Location) PlanStats {
+	planned := PlannedRoute(wps) // a copy
+	for i := range planned {
+		planned[i].Status, planned[i].ArrivedAt = model.WPTodo, nil // no span of arrival dates in Days
+	}
+	cities, provinces := distinctRegions(planned)
+	return PlanStats{Count: len(planned), DistanceKm: RouteKm(planned), Cities: cities, Provinces: provinces,
+		Days: TripDays(start, end, planned, loc)}
+}

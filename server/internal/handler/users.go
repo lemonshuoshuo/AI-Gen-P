@@ -178,7 +178,7 @@ func (h *Handler) followList(c *gin.Context, followers bool) error {
 		join, where = "JOIN follows f ON f.followee_id = users.id", "f.follower_id = ?"
 	}
 	var users []model.User
-	total, err := paginate(db.Model(&model.User{}).Joins(join).Where(where, target.ID), p, "f.created_at DESC", &users)
+	total, err := paginate(db.Model(&model.User{}).Joins(join).Where(where, target.ID), p, "f.created_at DESC, users.id DESC", &users)
 	if err != nil {
 		return err
 	}

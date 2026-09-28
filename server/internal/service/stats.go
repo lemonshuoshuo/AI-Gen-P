@@ -242,7 +242,10 @@ ON CONFLICT (trip_id, user_id) DO UPDATE SET distance_m = track_stats.distance_m
 // visited waypoints in public, normal trips, and each person once with
 // their latest non-empty verdict, rating and cost (by arrival time), so that
 // "N 人打卡 / N 人踩雷" really counts people and a later visit replaces an
-// earlier opinion.
+// earlier opinion. Trips under way without live sharing are left out (as on
+// the trip page and in placeReviews) until they end or turn it on: their
+// check-ins and photos would reveal where the travellers are right now.
+// Changing a trip's visibility, phase or live_share must recompute its places.
 func (s *Service) RecomputePlaces(tx *gorm.DB, ids []int64) error {
 	ids = uniqueIDs(ids)
 	if len(ids) == 0 {
@@ -268,6 +271,7 @@ UPDATE places p SET
       JOIN waypoints w ON w.id = ph.waypoint_id
       JOIN trips t ON t.id = w.trip_id
       WHERE w.place_id = p.id AND w.status = 'visited' AND t.visibility = 'public' AND t.status = 'normal'
+        AND (t.phase <> 'ongoing' OR t.live_share)
       ORDER BY ph.id DESC LIMIT 1), ''),
   updated_at      = now()
 FROM (
@@ -288,6 +292,7 @@ FROM (
         (array_agg(w.cost ORDER BY COALESCE(w.arrived_at, w.created_at) DESC, w.id DESC) FILTER (WHERE w.cost > 0))[1] AS cost
       FROM waypoints w JOIN trips t ON t.id = w.trip_id
       WHERE w.place_id = pl.id AND w.status = 'visited' AND t.visibility = 'public' AND t.status = 'normal'
+        AND (t.phase <> 'ongoing' OR t.live_share)
       GROUP BY COALESCE(NULLIF(w.created_by_id, 0), t.owner_id)
     ) u
   ) agg ON true
@@ -297,8 +302,9 @@ WHERE p.id = a.id`, ids).Error
 }
 
 // placeStatsVersion identifies how place statistics are counted (2: each
-// person once, by their latest opinion); see BackfillPlaceStats.
-const placeStatsVersion = "2"
+// person once, by their latest opinion; 3: check-ins of ongoing trips
+// without live sharing are not counted); see BackfillPlaceStats.
+const placeStatsVersion = "3"
 
 // BackfillPlaceStats recomputes the statistics of every place once after an
 // upgrade that changed how they are counted, so that counts stored by an
@@ -596,6 +602,14 @@ WHERE t.id = ?`, tripID).Error
 func (s *Service) DeleteTrip(ctx context.Context, tripID int64) error {
 	var files []string
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 先锁旅程行：与上传照片 / 轨迹的加锁顺序（旅程 → 用户）一致，避免死锁；
+		// 并发上传的照片要么已提交（下面会读到并释放其存储占用），要么等本事务结束后失败。
+		// 下面还会改到引用来源（fork_count）和各个引用副本（forked_from_id），一并按 id 顺序锁上，
+		// 同时删除原旅程和它的副本时才不会互相等待。
+		if err := tx.Exec(`SELECT id FROM trips WHERE id = ? OR forked_from_id = ?
+  OR id = (SELECT forked_from_id FROM trips WHERE id = ?) ORDER BY id FOR UPDATE`, tripID, tripID, tripID).Error; err != nil {
+			return err
+		}
 		var photos []model.Photo
 		if err := tx.Where("trip_id = ?", tripID).Find(&photos).Error; err != nil {
 			return err

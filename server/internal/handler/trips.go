@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -82,22 +83,50 @@ func (h *Handler) tripForOwner(c *gin.Context) (*model.Trip, service.Access, err
 const hotScoreSQL = `(like_count * 3 + comment_count * 2 + fork_count * 5 + fav_count * 2 + view_count / 20.0::float8)
  / power(date_part('epoch', now() - coalesce(published_at, created_at)) / 86400 + 2, 1.2::float8)`
 
+// regionMatch is a condition matching a LIKE pattern against the cities
+// and/or provinces of trips (regions: "city", "province"). The stored ones
+// come from the actual route, so for ongoing trips whose progress viewer may
+// not see (service.Access.HideLive) only the planned stops are searched, as
+// their cards show (see maskLive): matching a city the travellers checked in
+// at unplanned would reveal where they are.
+func regionMatch(db *gorm.DB, viewer *model.User, like string, regions ...string) clause.Expression {
+	stored, planned := make([]string, len(regions)), make([]string, len(regions))
+	for i, r := range regions {
+		col := map[string]string{"city": "cities", "province": "provinces"}[r]
+		stored[i] = "trips." + col + "::text ILIKE @like"
+		planned[i] = "w." + r + " ILIKE @like"
+	}
+	storedSQL := "(" + strings.Join(stored, " OR ") + ")"
+	if viewer != nil && viewer.IsAdmin() {
+		return clause.NamedExpr{SQL: storedSQL, Vars: []any{sql.Named("like", like)}}
+	}
+	hidden := "trips.phase = @ongoing AND NOT trips.live_share"
+	args := []any{sql.Named("like", like), sql.Named("ongoing", model.PhaseOngoing)}
+	if viewer != nil {
+		hidden += " AND trips.id NOT IN (@mine)"
+		args = append(args, sql.Named("mine", service.MemberTripIDs(db, viewer.ID)))
+	}
+	return clause.NamedExpr{SQL: "(CASE WHEN " + hidden + " THEN EXISTS (SELECT 1 FROM waypoints w WHERE w.trip_id = trips.id AND w.planned AND (" +
+		strings.Join(planned, " OR ") + ")) ELSE " + storedSQL + " END)", Vars: args}
+}
+
 func (h *Handler) listTrips(c *gin.Context) error {
 	db := h.db.WithContext(c.Request.Context())
+	viewer := currentUser(c)
 	q := db.Model(&model.Trip{}).Where("visibility = ? AND status = ?", model.VisPublic, model.TripNormal)
 	if kw := strings.TrimSpace(c.Query("q")); kw != "" {
 		like := escapeLike(kw)
-		q = q.Where("(title ILIKE ? OR summary ILIKE ? OR tags::text ILIKE ? OR cities::text ILIKE ? OR provinces::text ILIKE ?)",
-			like, like, like, like, like)
+		q = q.Where("(title ILIKE ? OR summary ILIKE ? OR tags::text ILIKE ? OR ?)",
+			like, like, like, regionMatch(db, viewer, like, "city", "province"))
 	}
 	if tag := strings.TrimSpace(c.Query("tag")); tag != "" {
 		q = q.Where("tags @> ?::jsonb", jsonArray(tag))
 	}
 	if p := strings.TrimSpace(c.Query("province")); p != "" {
-		q = q.Where("provinces::text ILIKE ?", escapeLike(p))
+		q = q.Where(regionMatch(db, viewer, escapeLike(p), "province"))
 	}
 	if city := strings.TrimSpace(c.Query("city")); city != "" {
-		q = q.Where("cities::text ILIKE ?", escapeLike(city))
+		q = q.Where(regionMatch(db, viewer, escapeLike(city), "city"))
 	}
 	if p := c.Query("phase"); p != "" {
 		if !validPhase(p) {
@@ -117,11 +146,10 @@ func (h *Handler) listTrips(c *gin.Context) error {
 	case "hot":
 		order = hotScoreSQL + " DESC, published_at DESC NULLS LAST, id DESC"
 	case "following":
-		u := currentUser(c)
-		if u == nil {
+		if viewer == nil {
 			return errLoginRequired
 		}
-		q = q.Where("owner_id IN (SELECT followee_id FROM follows WHERE follower_id = ?)", u.ID)
+		q = q.Where("owner_id IN (SELECT followee_id FROM follows WHERE follower_id = ?)", viewer.ID)
 	default:
 		return errBad("tab 参数无效")
 	}
@@ -427,7 +455,7 @@ func (h *Handler) updateTrip(c *gin.Context) error {
 	if err := bindJSON(c, &in); err != nil {
 		return err
 	}
-	oldVis := t.Visibility
+	oldVis, oldPhase, oldLive := t.Visibility, t.Phase, t.LiveShare
 	if in.Visibility != nil && *in.Visibility != t.Visibility && !a.Owner {
 		return errForbidden("只有作者可以修改可见性")
 	}
@@ -474,7 +502,9 @@ func (h *Handler) updateTrip(c *gin.Context) error {
 				return err
 			}
 		}
-		if oldVis != t.Visibility {
+		// Place statistics count public trips, ongoing ones only with live
+		// sharing (see service.RecomputePlaces).
+		if oldVis != t.Visibility || oldPhase != t.Phase || oldLive != t.LiveShare {
 			ids, err := service.TripPlaceIDs(tx, t.ID)
 			if err != nil {
 				return err
@@ -602,9 +632,15 @@ func (h *Handler) forkTrip(c *gin.Context) error {
 
 // toggle handles like/favorite insertion or removal and returns the new count.
 func (h *Handler) toggle(c *gin.Context, table string, on bool) (int, *model.Trip, error) {
-	t, _, err := h.tripForView(c)
+	t, a, err := h.tripForView(c)
 	if err != nil {
 		return 0, nil, err
+	}
+	// Only what GET /me/favorites lists (public and normal, or the user's own
+	// trips): a favourite of an unlisted trip would vanish from that list.
+	// Removing one is always allowed.
+	if table == "favorites" && on && !a.Member && !(t.Visibility == model.VisPublic && t.Status == model.TripNormal) {
+		return 0, nil, errForbidden("只能收藏公开的旅程")
 	}
 	u := currentUser(c)
 	counter := map[string]string{"likes": "like_count", "favorites": "fav_count"}[table]

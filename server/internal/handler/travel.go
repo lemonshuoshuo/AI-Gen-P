@@ -31,13 +31,25 @@ const (
 	checkinDupWindow = 5 * time.Minute
 )
 
-// startTripIfPlanning moves a planning trip to ongoing.
-func startTripIfPlanning(tx *gorm.DB, t *model.Trip) error {
+// startTripIfPlanning moves a planning trip to ongoing; the caller holds the
+// trip lock. A public trip without live sharing then stops counting in the
+// statistics of its places (see service.RecomputePlaces) until it ends.
+func (h *Handler) startTripIfPlanning(tx *gorm.DB, t *model.Trip) error {
 	if t.Phase != model.PhasePlanning {
 		return nil
 	}
 	t.Phase = model.PhaseOngoing
-	return tx.Model(&model.Trip{}).Where("id = ?", t.ID).Update("phase", model.PhaseOngoing).Error
+	if err := tx.Model(&model.Trip{}).Where("id = ?", t.ID).Update("phase", model.PhaseOngoing).Error; err != nil {
+		return err
+	}
+	if t.Visibility != model.VisPublic || t.Status != model.TripNormal || t.LiveShare {
+		return nil
+	}
+	ids, err := service.TripPlaceIDs(tx, t.ID)
+	if err != nil {
+		return err
+	}
+	return h.svc.RecomputePlaces(tx, ids)
 }
 
 // nearestTodo returns the closest planned todo waypoint within radius metres;
@@ -311,7 +323,7 @@ func (h *Handler) tripCheckin(c *gin.Context) error {
 // afterStatusChange starts the trip if needed and refreshes statistics.
 func (h *Handler) afterStatusChange(tx *gorm.DB, t *model.Trip, wp *model.Waypoint) error {
 	if wp.Status == model.WPVisited {
-		if err := startTripIfPlanning(tx, t); err != nil {
+		if err := h.startTripIfPlanning(tx, t); err != nil {
 			return err
 		}
 	}

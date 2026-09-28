@@ -84,7 +84,7 @@ UserBrief +
 }
 ```
 - `phase`: `planning`（规划中，可作为路线攻略分享） | `ongoing`（旅行中） | `finished`（已完成，游记）
-- `planned_count`：计划内打卡点数；`visited_count`：已到达的打卡点数（含计划外）
+- `planned_count`：计划内打卡点数；`visited_count`：已到达的打卡点数（含计划外）。旅行中且未开启 `live_share` 的旅程，非成员看到的统计只按计划计算（见「旅行中的位置隐私」）
 - `visibility`: `private`（仅成员） | `unlisted`（持分享链接可看，不出现在广场） | `public`（公开）
 - `status`: `normal` | `hidden`（被管理员隐藏，仅成员和管理员可见） | `pending`（开启「公开旅程需审核」后，非管理员公开的旅程等待管理员审核，通过前仅成员和管理员可见，见「内容安全」）
 - `members`: 除作者外已接受邀请的共同作者
@@ -153,7 +153,7 @@ TripCard +
   "created_at": "..."
 }
 ```
-统计只计入 **公开且正常** 旅程中 `status=visited` 的打卡点，且同一用户对同一地点只计一次：`checkin_count` 为打卡人数；推荐 / 一般 / 踩雷（`recommend_count` / `neutral_count` / `avoid_count`）、评分（`rating_avg` / `rating_count`）、人均（`avg_cost`）取该用户最近一次（按到达时间）有值的评价。
+统计只计入 **公开且正常** 旅程中 `status=visited` 的打卡点，且同一用户对同一地点只计一次：`checkin_count` 为打卡人数；推荐 / 一般 / 踩雷（`recommend_count` / `neutral_count` / `avoid_count`）、评分（`rating_avg` / `rating_count`）、人均（`avg_cost`）取该用户最近一次（按到达时间）有值的评价。旅行中（`phase=ongoing`）且未开启 `live_share` 的旅程，在结束或开启实时公开后才计入（地点封面 `cover_url` 同理），见「旅行中的位置隐私」。
 
 ### PlaceReview（地点页中的打卡评价 = 某个公开旅程里的打卡点）
 ```json
@@ -204,6 +204,7 @@ TripCard +
 ```
 `type`: `comment` `reply` `like` `favorite` `fork` `follow` `trip_invite` `partner_invite` `partner_accept` `featured` `system`
 `invite_pending`：`trip_invite` 通知对应的共同作者邀请仍待接收者接受 / 拒绝时为 true（客户端据此显示「接受 / 拒绝」），邀请已处理或其它类型为 false
+`partner_invite` 的 `content` 为邀请留言（发送者自己写的话），没有留言时为空字符串
 
 ---
 
@@ -270,6 +271,8 @@ AuthResult：
 | GET | `/me/footprints` | 我参与的全部旅程的 Footprints |
 | GET | `/me/invites` | 待处理邀请 `{trip_invites:[{trip: TripCard, from: UserBrief, created_at}], partner_invites:[PartnerInvite]}` |
 
+`POST /me/password` 与 `DELETE /me` 校验密码：同一账号 15 分钟内密码错误 5 次后返回 429（两个接口合计，密码正确的请求不计入），防止拿到登录令牌的人猜出密码。
+
 `DELETE /me`（注销账号，不可恢复）：密码错误返回 400 `密码不正确`；管理员账号不能注销（400）。注销后：
 - 只有本人能编辑的旅程被删除（含照片、轨迹、评论）；有其他共同作者的旅程转交给最早加入的共同作者（其收到 `system` 通知）；
 - 本人上传的照片和 GPS 轨迹全部删除；本人的评论变为已删除占位（`deleted=true`，作者显示为「已注销用户」）；
@@ -318,6 +321,8 @@ AuthResult：
 `with_partner`（仅创建时）：直接把已绑定的情侣加为共同作者。成员可以编辑内容；只有作者能修改 `visibility`、`live_share`、管理成员、删除旅程。
 `live_share`：旅行中（`phase=ongoing`）是否向非成员实时公开 GPS 轨迹、打卡和照片，缺省 `false`（见「旅行中的位置隐私」）。
 
+收藏（`POST /trips/:id/favorite`）仅限公开且正常的旅程或自己参与的旅程（与 `GET /me/favorites` 的列出规则一致），否则返回 403（如持分享码浏览的「链接可见」旅程）；取消收藏不受限制。
+
 #### 共同作者
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
@@ -350,6 +355,7 @@ AuthResult：
 - 服务端根据坐标自动补全 `province` / `city` / `district`（配置了高德 Key 时补全区县与街道地址）；`name` 为空时用地址或区县名
 - 带 `amap_id` 时，只关联到按高德 POI 数据（名称、地址、坐标、电话）建立的 Place：需要服务端配置了高德 Key、能查到该 POI，且打卡点距该 POI 不超过 5 公里；否则与未带 `amap_id` 的打卡点一样按名称匹配
 - 名称相同且 100 米内已有公开地点（或自己参与的旅程中已用过的地点）时关联到同一个 Place；否则对用户填写了名称的打卡点新建 Place（不带 `amap_id`）。私密旅程里填写的名称、地址和坐标不会通过同名匹配或 AI 规划暴露给其他用户
+- `PATCH /waypoints/:id` 中 `name` 与当前名称相同时视为未修改（不会把自动生成的名称当作用户填写的名称去新建地点），客户端提交整张表单时可以原样带上 `name`
 
 ### 按路线出行（旅行中）
 | 方法 | 路径 | 权限 | 说明 |
@@ -389,14 +395,15 @@ AuthResult：
     "distance_m": 420, "reason": "附近 8 人打卡，推荐率 90%，人均 ¥60",
     "source": "community", "place_id": 8, "amap_id": "B0…", "rating_avg": 4.5
   }],
-  "warnings": [{ "place_id": 9, "name": "…", "distance_m": 300, "reason": "5 人踩雷：排队久、价格贵" }],
+  "warnings": [{ "place_id": 9, "name": "…", "distance_m": 300, "reason": "5 人踩雷：排队久；价格贵" }],
   "ai_text": "现在是傍晚，建议先去…" | null, "ai_used": true
 }
 ```
 - `source`: `plan`（计划中的后续点） | `community`（社区公开打卡的高分地点） | `amap`（高德周边搜索） | `ai`（AI 推荐）
+- `reason`：推荐理由，不含距离（距离见 `distance_m`，由客户端显示）
 - `next_planned`：最后一个已到达的计划点之后的第一个 `todo` 计划点（中途漏打卡 / 跳过的点不计）；之后没有时取最早的 `todo` 计划点。`source=plan` 的建议按同样顺序，之前漏掉的计划点排在后面，理由为「计划中尚未去的站点」
 - `ai=true` 且服务端配置了 AI 时，把位置、时间、已去/未去的点、候选地点交给大模型挑选并给出理由；失败时自动退回规则推荐
-- `warnings`：附近（2 公里内）至少 2 人标记踩雷且踩雷多于推荐的地点；踩雷多于推荐的地点不会出现在 `suggestions` 中
+- `warnings`：附近（2 公里内）至少 2 人标记踩雷且踩雷多于推荐的地点；踩雷多于推荐的地点不会出现在 `suggestions` 中。`reason` 形如「2 人踩雷：排队久；价格贵」，最多列出 3 条不同的备注（每人取最新一条，相同的备注只显示一次）
 
 `GET /trips/:id/compare` 响应：
 ```json
@@ -444,6 +451,7 @@ AuthResult：
 - 仅在 `ai_enabled` 时可用，否则返回 400 `未配置 AI 服务`
 - 返回的是建议，不会自动保存。客户端可在用户确认后通过 `POST /trips` + `POST /trips/:id/waypoints/batch` 保存
 - 地点坐标优先用高德搜索校正（`located=true`），无法定位的项 `located=false`，坐标可能为空
+- 未经高德定位（`located=false`）但按名称匹配到社区地点（`place_id` 非空）的项，坐标取该地点的坐标
 
 ### 照片
 | 方法 | 路径 | 权限 | 说明 |
@@ -552,7 +560,7 @@ AuthResult：
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/partner` | `{partner: UserBrief|null, since: "2023-05-20"|null, title: "", bound_at, public: false, invites: {incoming: [PartnerInvite], outgoing: [PartnerInvite]}}` |
-| PATCH | `/partner` | `{since?, title?, public?}`（纪念日、空间名称、是否在双方个人主页公开显示情侣关系（缺省不公开），双方共享） |
+| PATCH | `/partner` | `{since?, title?, public?}`（纪念日、空间名称、是否在双方个人主页公开显示情侣关系（缺省不公开），双方共享；`since` 不能晚于今天（东八区））→ 同 `GET /partner` |
 | DELETE | `/partner` | 解除绑定。`?remove_shared_access=true` 时同时结束共同作者关系：删除双方在对方创建的旅程中的成员身份（含待接受的邀请）；不传时共同旅程的成员关系保持不变，可在旅程「成员」中移除 |
 | POST | `/partner/invites` | `{username, message?}` → PartnerInvite |
 | POST | `/partner/invites/:id/accept` | 接受 |
@@ -577,11 +585,11 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 ### 管理后台 🛡
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/admin/stats` | `{users, trips, public_trips, pending_trips, places, photos, comments, storage_bytes, today: {users, trips, comments}, trend: [{date, users, trips, comments}] (近14天)}`（`pending_trips`：待审核的公开旅程数） |
+| GET | `/admin/stats` | `{users, trips, public_trips, pending_trips, places, photos, comments, storage_bytes, today: {users, trips, comments}, trend: [{date, users, trips, comments}] (近14天)}`（`pending_trips`：待审核的公开旅程数；`trend` 按东八区日期统计、由旧到新，最后一项即今天，与 `today` 相同，客户端应以它而不是浏览器本地日期标注「今天」） |
 | GET | `/admin/users` | `?q=&role=&status=&page=` → 分页 AdminUser（Me 字段 + `trip_count`, `last_login_at`） |
 | PATCH | `/admin/users/:id` | `{role?, status?, exp?}` → AdminUser |
 | POST | `/admin/users/:id/reset-password` | `{password?}` → `{password}`（不传则生成 12 位随机密码；该用户全部会话的 refresh token 与 access token 立即失效；不能对自己或已注销账号操作） |
-| GET | `/admin/trips` | `?q=&status=&visibility=&page=` → 分页 TripCard |
+| GET | `/admin/trips` | `?q=&status=&visibility=&page=` → 分页 TripCard（`q` 匹配标题、简介、城市和作者的用户名 / 昵称） |
 | PATCH | `/admin/trips/:id` | `{featured?, status?}`（`status` 为 `normal` / `hidden`；对 `pending` 旅程即审核通过 / 驳回，见「内容安全」）→ TripCard |
 | DELETE | `/admin/trips/:id` | 删除 |
 | GET | `/admin/comments` | `?q=&page=` → 分页 Comment（附 `trip: {id,title}`、`place: {id,name}`） |
@@ -617,7 +625,7 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 - 所有成功的删除 / 无返回体操作返回 `{}`；创建类接口统一返回 `200`。
 - 时间字段统一输出为东八区 RFC3339（如 `2026-09-24T10:00:00+08:00`）；请求中也接受不带时区的 `YYYY-MM-DDTHH:mm[:ss]`（按东八区解释）。
 - `coord_type` 缺省为 `gcj02`（包括 `/trips/:id/checkin`、`/trips/:id/recommend`、`/trips/:id/track` 等）；只有 `POST /trips/:id/photos` 缺省为 `wgs84`。
-- 频率限制：同一 IP+账号 15 分钟内失败登录 5 次、同一 IP 失败 30 次后返回 429；同一 IP 每小时最多注册 10 个账号；每人 10 分钟最多 30 条评论；AI 接口每人每小时 30 次；地点搜索 / 逆地理 / 周边地点每人 10 分钟最多 120 次（超出返回 429）。并发请求同样受限（请求在校验密码前即计入，登录成功后退回）。
+- 频率限制：同一 IP+账号 15 分钟内失败登录 5 次、同一 IP 失败 30 次后返回 429；同一 IP 每小时最多注册 10 个账号；每人 10 分钟最多 30 条评论；AI 接口每人每小时 30 次；地点搜索 / 逆地理 / 周边地点每人 10 分钟最多 120 次；修改密码 / 注销账号时同一账号 15 分钟内密码错误 5 次（超出返回 429）。并发请求同样受限（请求在校验密码前即计入，登录成功后退回）。
 - 请求带 `Accept-Encoding: gzip` 时，JSON 响应与网页静态资源以 gzip 压缩返回。
 - 常用长度限制：标题 ≤100、简介 ≤500、正文 ≤50000、标签 ≤10 个且每个 ≤20 字（自动去重、去掉 `#`）、昵称 ≤20、个人简介 ≤200、打卡点名称 ≤100 / 备注 ≤5000、批量打卡点 ≤200 个、共同作者 ≤20 人、照片说明 ≤500。
 
@@ -630,13 +638,13 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 ### 旅程
 - **分享码访问子资源**：`unlisted` 旅程按 ID 访问时仅成员/管理员可见。通过分享链接浏览的访客，在请求 `GET /trips/:id`、`/trips/:id/track`、`/trips/:id/comments`、`/trips/:id/compare`、点赞 / 评论等旅程子接口时，可附带查询参数 `?share_code=xxx`（或请求头 `X-Share-Code`）获得与公开旅程相同的访问权限。
 - `TripDetail.share_code` 仅成员可见，非成员时**不返回该字段**。`TripDetail` 额外返回 `invite_pending`（当前用户有待接受的共同作者邀请时为 true；被邀请人在接受前可预览旅程）。
-- `TripCard.summary` 为空时由正文自动截取（最多 120 字）；`TripDetail.summary` 返回原始简介。`cover_url` 未设置时使用第一张照片。
-- `cities` / `provinces` 按实际路线（`status=visited`）计算，尚无已到达点时退回计划路线；`distance_km` 取 GPS 轨迹里程与已打卡点连线里程中的较大者（规则见「实时轨迹」）。`days`：设置了起止日期时按日期，否则取打卡点最大 `day`，否则按到达时间跨度。
+- `TripCard.summary` 为空时由正文自动截取（最多 120 字）；`TripDetail.summary` 返回原始简介。`cover_url` 未设置时使用第一张照片（旅行中的位置隐私规则下除外）。
+- `cities` / `provinces` 按实际路线（`status=visited`）计算，尚无已到达点时退回计划路线；`distance_km` 取 GPS 轨迹里程与已打卡点连线里程中的较大者（规则见「实时轨迹」）。`days`：设置了起止日期时按日期，否则取打卡点最大 `day`，否则按到达时间跨度。例外：旅行中且未开启 `live_share` 的旅程，非成员看到的这些字段只按计划计算，见「旅行中的位置隐私」。
 - `GET /me/favorites` 只列出当前仍可见（公开且正常，或本人为成员）的旅程。
 - `POST /trips/:id/members` 返回更新后的成员列表（同 `GET /trips/:id/members`）；`POST /trips/:id/members/accept` 返回 `TripDetail`。成员列表管理员也可查看。
 - 引用路线（fork）复制原旅程中除 `skipped` 和 `verdict=avoid`（踩雷；`include_avoid=true` 时保留）以外的全部打卡点，并复制标签与简介；自己引用自己的旅程不计 `fork_count`。`fork_count` 为当前持有该旅程引用副本的其他用户数：同一用户多次引用只计一次，引用副本被删除后相应减少。
 - `GET /admin/trips` 额外支持 `?featured=true`。
-- **旅行中的位置隐私**：旅程 `phase=ongoing` 且 `live_share=false`（默认）时，非成员（包括游客和持分享码的访客）看到的是「计划本身」：`TripDetail.waypoints` 只含计划内的打卡点，且均为 `status=todo`、`arrived_at=null`、`verdict=""`、`rating=0`；`photos` 为空，`has_track=false`，`visited_count` / `photo_count` 为 0；`GET /trips/:id/track` 返回空 `segments`（`point_count=0`）；`/compare` 同样只按计划返回（`visited` / `extra` 为空，`track_distance_km=0`）；`/places/:id/reviews`、`/users/:username/footprints` 不包含该旅程；引用路线（fork）只复制计划内的打卡点。成员和管理员不受影响；旅程结束（`finished`）后按原可见性全部公开。
+- **旅行中的位置隐私**：旅程 `phase=ongoing` 且 `live_share=false`（默认）时，非成员（包括游客和持分享码的访客）看到的是「计划本身」：`TripDetail.waypoints` 只含计划内的打卡点，且均为 `status=todo`、`arrived_at=null`、`verdict=""`、`rating=0`；`photos` 为空，`has_track=false`，`visited_count` / `photo_count` 为 0；`GET /trips/:id/track` 返回空 `segments`（`point_count=0`）；`/compare` 同样只按计划返回（`visited` / `extra` 为空，`track_distance_km=0`）；**TripCard 统计同样按计划**：`TripDetail` 以及所有列表中的 TripCard（`GET /trips` 与搜索、`/users/:username/trips`、`/me/favorites`、`/me/invites` 等）里，`waypoint_count` = `planned_count`（只计计划内的点，不含计划外打卡），`visited_count` / `photo_count` 为 0，`distance_km` 为计划路线里程（计划内的点按 `seq` 连线，不用 GPS 轨迹和打卡连线），`cities` / `provinces` 只取计划内的点，`days` 不按到达时间推算（设置了起止日期时按日期，否则取计划内的点最大 `day`，否则为 0），`cover_url` / `cover_thumb_url` 未手动设置封面时为空（不使用照片作自动封面），`updated_at` 等于 `created_at`（打卡、照片、轨迹会更新旅程，从而暴露最近活动时间）；`GET /trips` 的 `q` / `city` / `province` 对这类旅程只匹配计划内打卡点的城市和省份；`/places/:id/reviews`、`/users/:username/footprints` 不包含该旅程；引用路线（fork）只复制计划内的打卡点；该旅程的打卡也不计入地点统计、地点封面和踩雷提醒，旅程结束后计入。成员和管理员不受影响；旅程结束（`finished`）后按原可见性全部公开。
 
 ### 打卡点 / 按路线出行
 - 创建打卡点可额外传 `province` / `city` / `district`（如来自 `/geo/search` 结果）：`district` 优先使用客户端值；`province` / `city` 始终以离线行政区划为准，仅当坐标不在国内时才使用客户端值。
@@ -657,7 +665,7 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 - `TripDetail`（`GET /trips/:id`、`GET /share/:code`、创建 / 修改旅程的响应）中的打卡点在关联地点有公开打卡时带 `place_stats`（字段同 `/geo/search` 结果的 `place`），用于在行程中提示社区的「踩雷」评价；其它接口返回的 Waypoint 不带该字段。
 - `GET /places` 的 `q` 同时匹配名称、地址、区县、城市、省份（与 `/trips` 的 `q` 一致）；`city` 参数仅按城市 / 省份筛选。
 - `GET /places` 缺省 `sort=hot`；`rating` 只含有评分的地点，`avoid` 只含有踩雷记录的地点。`/places/nearby` 的 `radius` 取值 50–50000，`limit` ≤100，另支持 `category`。
-- 地点统计中同一用户对同一地点只计一次（`checkin_count` 为打卡人数，评价、评分、人均取该用户最近一次有值的评价）；服务端升级后首次启动时按此规则重算全部地点（只执行一次）。旅行中的踩雷提醒（`/trips/:id/recommend` 的 `warnings`）和 AI 规划的「请避开」只针对至少 2 人标记踩雷且踩雷多于推荐的地点。
+- 地点统计中同一用户对同一地点只计一次（`checkin_count` 为打卡人数，评价、评分、人均取该用户最近一次有值的评价），不计旅行中且未开启实时公开的旅程；服务端升级后首次启动时按此规则重算全部地点（只执行一次）。旅行中的踩雷提醒（`/trips/:id/recommend` 的 `warnings`）和 AI 规划的「请避开」只针对至少 2 人标记踩雷且踩雷多于推荐的地点。
 
 ### 评论 / 通知
 - 顶层评论按时间倒序、回复按时间正序。直接回复顶层评论时 `reply_to` 为 null；回复某条回复时挂到同一顶层评论下并设置 `reply_to`。已删除的回复不返回。

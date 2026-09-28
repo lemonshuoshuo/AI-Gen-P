@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTrustedProxies(t *testing.T) {
@@ -62,5 +63,27 @@ func TestJWTSecret(t *testing.T) {
 	again := &Config{DataDir: dir}
 	if err := again.Prepare(); err != nil || again.JWTSecret != gen.JWTSecret {
 		t.Fatalf("secret not reused: %v", err)
+	}
+}
+
+// Values copied into .env often carry stray spaces.
+func TestNumbersTrimmed(t *testing.T) {
+	t.Setenv("TRIPHUB_MAX_UPLOAD_MB", " 30 ")
+	t.Setenv("TRIPHUB_AI_TIMEOUT", " 90s\t")
+	c, err := Load()
+	if err != nil || c.MaxUploadMB != 30 || c.AITimeout != 90*time.Second {
+		t.Fatalf("trimmed values: %+v %v", c, err)
+	}
+	t.Setenv("TRIPHUB_AI_TIMEOUT", " 120 ")
+	if c, err := Load(); err != nil || c.AITimeout != 120*time.Second {
+		t.Fatalf("seconds with spaces: %v %v", c.AITimeout, err)
+	}
+	t.Setenv("TRIPHUB_MAX_UPLOAD_MB", "  ")
+	if c, err := Load(); err != nil || c.MaxUploadMB != 20 {
+		t.Fatalf("blank upload limit: %v %v", c.MaxUploadMB, err)
+	}
+	t.Setenv("TRIPHUB_AI_TIMEOUT", "soon")
+	if _, err := Load(); err == nil {
+		t.Fatal("invalid timeout accepted")
 	}
 }

@@ -104,14 +104,14 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	c.TrustedProxies = tp
-	if v := os.Getenv("TRIPHUB_MAX_UPLOAD_MB"); v != "" {
+	if v := strings.TrimSpace(os.Getenv("TRIPHUB_MAX_UPLOAD_MB")); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n <= 0 || n > 1024 {
 			return nil, fmt.Errorf("invalid TRIPHUB_MAX_UPLOAD_MB %q", v)
 		}
 		c.MaxUploadMB = n
 	}
-	if v := os.Getenv("TRIPHUB_AI_TIMEOUT"); v != "" {
+	if v := strings.TrimSpace(os.Getenv("TRIPHUB_AI_TIMEOUT")); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
 			// Accept a bare number of seconds as well.
