@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Inbox } from 'lucide-react'
-import { Card, Empty, Pagination, Spinner } from '@/components/ui'
+import { Empty, Pagination, Spinner } from '@/components/ui'
 import { cn } from '@/lib/cn'
 
 export interface Column<T> {
@@ -16,7 +16,7 @@ export interface Column<T> {
 }
 
 /**
- * 响应式数据表：大屏为表格，小屏为卡片列表。
+ * 响应式数据表：大屏为表格，小屏为细线分隔的列表。
  * 注意：外层不设置 overflow，避免操作菜单被裁切。
  */
 export function DataTable<T>({
@@ -51,15 +51,15 @@ export function DataTable<T>({
   // 当前页的最后一条被删除 / 隐藏后停在了空页：面板正在退回上一页（usePageGuard），先显示加载中
   if (loading || (!rows?.length && page > 1 && total > 0))
     return (
-      <Card className="flex justify-center py-16">
+      <div className="flex justify-center border-y border-ink-200 py-16">
         <Spinner className="size-6" />
-      </Card>
+      </div>
     )
   if (!rows?.length)
     return (
-      <Card>
-        <Empty icon={<Inbox className="size-10" />} title={emptyText} />
-      </Card>
+      <div className="border-y border-ink-200">
+        <Empty icon={<Inbox className="size-9" />} title={emptyText} />
+      </div>
     )
 
   const primary = columns.filter((c) => c.primary)
@@ -67,29 +67,34 @@ export function DataTable<T>({
 
   return (
     <div className={cn('transition-opacity', fetching && 'opacity-60')}>
-      {/* 桌面端表格 */}
-      <div className="hidden rounded-2xl bg-white shadow-card lg:block">
+      {/* 桌面端表格：顶部一道墨线，行间细线，不做斑马纹 */}
+      <div className="hidden border-t border-ink-900 lg:block">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-ink-100 text-left text-xs text-ink-400">
+            <tr className="border-b border-ink-200 text-left">
               {columns.map((c) => (
-                <th key={c.key} className={cn('px-3 py-3 font-medium whitespace-nowrap first:pl-4', c.className)}>
+                <th
+                  key={c.key}
+                  className={cn('px-3 py-3 text-xs font-normal tracking-[0.12em] whitespace-nowrap text-ink-400 first:pl-0', c.className)}
+                >
                   {c.header}
                 </th>
               ))}
-              {actions && <th className="py-3 pr-4 pl-3 text-right font-medium">操作</th>}
+              {actions && (
+                <th className="py-3 pr-0 pl-3 text-right text-xs font-normal tracking-[0.12em] text-ink-400">操作</th>
+              )}
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={rowKey(r)} className="border-b border-ink-100 align-middle last:border-none hover:bg-ink-50/60">
+              <tr key={rowKey(r)} className="border-b border-ink-200 align-middle transition-colors hover:bg-white/55">
                 {columns.map((c) => (
-                  <td key={c.key} className={cn('px-3 py-3 first:pl-4', c.className)}>
+                  <td key={c.key} className={cn('px-3 py-3.5 first:pl-0', c.className)}>
                     {c.cell(r)}
                   </td>
                 ))}
                 {actions && (
-                  <td className="py-3 pr-4 pl-3">
+                  <td className="py-3.5 pr-0 pl-3">
                     <div className="flex items-center justify-end gap-0.5">{actions(r)}</div>
                   </td>
                 )}
@@ -99,32 +104,32 @@ export function DataTable<T>({
         </table>
       </div>
 
-      {/* 移动端卡片 */}
-      <div className="space-y-3 lg:hidden">
+      {/* 移动端：排版 + 细线的列表，而不是一张张卡片 */}
+      <ul className="divide-y divide-ink-200 border-t border-b border-ink-900 border-b-ink-200 lg:hidden">
         {rows.map((r) => (
-          <Card key={rowKey(r)} className="relative p-4">
+          <li key={rowKey(r)} className="relative py-4">
             {primary.map((c) => (
-              <div key={c.key} className={cn('min-w-0', compactActions && 'pr-9')}>
+              <div key={c.key} className={cn('min-w-0', compactActions && 'pr-10')}>
                 {c.cell(r)}
               </div>
             ))}
-            {actions && compactActions && <div className="absolute top-3 right-3">{actions(r)}</div>}
+            {actions && compactActions && <div className="absolute top-3 -right-1.5">{actions(r)}</div>}
             {rest.length > 0 && (
               <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 text-sm">
                 {rest.map((c) => (
                   <div key={c.key} className="min-w-0">
-                    <dt className="text-xs text-ink-400">{c.header}</dt>
+                    <dt className="text-[11px] tracking-[0.12em] text-ink-400">{c.header}</dt>
                     <dd className="mt-0.5 min-w-0">{c.cell(r)}</dd>
                   </div>
                 ))}
               </dl>
             )}
             {actions && !compactActions && (
-              <div className="mt-3 flex flex-wrap items-center justify-end gap-1 border-t border-ink-100 pt-3">{actions(r)}</div>
+              <div className="-mr-2 mt-2.5 flex flex-wrap items-center justify-end gap-1">{actions(r)}</div>
             )}
-          </Card>
+          </li>
         ))}
-      </div>
+      </ul>
 
       <Pagination page={page} total={total} pageSize={pageSize} onChange={onPage} />
     </div>

@@ -154,6 +154,7 @@ func (h *Handler) Router() *gin.Engine {
 	// Legs spend the operator's AMap quota: users only.
 	api.GET("/trips/:id/legs", user, w(h.legs))
 	api.POST("/ai/plan", user, w(h.aiPlan))
+	api.POST("/ai/plan/stream", user, w(h.aiPlanStream))
 
 	api.POST("/trips/:id/photos", user, w(h.uploadPhoto))
 	api.PATCH("/photos/:id", user, w(h.updatePhoto))
@@ -180,6 +181,7 @@ func (h *Handler) Router() *gin.Engine {
 	api.GET("/geo/search", user, w(h.geoSearch))
 	api.GET("/geo/regeo", user, w(h.geoRegeo))
 	api.GET("/geo/around", user, w(h.geoAround))
+	api.GET("/geo/pick", user, w(h.geoPick))
 	api.GET("/geo/atlas", h.geoAtlas)
 
 	api.GET("/partner", user, w(h.getPartner))
@@ -212,6 +214,7 @@ func (h *Handler) Router() *gin.Engine {
 	adm.PATCH("/reports/:id", w(h.adminUpdateReport))
 	adm.GET("/settings", w(h.adminGetSettings))
 	adm.PUT("/settings", w(h.adminPutSettings))
+	adm.GET("/diagnostics", w(h.adminDiagnostics))
 
 	r.GET("/uploads/*filepath", h.serveUploads)
 	r.HEAD("/uploads/*filepath", h.serveUploads)

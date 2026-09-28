@@ -13,38 +13,46 @@ export default function FootprintsPage() {
   if (isLoading) return <PageLoader />
   if (!data) return <LoadError title="足迹加载失败" error={error} onRetry={() => refetch()} />
   const empty = data.stats.waypoints === 0
+  const name = user.nickname || user.username
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6">
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-extrabold">我的足迹</h1>
-          <p className="mt-1 text-sm text-ink-500">
-            {data.stats.first_date
-              ? `从 ${data.stats.first_date.slice(0, 4)} 年开始，${user.nickname || user.username} 已经走过 ${data.stats.cities} 座城市`
-              : '每一次打卡都会点亮一片地方'}
-          </p>
-        </div>
-      </div>
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
+      <header className="mb-6 sm:mb-8">
+        <p className="eyebrow">Footprints · 足迹</p>
+        <h1 className="mt-2 text-[28px] leading-tight sm:text-[36px]">我的足迹</h1>
+        <p className="mt-2 text-sm leading-relaxed text-ink-500">
+          {data.stats.first_date ? (
+            <>
+              从 <span className="font-num text-ink-700">{data.stats.first_date.slice(0, 4)}</span> 年开始，{name} 已经走过{' '}
+              <span className="font-num text-ink-700">{data.stats.cities}</span> 座城市
+            </>
+          ) : (
+            '每一次打卡都会点亮一片地方'
+          )}
+        </p>
+      </header>
       {empty ? (
         <Empty
-          icon={<FootprintsIcon className="size-12" />}
+          icon={<FootprintsIcon className="size-11" />}
           title="还没有足迹"
           desc="创建旅程并打卡，或上传带位置的照片，去过的省份和城市就会被点亮"
           action={
             <Link to="/trips/new" className={buttonClass()}>
-              <Plus className="size-4" />
+              <Plus className="size-4" strokeWidth={1.75} />
               记录第一段旅程
             </Link>
           }
         />
       ) : (
         <>
-          <FootprintStats data={data} className="mt-5" />
-          <div className="mt-5">
+          <FootprintStats data={data} />
+          <div className="mt-6">
             <FootprintsView data={data} />
           </div>
-          <h2 className="mt-8 mb-3 text-lg font-bold">旅程时间线</h2>
-          <FootprintTimeline data={data} />
+          <section className="mt-12">
+            <p className="eyebrow">Timeline · 时间线</p>
+            <h2 className="mt-1.5 mb-4 text-[22px]">旅程时间线</h2>
+            <FootprintTimeline data={data} />
+          </section>
         </>
       )}
     </div>

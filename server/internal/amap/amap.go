@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"triphub/internal/geo"
 	"triphub/internal/lru"
 )
 
@@ -658,14 +659,17 @@ func (c *Client) RegeoDetail(ctx context.Context, lng, lat float64) (*RegeoDetai
 		}
 	}
 	for _, a := range rc.Aois {
-		lng, lat, ok := parseLocation(string(a.Location))
+		alng, alat, ok := parseLocation(string(a.Location))
 		if !ok || strings.TrimSpace(string(a.Name)) == "" || len(out.AOIs) >= maxDetailAOIs {
 			continue
 		}
 		area, _ := a.Area.float()
-		dist, _ := a.Distance.float()
+		dist, ok := a.Distance.float()
+		if !ok { // not given: never take the point for inside
+			dist = math.Max(1, geo.Haversine(lng, lat, alng, alat))
+		}
 		out.AOIs = append(out.AOIs, AOI{ID: string(a.ID), Name: string(a.Name), Typecode: string(a.Type),
-			Category: CategoryFromTypecode(string(a.Type)), Lng: lng, Lat: lat, AreaM2: area, DistanceM: dist})
+			Category: CategoryFromTypecode(string(a.Type)), Lng: alng, Lat: alat, AreaM2: area, DistanceM: dist})
 	}
 	for _, p := range convertPOIs(rc.Pois) {
 		if len(out.POIs) >= maxDetailPOIs {

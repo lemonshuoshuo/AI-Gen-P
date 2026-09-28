@@ -39,7 +39,7 @@ services:
     # 镜像由本目录的程序现场构建，不去镜像仓库拉取（仓库里没有这个镜像）
     pull_policy: build
     restart: unless-stopped
-    # 停止/升级时等待进行中的请求（如 AI 规划，默认最长 30 秒）完成后再退出；须大于服务端的优雅退出等待时间（40 秒）
+    # 停止/升级时等待进行中的请求完成后再退出（最多 40 秒，更久的 AI 规划会被中断）；须大于服务端的优雅退出等待时间（40 秒）
     stop_grace_period: 45s
     logging: *default-logging
     depends_on:
@@ -69,10 +69,14 @@ services:
       TRIPHUB_JWT_SECRET: ${JWT_SECRET:-}
       TRIPHUB_SITE_NAME: ${SITE_NAME:-TripHub}
       TRIPHUB_AMAP_KEY: ${AMAP_KEY:-}
+      TRIPHUB_TIANDITU_KEY: ${TIANDITU_KEY:-}
       TRIPHUB_AI_BASE_URL: ${AI_BASE_URL:-}
       TRIPHUB_AI_API_KEY: ${AI_API_KEY:-}
       TRIPHUB_AI_MODEL: ${AI_MODEL:-}
       TRIPHUB_AI_TIMEOUT: ${AI_TIMEOUT:-}
+      TRIPHUB_AI_THINKING: ${AI_THINKING:-}
+      # JSON 对象，如 {"enable_thinking": false}；在 .env 中直接写即可，不用加引号
+      TRIPHUB_AI_EXTRA_BODY: ${AI_EXTRA_BODY:-}
       TRIPHUB_MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
       TRIPHUB_CORS_ORIGINS: ${CORS_ORIGINS:-}
       # 留空＝信任本机和内网地址的代理（内置 Caddy / 本机 Nginx）；不用反向代理、直接开放端口时在 .env 设 TRUSTED_PROXIES=none

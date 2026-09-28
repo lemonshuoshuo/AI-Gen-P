@@ -117,8 +117,10 @@ func (w *gzipResponseWriter) start() {
 	h := w.Header()
 	status := w.Status()
 	ct := h.Get("Content-Type")
+	// Event streams stay uncompressed: every event must reach the client
+	// at once.
 	if h.Get("Content-Encoding") != "" || status < 200 || status == http.StatusNoContent || status == http.StatusNotModified ||
-		!(strings.HasPrefix(ct, "application/json") || strings.HasPrefix(ct, "text/")) {
+		!(strings.HasPrefix(ct, "application/json") || strings.HasPrefix(ct, "text/")) || strings.HasPrefix(ct, "text/event-stream") {
 		return
 	}
 	h.Set("Content-Encoding", "gzip")

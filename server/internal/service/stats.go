@@ -484,21 +484,38 @@ type GeoInfo struct {
 	District     string
 	Street       string
 	Address      string
-	Found        bool
+	// Spot is the place at the point when reverse geocoding knows one: the
+	// area of interest containing it (a scenic area, campus, mall…) or a POI
+	// within SpotPOIRadius metres. It names auto-named waypoints.
+	Spot  string
+	Found bool
 }
 
-// Locate resolves province/city offline and, when detail is requested and an
-// AMap key is configured, district/street/address via reverse geocoding.
+// SpotPOIRadius is how close (metres) a POI must be to name a point.
+const SpotPOIRadius = 30
+
+// CanReverseGeocode reports whether a reverse geocoding service (AMap or
+// Tianditu) is configured, i.e. whether Locate can fill district / address.
+func (s *Service) CanReverseGeocode() bool { return s.Amap.Enabled() || s.Tianditu.Enabled() }
+
+// Locate resolves province/city offline and, when detail is requested,
+// district / street / address and the spot at the point via reverse
+// geocoding (AMap, else Tianditu, when configured).
 func (s *Service) Locate(ctx context.Context, lng, lat float64, detail bool) GeoInfo {
 	var info GeoInfo
 	if loc, ok := s.Atlas.LookupGCJ(lng, lat); ok {
 		info = GeoInfo{Province: loc.Province, ProvinceCode: loc.ProvinceCode, City: loc.City, CityCode: loc.CityCode, Found: true}
 	}
-	if detail && s.Amap.Enabled() {
+	if !detail {
+		return info
+	}
+	if s.Amap.Enabled() {
 		cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		defer cancel()
-		if r, err := s.Amap.Regeo(cctx, lng, lat); err == nil {
+		r, err := s.Amap.RegeoDetail(cctx, lng, lat)
+		cancel()
+		if err == nil {
 			info.District, info.Street, info.Address = r.District, r.Township, r.FormattedAddress
+			info.Spot = r.Spot(SpotPOIRadius)
 			if !info.Found && r.Province != "" {
 				info.Province, info.City = r.Province, r.City
 				if len(r.Adcode) == 6 {
@@ -506,14 +523,32 @@ func (s *Service) Locate(ctx context.Context, lng, lat float64, detail bool) Geo
 				}
 				info.Found = true
 			}
+			return info
+		}
+	}
+	if s.Tianditu.Enabled() {
+		cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		r, err := s.Tianditu.Regeo(cctx, lng, lat)
+		cancel()
+		if err == nil {
+			info.District, info.Street, info.Address = r.District, r.Town, r.Address
+			if r.POI != "" && r.POIDistanceM >= 0 && r.POIDistanceM <= SpotPOIRadius {
+				info.Spot = r.POI
+			}
+			if !info.Found && r.Province != "" {
+				info.Province, info.City, info.Found = r.Province, r.City, true
+			}
 		}
 	}
 	return info
 }
 
-// AutoName builds a waypoint name from location info, e.g. "西湖区·北山街道" or "杭州市".
+// AutoName builds a waypoint name from location info: the spot at the point
+// ("甲午岩景区"), else e.g. "西湖区·北山街道" or "杭州市".
 func (g GeoInfo) AutoName() string {
 	switch {
+	case g.Spot != "":
+		return Truncate(g.Spot, 60)
 	case g.District != "" && g.Street != "":
 		return g.District + "·" + g.Street
 	case g.District != "":

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Copy, Navigation } from 'lucide-react'
+import { ArrowUpRight, Copy, Navigation } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button, Modal, Segmented } from '@/components/ui'
 import { copyText } from '@/lib/clipboard'
@@ -35,20 +35,26 @@ export function NavigateMenu({
   // 弹窗通过 portal 渲染，但 React 事件仍会沿组件树冒泡，这里拦住，避免触发外层卡片的点击
   return (
     <span className="contents" onClick={(e) => e.stopPropagation()}>
-      <Button size={size} variant={variant} icon={<Navigation className="size-3.5" />} onClick={() => setOpen(true)}>
+      <Button
+        size={size}
+        variant={variant}
+        className={variant === 'ghost' ? 'text-ink-500 hover:text-ink-900' : undefined}
+        icon={<Navigation className="size-3.5" strokeWidth={1.75} />}
+        onClick={() => setOpen(true)}
+      >
         {label}
       </Button>
       <Modal open={open} onClose={close} title={`导航到「${target.name}」`}>
         {wx ? (
-          <p className="mb-1 rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+          <p className="mb-2 border-l-2 border-amber-400 pl-3 text-xs leading-relaxed text-amber-800">
             微信内无法直接唤起地图 App：点右上角「···」选择「在浏览器打开」后再导航；也可先用下面的网页地图查看
           </p>
         ) : (
-          <p className="mb-1 text-xs text-ink-400">用地图 App 打开（手机会自动唤起）</p>
+          <p className="eyebrow mb-1">Open in · 用地图 App 打开</p>
         )}
         <Segmented<NavMode>
           size="sm"
-          className="my-1.5"
+          className="my-2"
           value={mode}
           onChange={(m) => {
             setPicked(m)
@@ -56,7 +62,7 @@ export function NavigateMenu({
           }}
           options={navModes}
         />
-        <div className="divide-y divide-ink-100">
+        <div className="divide-y divide-ink-200 border-t border-ink-200">
           {providers.map((p) => (
             <div key={p.key} className="flex items-center gap-2">
               <a
@@ -64,28 +70,29 @@ export function NavigateMenu({
                 target="_blank"
                 rel="noreferrer"
                 onClick={close}
-                className="flex min-h-12 flex-1 items-center gap-2.5 py-2.5 text-sm font-medium text-ink-800 hover:text-brand-600"
+                className="group flex min-h-12 flex-1 items-center gap-3 py-2.5 text-[15px] text-ink-900 transition-colors hover:text-brand-600"
               >
-                <Navigation className="size-4 text-brand-500" />
-                {p.name}
+                <Navigation className="size-4 text-ink-400 group-hover:text-brand-500" strokeWidth={1.5} />
+                <span className="font-display">{p.name}</span>
               </a>
               <a
                 href={p.marker(target)}
                 target="_blank"
                 rel="noreferrer"
                 onClick={close}
-                className="shrink-0 rounded-lg px-3 py-2 text-xs text-ink-500 hover:bg-ink-50 hover:text-brand-600"
+                className="inline-flex shrink-0 items-center gap-0.5 rounded-md px-2.5 py-2 text-xs text-ink-500 transition-colors hover:bg-ink-900/5 hover:text-ink-900"
               >
                 查看位置
+                <ArrowUpRight className="size-3" strokeWidth={1.75} />
               </a>
             </div>
           ))}
           <button
             type="button"
             onClick={copy}
-            className="flex min-h-12 w-full items-center gap-2.5 py-2.5 text-left text-sm font-medium text-ink-800 hover:text-brand-600"
+            className="group flex min-h-12 w-full items-center gap-3 py-2.5 text-left text-[15px] text-ink-900 transition-colors hover:text-brand-600"
           >
-            <Copy className="size-4 text-brand-500" />
+            <Copy className="size-4 text-ink-400 group-hover:text-brand-500" strokeWidth={1.5} />
             复制地点和地址
           </button>
         </div>

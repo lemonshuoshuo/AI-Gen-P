@@ -1,58 +1,56 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
-import {
-  Camera,
-  Flag,
-  HardDrive,
-  MapPin,
-  MessageSquare,
-  Route,
-  ShieldCheck,
-  TrendingUp,
-  TriangleAlert,
-  Users,
-  type LucideIcon,
-} from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { api, errorMessage } from '@/api'
-import { Button, Card, Empty, PageLoader } from '@/components/ui'
-import { fmtBytes, fmtCount } from '@/lib/format'
+import { Button, Empty, PageLoader } from '@/components/ui'
+import { cn } from '@/lib/cn'
+import { dayjs, fmtBytes, fmtCount } from '@/lib/format'
 import { insecureContext } from '@/lib/geo'
 import { PanelHeader } from './common'
 import { TrendChart } from './TrendChart'
 
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  sub,
-  today,
-}: {
-  icon: LucideIcon
-  label: string
-  value: ReactNode
-  sub?: ReactNode
-  today?: number
-}) {
+/** 「12.3 MB」拆成数字和单位，单位用小字 */
+function splitUnit(s: string): [string, string | undefined] {
+  const m = s.match(/^([\d.]+)\s*(\S+)?$/)
+  return m ? [m[1], m[2]] : [s, undefined]
+}
+
+/** 大号 Fraunces 数字 + 小标签；多个之间用细线分隔（由外层网格负责） */
+function Figure({ label, value, unit, sub }: { label: string; value: string; unit?: string; sub?: ReactNode }) {
   return (
-    <Card className="p-4">
-      <div className="flex items-center justify-between">
-        <span className="flex size-9 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
-          <Icon className="size-4.5" />
-        </span>
-        {today != null && today > 0 && (
-          <span className="inline-flex items-center gap-0.5 text-xs text-ink-500">
-            <TrendingUp className="size-3.5 text-emerald-500" />
-            今日 +{today}
-          </span>
-        )}
+    <div className="min-w-0 py-5 pr-4 pl-4 max-sm:[&:nth-child(odd)]:pl-0 sm:[&:nth-child(3n+1)]:pl-0">
+      <div className="text-xs tracking-wide text-ink-500">{label}</div>
+      <div className="mt-2.5 flex items-baseline gap-1">
+        <span className="font-num text-[2.5rem] leading-none font-normal tracking-tight text-ink-900 md:text-[2.875rem]">{value}</span>
+        {unit && <span className="font-num text-sm text-ink-400">{unit}</span>}
       </div>
-      <div className="mt-3 text-2xl font-extrabold tabular-nums">{value}</div>
-      <div className="mt-0.5 text-xs text-ink-400">
-        {label}
-        {sub && <span className="ml-1.5">· {sub}</span>}
-      </div>
-    </Card>
+      <div className="mt-2 min-h-4 truncate text-xs text-ink-400">{sub}</div>
+    </div>
+  )
+}
+
+/** 今日新增：玉青小字 */
+const Today = ({ n }: { n: number }) =>
+  n > 0 ? (
+    <span className="text-emerald-700">
+      今日 <span className="font-num">+{n}</span>
+    </span>
+  ) : (
+    <span>今日暂无新增</span>
+  )
+
+/** 待办条目：细线分隔的一行，右侧箭头 */
+function TodoRow({ to, children, action }: { to: string; children: ReactNode; action: string }) {
+  return (
+    <Link to={to} className="group flex items-center gap-3 py-3.5 text-sm text-ink-700 transition-colors hover:text-ink-900">
+      <span className="size-1.5 shrink-0 rounded-full bg-brand-500" aria-hidden />
+      <span className="min-w-0 flex-1">{children}</span>
+      <span className="inline-flex shrink-0 items-center gap-1 text-xs text-ink-500 group-hover:text-ink-900">
+        {action}
+        <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" strokeWidth={1.5} />
+      </span>
+    </Link>
   )
 }
 
@@ -70,54 +68,93 @@ export function Overview() {
       <Empty title="数据加载失败" desc={errorMessage(error)} action={<Button onClick={() => refetch()}>重试</Button>} />
     )
 
+  const hasTodo = !!pending.data || data.pending_trips > 0
+  const [storage, storageUnit] = splitUnit(fmtBytes(data.storage_bytes))
+
   return (
     <div>
-      <PanelHeader title="概览" desc="站点整体运行数据" />
-      {!!pending.data && (
-        <Link
-          to="/admin/reports"
-          className="mb-4 flex items-center gap-2 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200 transition hover:bg-amber-100"
-        >
-          <Flag className="size-4" />
-          有 <b>{pending.data}</b> 条举报等待处理
-          <span className="ml-auto text-xs text-amber-700">去处理 →</span>
-        </Link>
+      <PanelHeader eyebrow={`Overview · ${dayjs().format('YYYY.MM.DD')}`} title="概览" desc="站点整体运行数据" />
+
+      {hasTodo && (
+        <section className="mb-8" aria-label="待办">
+          <p className="eyebrow !text-brand-600">To do · 待办</p>
+          <div className="mt-2 divide-y divide-ink-200 border-y border-ink-200">
+            {!!pending.data && (
+              <TodoRow to="/admin/reports" action="去处理">
+                有 <span className="font-num text-base text-ink-900">{pending.data}</span> 条举报等待处理
+              </TodoRow>
+            )}
+            {data.pending_trips > 0 && (
+              <TodoRow to="/admin/trips?status=pending" action="去审核">
+                有 <span className="font-num text-base text-ink-900">{data.pending_trips}</span> 段公开旅程等待审核
+              </TodoRow>
+            )}
+          </div>
+        </section>
       )}
-      {data.pending_trips > 0 && (
-        <Link
-          to="/admin/trips?status=pending"
-          className="mb-4 flex items-center gap-2 rounded-2xl bg-sky-50 px-4 py-3 text-sm text-sky-800 ring-1 ring-sky-200 transition hover:bg-sky-100"
-        >
-          <ShieldCheck className="size-4" />
-          有 <b>{data.pending_trips}</b> 段公开旅程等待审核
-          <span className="ml-auto text-xs text-sky-700">去审核 →</span>
-        </Link>
-      )}
+
       {insecureContext && (
-        <div className="mb-4 flex items-start gap-2 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">
-          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-          <span>
-            当前通过 HTTP 访问：手机浏览器会禁止定位（我到了打卡、记录 GPS 轨迹、附近推荐），系统分享和屏幕常亮也不可用。邀请用户使用前，请按部署文档「启用 HTTPS」配置域名证书。
-          </span>
+        <div className="mb-8 border-l-2 border-amber-500 py-1 pl-4 text-sm leading-relaxed text-ink-600">
+          <p className="eyebrow !text-amber-700">HTTP · 未启用 HTTPS</p>
+          <p className="mt-1.5">
+            当前通过 HTTP 访问：手机浏览器会禁止定位（我到了打卡、记录 GPS 轨迹、附近推荐），系统分享和屏幕常亮也不可用。邀请用户使用前，请按部署文档「启用
+            HTTPS」配置域名证书。
+          </p>
         </div>
       )}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <StatCard icon={Users} label="注册用户" value={fmtCount(data.users)} today={data.today.users} />
-        <StatCard
-          icon={Route}
+
+      {/* 统计：顶部墨线，数字之间竖细线，行间横细线 */}
+      <div className="grid grid-cols-2 border-t border-ink-900 sm:grid-cols-3 [&>*]:border-b [&>*]:border-ink-200 max-sm:[&>*:nth-child(even)]:border-l sm:[&>*:not(:nth-child(3n+1))]:border-l">
+        <Figure label="注册用户" value={fmtCount(data.users)} sub={<Today n={data.today.users} />} />
+        <Figure
           label="旅程"
           value={fmtCount(data.trips)}
-          sub={`公开 ${fmtCount(data.public_trips)}${data.pending_trips > 0 ? ` · 待审 ${fmtCount(data.pending_trips)}` : ''}`}
-          today={data.today.trips}
+          sub={
+            <>
+              公开 <span className="font-num">{fmtCount(data.public_trips)}</span>
+              {data.pending_trips > 0 && (
+                <>
+                  {' · '}待审 <span className="font-num">{fmtCount(data.pending_trips)}</span>
+                </>
+              )}
+              {data.today.trips > 0 && (
+                <>
+                  {' · '}
+                  <Today n={data.today.trips} />
+                </>
+              )}
+            </>
+          }
         />
-        <StatCard icon={MessageSquare} label="评论" value={fmtCount(data.comments)} today={data.today.comments} />
-        <StatCard icon={MapPin} label="打卡地" value={fmtCount(data.places)} />
-        <StatCard icon={Camera} label="照片" value={fmtCount(data.photos)} />
-        <StatCard icon={HardDrive} label="存储占用" value={fmtBytes(data.storage_bytes)} />
+        <Figure label="评论" value={fmtCount(data.comments)} sub={<Today n={data.today.comments} />} />
+        <Figure label="打卡地" value={fmtCount(data.places)} />
+        <Figure label="照片" value={fmtCount(data.photos)} />
+        <Figure label="存储占用" value={storage} unit={storageUnit} />
       </div>
-      <Card className="mt-4 p-4 sm:p-5">
+
+      <section className="mt-10">
         {data.trend.length ? <TrendChart trend={data.trend} /> : <Empty title="暂无趋势数据" />}
-      </Card>
+      </section>
+
+      {/* 系统诊断入口 */}
+      <Link
+        to="/admin/diagnostics"
+        className={cn(
+          'group mt-10 flex flex-col gap-3 rounded-xl border border-ink-200 bg-white/60 px-5 py-4 transition-colors hover:border-ink-900/30 hover:bg-white',
+          'sm:flex-row sm:items-center sm:gap-6',
+        )}
+      >
+        <div className="min-w-0 flex-1">
+          <p className="eyebrow">Diagnostics · 系统诊断</p>
+          <p className="mt-1.5 text-sm leading-relaxed text-ink-600">
+            地点搜索、路线距离或 AI 生成行程不可用？一键检测高德 Key、AI 模型与天地图的配置，并给出修复步骤。
+          </p>
+        </div>
+        <span className="inline-flex shrink-0 items-center gap-1.5 text-sm text-ink-900">
+          <span className="font-display">去检测</span>
+          <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" strokeWidth={1.5} />
+        </span>
+      </Link>
     </div>
   )
 }

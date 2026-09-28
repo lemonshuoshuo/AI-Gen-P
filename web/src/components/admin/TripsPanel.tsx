@@ -11,13 +11,23 @@ import { phases, visibilities } from '@/lib/meta'
 import { ActionButton, ADMIN_PAGE_SIZE, FilterBar, FilterSlot, PanelHeader, Pill, SearchInput, useFilters, usePageGuard } from './common'
 import { DataTable, type Column } from './DataTable'
 
+// 没有封面时：淡矿物色块 + 宋体城市首字；颜色按字取，同一座城市颜色一致
+const thumbColors = ['#3f6975', '#3e7a68', '#6b5b8a', '#b7832f', '#9d4a5f', '#4b4740']
+
 function Thumb({ trip }: { trip: TripCard }) {
+  const label = (trip.cities[0] || trip.title).trim().slice(0, 1)
+  const color = thumbColors[(label.codePointAt(0) ?? trip.id) % thumbColors.length]
   return (
-    <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-brand-gradient">
+    <div
+      className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md"
+      style={trip.cover_url ? undefined : { background: color + '1a', boxShadow: `inset 0 0 0 1px ${color}33`, color }}
+    >
       {trip.cover_url ? (
         <img src={trip.cover_thumb_url || trip.cover_url} alt="" loading="lazy" className="size-full object-cover" />
+      ) : label ? (
+        <span className="font-display text-lg">{label}</span>
       ) : (
-        <Route className="size-5 text-white" />
+        <Route className="size-5" strokeWidth={1.5} />
       )}
     </div>
   )
@@ -111,7 +121,7 @@ export function TripsPanel() {
         <Link to={`/trips/${t.id}`} className="group flex min-w-0 items-center gap-3">
           <Thumb trip={t} />
           <div className="min-w-0">
-            <div className="line-clamp-1 font-medium text-ink-900 group-hover:text-brand-600">{t.title}</div>
+            <div className="font-display line-clamp-1 text-[15px] text-ink-900 group-hover:text-brand-600">{t.title}</div>
             <div className="truncate text-xs text-ink-400">
               {t.cities.slice(0, 3).join(' · ') || '未设置城市'} · {fromNow(t.created_at)}
             </div>
@@ -141,10 +151,10 @@ export function TripsPanel() {
           ) : t.status === 'hidden' ? (
             <Pill tone="red">已隐藏</Pill>
           ) : (
-            <Pill tone="green">正常</Pill>
+            <span className="px-0.5 text-xs leading-5 text-ink-500">正常</span>
           )}
           {t.featured && (
-            <Pill tone="amber" icon={<Star className="size-3 fill-current" />}>
+            <Pill tone="amber" icon={<Star className="size-3 fill-current" strokeWidth={1.5} />}>
               精选
             </Pill>
           )}
@@ -157,17 +167,17 @@ export function TripsPanel() {
       header: '数据',
       className: 'whitespace-nowrap',
       cell: (t) => (
-        <span className="inline-flex items-center gap-2.5 text-xs text-ink-500 tabular-nums">
-          <span className="inline-flex items-center gap-0.5" title="浏览">
-            <Eye className="size-3.5" />
+        <span className="font-num inline-flex items-center gap-3 text-[13px] text-ink-500">
+          <span className="inline-flex items-center gap-1" title="浏览">
+            <Eye className="size-3.5 text-ink-400" strokeWidth={1.5} />
             {fmtCount(t.view_count)}
           </span>
-          <span className="inline-flex items-center gap-0.5" title="点赞">
-            <Heart className="size-3.5" />
+          <span className="inline-flex items-center gap-1" title="点赞">
+            <Heart className="size-3.5 text-ink-400" strokeWidth={1.5} />
             {fmtCount(t.like_count)}
           </span>
-          <span className="inline-flex items-center gap-0.5" title="评论">
-            <MessageCircle className="size-3.5" />
+          <span className="inline-flex items-center gap-1" title="评论">
+            <MessageCircle className="size-3.5 text-ink-400" strokeWidth={1.5} />
             {fmtCount(t.comment_count)}
           </span>
         </span>
@@ -211,9 +221,20 @@ export function TripsPanel() {
   return (
     <div>
       <PanelHeader
+        eyebrow="Journals · 内容"
         title="内容管理"
         desc={
-          data ? (f.status === 'pending' ? `${data.total} 段公开旅程等待审核` : `共 ${data.total} 段旅程`) : undefined
+          data ? (
+            f.status === 'pending' ? (
+              <>
+                <span className="font-num text-base text-ink-900">{data.total}</span> 段公开旅程等待审核
+              </>
+            ) : (
+              <>
+                共 <span className="font-num text-base text-ink-900">{data.total}</span> 段旅程
+              </>
+            )
+          ) : undefined
         }
       />
       <FilterBar>

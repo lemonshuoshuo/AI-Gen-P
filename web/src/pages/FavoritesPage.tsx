@@ -2,8 +2,9 @@ import { Link } from 'react-router'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { Bookmark, Compass } from 'lucide-react'
 import { api } from '@/api'
+import { MoreButton, PageHead } from '@/components/editorial'
 import { TripGrid, TripGridSkeleton } from '@/components/trip/TripCard'
-import { Button, Empty, LoadError, buttonClass } from '@/components/ui'
+import { Empty, LoadError, buttonClass } from '@/components/ui'
 import { flattenPages } from '@/lib/pages'
 
 export default function FavoritesPage() {
@@ -17,23 +18,33 @@ export default function FavoritesPage() {
   const total = q.data?.pages[0]?.total
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6">
-      <h1 className="text-2xl font-extrabold">我的收藏</h1>
-      <p className="mt-1 text-sm text-ink-500">{total ? `收藏了 ${total} 段旅程` : '喜欢的路线和游记，收藏起来慢慢看'}</p>
-
-      <div className="mt-5">
+    <div className="mx-auto max-w-6xl px-4 pt-8 pb-16 md:px-6 md:pt-12">
+      <PageHead
+        eyebrow="Saved · 收藏夹"
+        title="我的收藏"
+        dek={
+          total ? (
+            <>
+              收藏了 <span className="font-num text-ink-900">{total}</span> 段旅程，慢慢看，慢慢出发
+            </>
+          ) : (
+            '喜欢的路线和游记，收藏起来慢慢看'
+          )
+        }
+      />
+      <div className="mt-8 border-t border-ink-200 pt-8">
         {q.isLoading ? (
           <TripGridSkeleton />
         ) : q.isLoadingError ? (
           <LoadError error={q.error} onRetry={() => q.refetch()} />
         ) : trips.length === 0 ? (
           <Empty
-            icon={<Bookmark className="size-12" />}
+            icon={<Bookmark className="size-11" />}
             title="还没有收藏"
-            desc="在旅程详情页点击「收藏」，就能在这里找到它"
+            desc="在旅程详情页点「收藏」，就能在这里找到它"
             action={
               <Link to="/" className={buttonClass()}>
-                <Compass className="size-4" />
+                <Compass className="size-4" strokeWidth={1.75} />
                 去发现
               </Link>
             }
@@ -41,13 +52,7 @@ export default function FavoritesPage() {
         ) : (
           <>
             <TripGrid trips={trips} />
-            {q.hasNextPage && (
-              <div className="mt-6 flex justify-center">
-                <Button variant="outline" loading={q.isFetchingNextPage} onClick={() => q.fetchNextPage()}>
-                  加载更多
-                </Button>
-              </div>
-            )}
+            {q.hasNextPage && <MoreButton loading={q.isFetchingNextPage} onClick={() => q.fetchNextPage()} />}
           </>
         )}
       </div>

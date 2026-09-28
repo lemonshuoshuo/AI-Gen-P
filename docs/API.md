@@ -183,7 +183,8 @@ TripCard +
     "days": 20, "cities": 12, "provinces": 6,
     "first_date": "2024-01-01" | null, "last_date": "2026-05-03" | null
   },
-  "points": [{ "lng": 120.1, "lat": 30.2, "name": "…", "city": "杭州市", "province": "浙江省",
+  "points": [{ "waypoint_id": 12, "photo_thumb_url": "/uploads/2026/05/xxx_t.jpg",
+               "lng": 120.1, "lat": 30.2, "name": "…", "city": "杭州市", "province": "浙江省",
                "category": "food", "verdict": "recommend", "trip_id": 1, "trip_title": "…", "date": "2026-05-01" }],
   "provinces": [{ "code": "330000", "name": "浙江省", "count": 20 }],
   "cities": [{ "code": "330100", "name": "杭州市", "province": "浙江省", "count": 15, "lng": 120.1, "lat": 30.2 }],
@@ -192,6 +193,7 @@ TripCard +
 }
 ```
 - `points` 最多 5000 个；`trips` 按 `start_date` 正序，`path` 为按顺序的打卡点坐标
+- `points[].waypoint_id`：对应的打卡点；`photo_thumb_url`：该打卡点第一张照片（与旅程页相同的顺序：按拍摄时间，再按上传顺序）的缩略图，没有照片时为空字符串。用于地图放大后在足迹点上显示照片。足迹只包含查看者能在旅程页看到照片的旅程（本人参与的、情侣共同的，或公开且未处于「旅行中未公开位置」的旅程，见「旅行中的位置隐私」），因此不会露出旅程页上看不到的照片
 - `cities[].lng/lat` 为该城市内打卡点的平均位置
 
 ### Notification
@@ -222,7 +224,7 @@ TripCard +
 {
   "name": "TripHub", "announcement": "", "registration_open": true,
   "icp_beian": "京ICP备12345678号-1", "police_beian": "",
-  "amap_search": true, "ai_enabled": true,
+  "amap_search": true, "place_search": true, "ai_enabled": true,
   "map": {
     "attribution": "© 高德地图",
     "tiles": {
@@ -236,7 +238,8 @@ TripCard +
   "upload": { "max_photo_mb": 20 }
 }
 ```
-`amap_search`：服务端是否配置了高德 Web 服务 Key（未配置时地点搜索退化为城市级离线搜索）。
+`amap_search`：服务端是否配置了高德 Web 服务 Key（未配置时地点搜索退化为天地图或城市级离线搜索）。
+`place_search`：能否搜索具体地点（配置了高德或天地图 Key 之一）；为 false 时 `/geo/search` 只能找到省 / 市。
 `map.attribution`：底图版权 / 审图号（可含 HTML，由部署配置 `TRIPHUB_TILES_ATTRIBUTION` 决定，缺省 `© 高德地图`），客户端显示在地图角落。
 `ai_enabled`：服务端是否配置了 AI 模型（OpenAI 兼容接口）。
 `exp_daily_cap`：每人每天最多可获得的经验值（见「用户等级」）。
@@ -368,6 +371,7 @@ AuthResult：
 | GET | `/trips/:id/compare` | 🔓（按旅程可见性） | 计划 vs 实际对比，见下 |
 | GET | `/trips/:id/legs` | 🔐（按旅程可见性） | 计划路线中同一天相邻打卡点之间的路程与耗时，`?mode=walking` / `transit` / `driving`（缺省 `transit`），见下 |
 | POST | `/ai/plan` | 🔐 | AI 规划路线，见下 |
+| POST | `/ai/plan/stream` | 🔐 | 同 `/ai/plan`，以 SSE（`text/event-stream`）推送进度与结果，见下 |
 
 开始旅行 / 结束旅行：`PATCH /trips/:id {"phase": "ongoing" | "finished"}`。
 
@@ -452,6 +456,30 @@ AuthResult：
 - 返回的是建议，不会自动保存。客户端可在用户确认后通过 `POST /trips` + `POST /trips/:id/waypoints/batch` 保存
 - 地点坐标优先用高德搜索校正（`located=true`），无法定位的项 `located=false`，坐标可能为空
 - 未经高德定位（`located=false`）但按名称匹配到社区地点（`place_id` 非空）的项，坐标取该地点的坐标
+- 失败时返回 `500 internal`，message 说明原因，可直接展示：`AI Key 无效或没有权限`（401/403）、`AI 账户余额不足`（402）、`模型不存在：<模型名>`、`AI 响应超时（等待了 N 秒），可在设置中换用更快的模型或关闭深度思考`、`无法连接 AI 服务：<主机>`、`AI 返回的内容无法解析，请重试` 等
+- 生成多日行程通常需要 10–60 秒（服务端超时 `TRIPHUB_AI_TIMEOUT`，缺省 120 秒）。网页端建议使用下面的流式接口显示进度；App 等不便处理 SSE 的客户端继续用本接口，并把请求超时设为 2 分钟以上
+
+`POST /ai/plan/stream`：请求体、登录要求与频率限制同 `POST /ai/plan`（两者合计每人每小时 30 次）。参数错误、未登录、未配置 AI（400）、超出频率（429）等在开始推送之前以普通 JSON 错误返回；之后响应为 `200`，`Content-Type: text/event-stream`（不压缩，带 `Cache-Control: no-cache`、`X-Accel-Buffering: no`，经 Nginx 反向代理时无需额外配置），事件依次为：
+
+```
+event: progress
+data: {"stage":"thinking","chars":0,"message":"AI 正在构思行程…"}
+
+event: progress
+data: {"stage":"writing","chars":356,"message":"AI 正在生成行程（已生成 356 字）…"}
+
+: ping
+
+event: progress
+data: {"stage":"locating","chars":1520,"message":"正在用地图核对 12 个地点的位置…"}
+
+event: result
+data: {"title":"杭州三日·美食拍照之旅","summary":"…","items":[…]}
+```
+- `progress`：`stage` 为 `thinking`（模型在思考；开启深度思考的模型会持续报告已思考的字数）、`writing`（正在输出行程，`chars` 为已生成的字数）、`locating`（正在用地图校正地点坐标）；`message` 为可直接显示的中文进度。进度事件最多约每秒 2 次，阶段变化时立即发送
+- `: ping`：SSE 注释行，等待期间每 10 秒一次，用于保持连接，客户端忽略即可
+- 最后一个事件是 `result`（`data` 与 `POST /ai/plan` 的响应完全相同）或 `error`（`data` 为 `{"message": "…"}`，内容同 `POST /ai/plan` 的错误 message），之后服务端关闭连接
+- 浏览器的 `EventSource` 只支持 GET，网页端用 `fetch` 读取响应流并按空行分隔事件解析；模型服务商不支持流式输出时服务端会自动改用普通请求，客户端无需处理（此时可能只有开始和 `locating` 两个进度）
 
 ### 照片
 | 方法 | 路径 | 权限 | 说明 |
@@ -534,27 +562,61 @@ AuthResult：
 | GET | `/geo/search` | 🔐 | `?keyword=&city=&lng=&lat=` 地点搜索 |
 | GET | `/geo/regeo` | 🔐 | `?lng=&lat=&coord_type=` 逆地理编码 |
 | GET | `/geo/around` | 🔐 | `?lng=&lat=&coord_type=&radius=300&keyword=` 周边地点（打卡时选所在的店铺 / 景点），见下 |
+| GET | `/geo/pick` | 🔐 | `?lng=&lat=&coord_type=` 在地图上点选位置：所在的景区 / 园区、附近的地点和地址，见下 |
 | GET | `/geo/atlas` | 🔓 | 中国省/市边界 TopoJSON（对象 `provinces` / `prefectures` / `nation`，属性 `id`=区划码、`地名`） |
 
 `/geo/search` 响应：
 ```json
 { "source": "amap", "items": [{ "amap_id": "B0…", "name": "楼外楼", "address": "孤山路30号",
   "province": "浙江省", "city": "杭州市", "district": "西湖区", "category": "food",
-  "lng": 120.14, "lat": 30.25,
-  "place": { "id": 12, "checkin_count": 8, "recommend_count": 2, "neutral_count": 1, "avoid_count": 5, "rating_avg": 2.4 } }] }
+  "lng": 120.14, "lat": 30.25, "amap_rating": 4.6, "amap_cost": 135,
+  "place": { "id": 12, "checkin_count": 8, "recommend_count": 2, "neutral_count": 1, "avoid_count": 5, "rating_avg": 2.4 } }],
+  "amap_error": "高德 Key 的服务平台不是「Web服务」：…" }
 ```
-`place`：该高德 POI 对应地点的社区统计（同 Place 中的同名字段，便于规划时提示「踩雷」），该 POI 还没有公开打卡时为 `null`；`source=local` 时总为 `null`。
-`source` 为 `local` 时仅能搜索省/市名称（返回行政区中心）：服务端未配置高德 Key，或高德暂时不可用（网络故障、Key 无效、当日调用额度用尽等；服务端会暂停调用一段时间后自动恢复）。
-`/geo/search` 与 `/geo/regeo` 会消耗站点的高德调用额度，因此需要登录，且每人 10 分钟最多 120 次（两者合计），超出返回 429。
+- `source`：结果来源。`amap`：高德（同时查询关键字搜索与输入提示并合并：按 `amap_id` 去重，名称与关键词完全相同 / 以关键词开头的排在前面，能搜到只出现在输入提示里的小店、民宿；关键词前带城市名如「台州那海民宿」也能匹配「那海民宿」；`city` 或 `lng`/`lat` 所在城市只作为优先范围，不限定结果）；`tianditu`：天地图（未配置高德、高德调用失败或高德没有结果时，服务端配置了天地图 Key 才会使用；`amap_id` 为空字符串）；`local`：离线行政区划，仅能搜索省 / 市名称（返回行政区中心）
+- `amap_error`：仅在服务端配置了高德 Key 但调用失败时出现，为可直接展示给管理员的中文原因，例如 `高德 Key 无效，请检查 .env 中的 AMAP_KEY`、`高德 Key 的服务平台不是「Web服务」：请在高德控制台为本站创建服务平台为「Web服务」的 Key`、`服务器 IP 不在高德 Key 的白名单中`、`高德调用额度已用完`、`该 Key 没有此接口权限`、`服务器无法连接高德（restapi.amap.com）`，其它错误带 infocode。Key 无效 / 额度用尽等错误会让服务端暂停调用高德 10 分钟（网络故障 1 分钟），暂停期间返回同一原因并注明「已暂停调用高德，稍后自动重试」。此时结果来自天地图或离线行政区划，`source` 相应为 `tianditu` / `local`。`/geo/around`、`/geo/pick` 中的 `amap_error` 含义相同
+- `place`：该高德 POI 对应地点的社区统计（同 Place 中的同名字段，便于规划时提示「踩雷」），该 POI 还没有公开打卡时为 `null`；`source` 为 `tianditu` / `local` 时总为 `null`
+- `amap_rating` / `amap_cost`：高德的商户评分（0–5）与人均消费（元），未知或非高德结果时为 0
+- 高德与天地图返回的坐标都已转换为 GCJ-02；天地图结果缺少省 / 市时按坐标离线补全
 
-`/geo/around` 响应：`{ "source": "amap", "items": [...] }`，`items` 字段同 `/geo/search`（含 `place`），另加 `distance_m`（距请求坐标的米数），按距离由近到远，最多 20 个。`radius` 取值 50–5000（缺省 300 米），`keyword` 可选（≤50 字，如店名）。服务端未配置高德 Key 时返回 `{"source": "none", "items": []}`；高德暂时不可用时返回 `500 internal`（message 可直接展示）。与 `/geo/search`、`/geo/regeo` 共用每人 10 分钟 120 次的限额。
+`/geo/search`、`/geo/regeo`、`/geo/around`、`/geo/pick` 会消耗站点的地图服务调用额度，因此需要登录，且每人 10 分钟最多 120 次（合计），超出返回 429。
+
+`/geo/around` 响应：`{ "source": "amap", "items": [...] }`，`items` 字段同 `/geo/search`（含 `place`），另加 `distance_m`（距请求坐标的米数），按距离由近到远，最多 20 个。`radius` 取值 50–5000（缺省 300 米），`keyword` 可选（≤50 字，如店名）。服务端未配置高德 Key 时返回 `{"source": "none", "items": []}`；高德调用失败时返回 `200`：`{"source": "none", "items": [], "amap_error": "…"}`（客户端应显示 `amap_error`，而不是「附近没有地点」）。
 
 `/geo/regeo` 响应：
 ```json
 { "province": "浙江省", "province_code": "330000", "city": "杭州市", "city_code": "330100",
-  "district": "西湖区", "street": "北山街道", "address": "浙江省杭州市西湖区孤山路30号",
+  "district": "西湖区", "street": "北山街道", "address": "浙江省杭州市西湖区孤山路30号", "spot": "西湖风景名胜区",
   "lng": 120.14, "lat": 30.25 }
 ```
+`spot`：该点所在的景区 / 园区 / 商场等区域（AOI），或 30 米内最近的地点名称，没有时为空字符串（高德不可用时使用天地图，都未配置时为空）。地图点选请使用 `/geo/pick`。
+
+`/geo/pick` 响应（路线编辑中在地图上点选位置时使用，由用户从候选中选择打卡点名称）：
+```json
+{
+  "address": { "province": "浙江省", "city": "台州市", "district": "椒江区", "street": "大陈镇",
+               "address": "浙江省台州市椒江区大陈镇甲午岩景区" },
+  "candidates": [
+    { "kind": "aoi", "name": "甲午岩景区", "address": "浙江省台州市椒江区大陈镇甲午岩景区", "category": "scenic",
+      "amap_id": "B0FFxxxxxx", "place_id": null, "lng": 121.9001, "lat": 28.4502, "distance_m": 0, "place": null },
+    { "kind": "poi", "name": "观海亭", "address": "甲午岩景区内", "category": "scenic",
+      "amap_id": "B0FFyyyyyy", "place_id": 8, "lng": 121.9002, "lat": 28.4501, "distance_m": 25,
+      "place": { "id": 8, "checkin_count": 3, "recommend_count": 2, "neutral_count": 0, "avoid_count": 1, "rating_avg": 4.3 } },
+    { "kind": "place", "name": "岛上咖啡", "address": "", "category": "food",
+      "amap_id": "", "place_id": 9, "lng": 121.9005, "lat": 28.45, "distance_m": 49, "place": { "id": 9, "…": "…" } },
+    { "kind": "address", "name": "大陈镇 · 环岛公路", "address": "浙江省台州市椒江区大陈镇甲午岩景区", "category": "other",
+      "amap_id": "", "place_id": null, "lng": 121.9, "lat": 28.45, "distance_m": 0, "place": null }
+  ],
+  "source": "amap",
+  "amap_error": "…"
+}
+```
+- `candidates` 的顺序：`kind=aoi`（区域：景区、校园、商场、小区等）中包含该点的排最前（`distance_m=0`，面积小的在前），其次是附近的区域（按距离）；然后是 200 米内的地点 `poi`（高德 POI）与 150 米内的社区地点 `place`（按距离）；同名的只保留第一个；最多 20 个，最后总有一个 `kind=address`：点击的位置本身（坐标即请求坐标），名称为「乡镇 / 街道 · 道路」（如 `东山街道 · 解放路`），没有时为区县或城市名
+- `lng` / `lat`：区域 / 地点自身的坐标（GCJ-02），`address` 为点击位置的坐标；`distance_m`：距点击位置的米数（区域为到其边界的距离）
+- `place_id` / `place`：对应的社区地点（按 `amap_id` 或同名关联）及其社区统计（同 `/geo/search` 的 `place`，没有公开打卡时 `place` 为 `null`）。社区地点遵循地点的可见性规则（有公开打卡、带高德 ID、被公开旅程引用，或出现在查看者自己参与的旅程中），其他用户私密旅程中的地点不会出现
+- `source`：`amap`（高德逆地理编码）；`tianditu`（未配置高德或高德调用失败时使用天地图：只提供最近的一个地点名称，其坐标取点击位置）；`local`（都不可用：只有社区地点和按离线行政区划命名的地址）
+- `amap_error`：同 `/geo/search`
+- 选择 `aoi` / `poi` 候选后，客户端创建打卡点时可带上 `name`、`amap_id` 和候选的坐标；选择 `address` 时可只传坐标（名称留空由服务端自动命名）或使用候选的 `name`
 
 ### 情侣空间「我们一起走过的地方」 🔐
 | 方法 | 路径 | 说明 |
@@ -598,6 +660,22 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 | PATCH | `/admin/reports/:id` | `{status, note?}` |
 | GET | `/admin/settings` | `{site_name, announcement, registration_open, icp_beian, police_beian, terms_md, privacy_md, sensitive_words, review_public_trips}` |
 | PUT | `/admin/settings` | 同上（字段均可选）；`terms_md` / `privacy_md` 为 Markdown，留空表示使用内置模板；`sensitive_words` 屏蔽词（每行一个，也可用逗号分隔，≤100000 字，缺省为空）；`review_public_trips` 公开旅程需审核（缺省 false）。见「内容安全」 |
+| GET | `/admin/diagnostics` | 实时检查外部服务的配置，见下 |
+
+`GET /admin/diagnostics` 响应（每次调用都会实时请求各服务，约需几秒，最长约 30 秒；结果中不含任何 Key）：
+```json
+{
+  "amap": { "configured": true, "ok": false, "message": "高德 Key 的服务平台不是「Web服务」：请在高德控制台为本站创建服务平台为「Web服务」的 Key",
+            "infocode": "10009", "latency_ms": 85 },
+  "ai": { "configured": true, "ok": true, "model": "deepseek-flash", "base_url": "https://api.deepseek.com",
+          "thinking": "off", "timeout_s": 120, "latency_ms": 820, "message": "正常：模型回复「ok」（用时 820 毫秒）" },
+  "tianditu": { "configured": false, "ok": false, "message": "未配置天地图 Key（TIANDITU_KEY，可选）", "latency_ms": 0 }
+}
+```
+- `amap`：在北京搜索「天安门」（不走缓存，也不受暂停影响；成功后解除暂停）；`infocode` 为高德的错误码（仅失败时出现）
+- `ai`：向模型发送一条「只回复 ok」的最小请求（30 秒超时）；`thinking` 为深度思考设置（`off` / `on` / `low` / `high` / `max`），`timeout_s` 为 AI 规划的超时秒数；失败时 `message` 同 `/ai/plan` 的错误说明
+- `tianditu`：用天地图搜索北京的「天安门」
+- `ok=false` 时 `message` 为可直接展示的中文原因；未配置的服务 `configured=false`
 
 ## 用户等级
 
@@ -625,8 +703,8 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 - 所有成功的删除 / 无返回体操作返回 `{}`；创建类接口统一返回 `200`。
 - 时间字段统一输出为东八区 RFC3339（如 `2026-09-24T10:00:00+08:00`）；请求中也接受不带时区的 `YYYY-MM-DDTHH:mm[:ss]`（按东八区解释）。
 - `coord_type` 缺省为 `gcj02`（包括 `/trips/:id/checkin`、`/trips/:id/recommend`、`/trips/:id/track` 等）；只有 `POST /trips/:id/photos` 缺省为 `wgs84`。
-- 频率限制：同一 IP+账号 15 分钟内失败登录 5 次、同一 IP 失败 30 次后返回 429；同一 IP 每小时最多注册 10 个账号；每人 10 分钟最多 30 条评论；AI 接口每人每小时 30 次；地点搜索 / 逆地理 / 周边地点每人 10 分钟最多 120 次；修改密码 / 注销账号时同一账号 15 分钟内密码错误 5 次（超出返回 429）。并发请求同样受限（请求在校验密码前即计入，登录成功后退回）。
-- 请求带 `Accept-Encoding: gzip` 时，JSON 响应与网页静态资源以 gzip 压缩返回。
+- 频率限制：同一 IP+账号 15 分钟内失败登录 5 次、同一 IP 失败 30 次后返回 429；同一 IP 每小时最多注册 10 个账号；每人 10 分钟最多 30 条评论；AI 接口（`/ai/plan`、`/ai/plan/stream`、带 `ai=true` 的推荐）每人每小时 30 次；地点搜索 / 逆地理 / 周边地点 / 地图点选每人 10 分钟最多 120 次；修改密码 / 注销账号时同一账号 15 分钟内密码错误 5 次（超出返回 429）。并发请求同样受限（请求在校验密码前即计入，登录成功后退回）。
+- 请求带 `Accept-Encoding: gzip` 时，JSON 响应与网页静态资源以 gzip 压缩返回（SSE 事件流 `text/event-stream` 除外）。
 - 常用长度限制：标题 ≤100、简介 ≤500、正文 ≤50000、标签 ≤10 个且每个 ≤20 字（自动去重、去掉 `#`）、昵称 ≤20、个人简介 ≤200、打卡点名称 ≤100 / 备注 ≤5000、批量打卡点 ≤200 个、共同作者 ≤20 人、照片说明 ≤500。
 
 ### 用户
@@ -654,7 +732,9 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 - `POST /trips/:id/checkin` 可选传 `arrived_at`；新建的计划外点若设置了旅程开始日期则自动计算 `day`。`POST /waypoints/:id/checkin` 以及带 `waypoint_id` 的 `POST /trips/:id/checkin` 对已到达的点仅在显式传入 `arrived_at` 时更新时间（未传时保留原到达时间）。「我到了」打卡（`/trips/:id/checkin`、`/waypoints/:id/checkin`）与上传轨迹会把 `planning` 旅程自动切换为 `ongoing`。
 - 自动建点的照片关联到 300 米内最近的打卡点；若该点是 `todo` 计划点、照片距它不超过 100 米，且旅程不处于 `planning`、照片带拍摄时间，则该计划点被标记为已到达（`arrived_at` = 拍摄时间）。
 - `suggestions[]` 中 `source=plan` 的项额外带 `waypoint_id`（可直接调用 `/waypoints/:id/checkin`）。`ai` 参数缺省为 false。
-- `POST /ai/plan`：`days` 1–15（缺省 3），`preferences` ≤300 字；AI 调用失败或超时返回 `500 internal`（message 可直接展示）。
+- `POST /ai/plan`：`days` 1–15（缺省 3），`preferences` ≤300 字；AI 调用失败或超时返回 `500 internal`（message 可直接展示）。每天最多安排约 6 个地点（行程越长每天越少，超过 7 天时每天 2–4 个），备注简短，以加快生成。
+- 自动命名：未给名称的打卡点（「我到了」计划外打卡、照片自动建点、只给坐标新建）在服务端配置了高德或天地图时，优先用所在的区域名称（如位于「甲午岩景区」内），否则用 30 米内最近的地点名称，再否则为「区县·街道」；未配置时为城市名。
+- `/trips/:id/recommend` 的 AI 挑选最多等待 20 秒（`TRIPHUB_AI_TIMEOUT` 更短时以其为准），超时自动退回规则推荐。
 
 ### 照片 / 存储
 - 除照片外，`POST /uploads/image` 的通用图片也计入存储配额（删除旅程/照片时释放对应照片占用）；头像不计入。

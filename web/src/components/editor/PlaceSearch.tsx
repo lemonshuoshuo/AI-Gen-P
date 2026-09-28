@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Loader2, MapPin, Search, X } from 'lucide-react'
+import { Info, Loader2, MapPin, Search, X } from 'lucide-react'
 import { api, errorMessage, isAvoided, type GeoSearchItem, type GeoSource, type Place, type PlaceStats } from '@/api'
 import { recommendRate } from '@/components/place/PlaceCard'
 import { PlaceStatsBadge } from '@/components/trip/WaypointItem'
@@ -31,6 +31,8 @@ export function PlaceSearch({
   const [items, setItems] = useState<GeoSearchItem[]>([])
   const [community, setCommunity] = useState<Place[]>([])
   const [source, setSource] = useState<GeoSource | null>(null)
+  // 高德调用失败的原因（Key 类型不对、额度用完等）：服务端给的是可操作的中文说明，原样显示
+  const [amapError, setAmapError] = useState<string | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -59,6 +61,7 @@ export function PlaceSearch({
       setItems([])
       setCommunity([])
       setFailed(null)
+      setAmapError(null)
       setLoading(false)
       return
     }
@@ -78,10 +81,12 @@ export function PlaceSearch({
         if (g.status === 'fulfilled') {
           setItems(g.value.items)
           setSource(g.value.source)
+          setAmapError(g.value.amap_error?.trim() || null)
           setFailed(null)
         } else {
           setItems([])
           setSource(null)
+          setAmapError(null)
           setFailed(errorMessage(g.reason))
         }
         setCommunity(p.status === 'fulfilled' ? p.value.items : [])
@@ -119,17 +124,28 @@ export function PlaceSearch({
 
   const communityIds = new Set(community.map((p) => p.amap_id).filter(Boolean))
   const geoItems = items.filter((it) => !it.amap_id || !communityIds.has(it.amap_id))
+  const clear = () => {
+    setKw('')
+    setItems([])
+    setCommunity([])
+    setFailed(null)
+    setAmapError(null)
+  }
+  // 地点结果的小标题：有社区结果时区分「更多地点」，天地图结果注明来源
+  const geoHeading =
+    source === 'tianditu' ? (community.length ? '更多地点 · 来自天地图' : '来自天地图') : community.length ? '更多地点' : null
+  const localOnly = !failed && source === 'local'
 
   return (
     <div
       className={cn(
-        sheet ? 'fixed inset-0 z-50 !m-0 flex flex-col bg-white px-4 pt-[max(env(safe-area-inset-top),0.75rem)]' : 'relative',
+        sheet ? 'fixed inset-0 z-50 !m-0 flex flex-col bg-paper px-4 pt-[max(env(safe-area-inset-top),0.75rem)]' : 'relative',
         !sheet && className,
       )}
     >
       <div className="relative flex items-center gap-2">
         <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-400" />
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-400" strokeWidth={1.75} />
           <input
             ref={inputRef}
             value={kw}
@@ -138,33 +154,36 @@ export function PlaceSearch({
             onChange={(e) => setKw(e.target.value)}
             onFocus={() => {
               setActive(true)
-              if (items.length || community.length || failed) setOpen(true)
+              if (items.length || community.length || failed || amapError) setOpen(true)
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== 'Escape') return
+              // Esc 只收起结果列表；手机上的全屏搜索整个退出
+              e.stopPropagation()
+              if (sheet) closeSheet()
+              else setOpen(false)
             }}
             placeholder={placeholder}
-            className="h-11 w-full rounded-xl border border-ink-200 bg-white pr-9 pl-9 text-sm outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-100"
+            aria-label="搜索地点"
+            className="h-11 w-full rounded-lg border border-ink-200 bg-white pr-9 pl-9 text-sm text-ink-900 outline-none transition placeholder:text-ink-300 focus:border-ink-900 focus:ring-2 focus:ring-ink-900/5"
           />
           {loading ? (
-            <Loader2 className="absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin text-ink-400" />
+            <Loader2 className="absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin text-ink-400" strokeWidth={1.75} />
           ) : (
             kw && (
               <button
                 type="button"
-                onClick={() => {
-                  setKw('')
-                  setItems([])
-                  setCommunity([])
-                  setFailed(null)
-                }}
-                className="absolute top-1/2 right-3 -translate-y-1/2 text-ink-400"
+                onClick={clear}
+                className="absolute top-1/2 right-2.5 -translate-y-1/2 rounded-full p-0.5 text-ink-400 hover:text-ink-900"
                 aria-label="清空"
               >
-                <X className="size-4" />
+                <X className="size-4" strokeWidth={1.75} />
               </button>
             )
           )}
         </div>
         {sheet && (
-          <button type="button" onClick={closeSheet} className="shrink-0 px-1 text-sm text-ink-500">
+          <button type="button" onClick={closeSheet} className="shrink-0 px-1 text-sm text-ink-600">
             取消
           </button>
         )}
@@ -182,78 +201,100 @@ export function PlaceSearch({
           )}
           <div
             className={cn(
-              'overflow-y-auto bg-white py-1',
+              'overflow-y-auto',
               sheet
-                ? 'pb-safe mt-2 min-h-0 flex-1 overscroll-contain'
-                : 'absolute inset-x-0 z-40 mt-1.5 max-h-80 rounded-2xl shadow-float ring-1 ring-ink-100',
+                ? 'pb-safe mt-3 min-h-0 flex-1 overscroll-contain'
+                : 'animate-fade-in absolute inset-x-0 z-40 mt-1.5 max-h-96 rounded-xl bg-white py-1 shadow-float',
             )}
           >
             {community.length > 0 && (
               <>
-                <p className="px-4 pt-1.5 pb-1 text-xs font-medium text-ink-400">社区打卡地</p>
-                {community.map((p) => {
-                  const rate = recommendRate(p)
-                  const avoid = isAvoided(p)
-                  return (
-                    <button
-                      key={`p-${p.id}`}
-                      type="button"
-                      onClick={() =>
-                        pick(
-                          {
-                            amap_id: p.amap_id,
-                            name: p.name,
-                            address: p.address,
-                            province: p.province,
-                            city: p.city,
-                            district: p.district,
-                            category: p.category,
-                            lng: p.lng,
-                            lat: p.lat,
-                          },
-                          'community',
-                          p,
-                        )
-                      }
-                      className="flex w-full items-start gap-2.5 px-4 py-2.5 text-left hover:bg-ink-50"
-                    >
-                      <MapPin className="mt-0.5 size-4 shrink-0 text-emerald-500" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate text-sm font-medium">{p.name}</span>
-                          <CategoryChip category={p.category} className="shrink-0 whitespace-nowrap" />
-                          {avoid && (
-                            <span className="shrink-0 rounded bg-red-50 px-1 text-[11px] font-medium whitespace-nowrap text-red-600">
-                              ⚠️ {p.avoid_count} 人踩雷
-                            </span>
-                          )}
-                        </div>
-                        <div className={cn('text-xs', avoid ? 'text-red-600' : 'text-ink-500')}>
-                          {p.checkin_count} 人打卡{rate != null && ` · 推荐率 ${rate}%`}
-                        </div>
-                        <div className="truncate text-xs text-ink-400">
-                          {[p.city, p.district, p.address].filter(Boolean).join(' · ')}
-                        </div>
-                      </div>
-                    </button>
-                  )
-                })}
-                {(geoItems.length > 0 || failed || source === 'local') && (
-                  <p className="border-t border-ink-100 px-4 pt-2 pb-1 text-xs font-medium text-ink-400">更多地点</p>
-                )}
+                <p className="eyebrow px-4 pt-2.5 pb-1">Community · 社区打卡地</p>
+                <ul className="divide-y divide-ink-100">
+                  {community.map((p) => {
+                    const rate = recommendRate(p)
+                    const avoid = isAvoided(p)
+                    return (
+                      <li key={`p-${p.id}`}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            pick(
+                              {
+                                amap_id: p.amap_id,
+                                name: p.name,
+                                address: p.address,
+                                province: p.province,
+                                city: p.city,
+                                district: p.district,
+                                category: p.category,
+                                lng: p.lng,
+                                lat: p.lat,
+                              },
+                              'community',
+                              p,
+                            )
+                          }
+                          className="group flex w-full items-start gap-3 px-4 py-2.5 text-left transition-colors hover:bg-ink-50"
+                        >
+                          <MapPin className="mt-1 size-4 shrink-0 text-emerald-600" strokeWidth={1.5} />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-display truncate text-[15px] text-ink-900 group-hover:text-brand-700">{p.name}</span>
+                              <CategoryChip category={p.category} className="shrink-0 whitespace-nowrap" />
+                              {avoid && (
+                                <span className="shrink-0 rounded-sm bg-brand-50 px-1 text-[11px] font-medium whitespace-nowrap text-brand-600 ring-1 ring-brand-200 ring-inset">
+                                  ✕ {p.avoid_count} 人踩雷
+                                </span>
+                              )}
+                            </div>
+                            <div className={cn('mt-0.5 text-xs', avoid ? 'text-brand-600' : 'text-ink-500')}>
+                              <span className="font-num">{p.checkin_count}</span> 人打卡
+                              {rate != null && (
+                                <>
+                                  {' · 推荐率 '}
+                                  <span className="font-num">{rate}%</span>
+                                </>
+                              )}
+                            </div>
+                            <div className="truncate text-xs text-ink-400">
+                              {[p.city, p.district, p.address].filter(Boolean).join(' · ')}
+                            </div>
+                          </div>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
               </>
+            )}
+            {(geoItems.length > 0 || failed || localOnly || amapError) && geoHeading && (
+              <p className={cn('eyebrow px-4 pt-2.5 pb-1', community.length > 0 && 'mt-1 border-t border-ink-100')}>{geoHeading}</p>
             )}
             {failed ? (
               <button
                 type="button"
                 onClick={() => setAttempt((a) => a + 1)}
-                className="w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50"
+                className="w-full px-4 py-2.5 text-left text-sm text-brand-600 hover:bg-brand-50"
               >
                 {failed}，点此重试
               </button>
+            ) : amapError ? (
+              // 服务端给出了高德失败的具体原因（如 Key 平台类型不对）：原样显示，比笼统的「只能搜城市」更有用
+              <p className="mx-4 my-2 flex gap-2 border-l-2 border-amber-400 bg-amber-50/70 py-2 pr-2 pl-2.5 text-xs leading-relaxed text-amber-800">
+                <Info className="mt-px size-3.5 shrink-0" strokeWidth={1.75} />
+                <span>
+                  高德地点搜索暂不可用：{amapError}
+                  {source === 'local'
+                    ? ' 目前只能搜到城市，具体店铺、景点请直接在地图上点选。'
+                    : source === 'tianditu'
+                      ? ' 已改用天地图搜索，结果可能不全；找不到时可在地图上点选。'
+                      : ''}
+                </span>
+              </p>
             ) : (
-              source === 'local' && (
-                <p className="border-b border-ink-100 px-4 py-2 text-xs text-amber-700">
+              localOnly && (
+                <p className="mx-4 my-2 border-l-2 border-amber-400 py-1 pl-2.5 text-xs leading-relaxed text-amber-800">
                   {site?.amap_search
                     ? '地点搜索暂时不可用，只显示了城市结果；具体地点可稍后再搜，或直接在地图上点选。'
                     : `这里只能搜到城市；具体店铺、景点请直接在地图上点选。${isAdmin(user) ? '（管理员：配置高德 Web 服务 Key 后可搜索具体地点）' : ''}`}
@@ -261,34 +302,37 @@ export function PlaceSearch({
               )
             )}
             {!failed && !loading && items.length === 0 && community.length === 0 && (
-              <p className="px-4 py-3 text-sm text-ink-400">没有找到相关地点</p>
+              <p className="px-4 py-3 text-sm text-ink-400">没有找到相关地点，可以换个关键词，或直接在地图上点选</p>
             )}
-            {geoItems.map((it, i) => {
-              const avoid = isAvoided(it.place)
-              return (
-                <button
-                  key={`${it.amap_id}-${i}`}
-                  type="button"
-                  onClick={() => pick(it, source ?? 'amap', it.place)}
-                  className="flex w-full items-start gap-2.5 px-4 py-2.5 text-left hover:bg-ink-50"
-                >
-                  <MapPin className="mt-0.5 size-4 shrink-0 text-brand-500" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="truncate text-sm font-medium">{it.name}</span>
-                      {it.category && <CategoryChip category={it.category} className="shrink-0 whitespace-nowrap" />}
-                    </div>
-                    {/* 社区统计放在第二行：手机上名称不会被挤得太短 */}
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      {it.place && <PlaceStatsBadge stats={it.place} className="!py-0 shrink-0 text-[11px]" />}
-                      <span className={cn('truncate text-xs', avoid ? 'text-red-600' : 'text-ink-400')}>
-                        {[it.city, it.district, it.address].filter(Boolean).join(' · ')}
-                      </span>
-                    </div>
-                  </div>
-                </button>
-              )
-            })}
+            <ul className="divide-y divide-ink-100">
+              {geoItems.map((it, i) => {
+                const avoid = isAvoided(it.place)
+                return (
+                  <li key={`${it.amap_id}-${i}`}>
+                    <button
+                      type="button"
+                      onClick={() => pick(it, source ?? 'amap', it.place)}
+                      className="group flex w-full items-start gap-3 px-4 py-2.5 text-left transition-colors hover:bg-ink-50"
+                    >
+                      <MapPin className="mt-1 size-4 shrink-0 text-ink-400 group-hover:text-brand-500" strokeWidth={1.5} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-display truncate text-[15px] text-ink-900 group-hover:text-brand-700">{it.name}</span>
+                          {it.category && <CategoryChip category={it.category} className="shrink-0 whitespace-nowrap" />}
+                        </div>
+                        {/* 社区统计放在第二行：手机上名称不会被挤得太短 */}
+                        <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+                          {it.place && <PlaceStatsBadge stats={it.place} className="!py-0 shrink-0 text-[11px]" />}
+                          <span className={cn('truncate text-xs', avoid ? 'text-brand-600' : 'text-ink-400')}>
+                            {[it.city, it.district, it.address].filter(Boolean).join(' · ')}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
           </div>
         </>
       )}

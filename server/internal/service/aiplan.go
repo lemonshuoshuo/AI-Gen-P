@@ -8,7 +8,9 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
+	"triphub/internal/ai"
 	"triphub/internal/geo"
 	"triphub/internal/model"
 )
@@ -78,16 +80,124 @@ var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 // likeContains returns a LIKE pattern that matches s literally as a substring.
 func likeContains(s string) string { return "%" + likeEscaper.Replace(s) + "%" }
 
+// PlanProgress reports the progress of AIPlanStream.
+type PlanProgress struct {
+	// Stage is "thinking" (the model reasons), "writing" (it writes the
+	// plan) or "locating" (the stops are checked on the map).
+	Stage string
+	// Chars counts the characters of the current stage: reasoning while
+	// thinking, the answer while writing and locating.
+	Chars int
+	// Items is the number of stops being located (locating only).
+	Items int
+}
+
+// Plan progress stages.
+const (
+	PlanThinking = "thinking"
+	PlanWriting  = "writing"
+	PlanLocating = "locating"
+)
+
+// maxPlanItemsPerDay caps the stops of one day in the prompt; the answer is
+// cut at maxPlanItemsKept per day.
+const (
+	maxPlanItemsPerDay = 6
+	maxPlanItemsKept   = 8
+)
+
 // AIPlan asks the model for a day-by-day itinerary and grounds each stop
 // through AMap search (located=true) or community places.
 func (s *Service) AIPlan(ctx context.Context, req PlanRequest) (*PlanResult, error) {
+	return s.AIPlanStream(ctx, req, nil)
+}
+
+// AIPlanStream is AIPlan with progress reports: when progress is set the
+// model is asked for a streamed answer, and progress is called (from this
+// goroutine) as reasoning and answer text arrive and before the stops are
+// located.
+func (s *Service) AIPlanStream(ctx context.Context, req PlanRequest, progress func(PlanProgress)) (*PlanResult, error) {
 	dest := strings.TrimSpace(req.Destination)
 	var center *geo.Point
 	if m := s.Atlas.Search(dest, 1); len(m) > 0 {
 		center = &geo.Point{Lng: m[0].Lng, Lat: m[0].Lat}
 	}
 	cityKey := geo.BaseName(dest)
+	system, user := s.planPrompt(ctx, req, dest, cityKey)
 
+	actx, cancel := context.WithTimeout(ctx, s.Cfg.AITimeout)
+	defer cancel()
+	msgs := []ai.Message{{Role: "system", Content: system}, {Role: "user", Content: user}}
+	var text string
+	var err error
+	written := 0
+	if progress == nil {
+		text, err = s.AI.Complete(actx, msgs, ai.Options{JSON: true})
+	} else {
+		thought := 0
+		text, err = s.AI.ChatStream(actx, msgs, ai.Options{JSON: true}, func(d ai.Delta) {
+			if d.Reasoning != "" && written == 0 {
+				thought += utf8.RuneCountInString(d.Reasoning)
+				progress(PlanProgress{Stage: PlanThinking, Chars: thought})
+			}
+			if d.Content != "" {
+				written += utf8.RuneCountInString(d.Content)
+				progress(PlanProgress{Stage: PlanWriting, Chars: written})
+			}
+		})
+	}
+	if err != nil {
+		return nil, err
+	}
+	var reply aiPlanReply
+	if err := ai.DecodeJSON(text, &reply); err != nil {
+		return nil, err
+	}
+
+	out := &PlanResult{Title: Truncate(strings.TrimSpace(reply.Title), 40), Summary: Truncate(strings.TrimSpace(reply.Summary), 300), Items: []PlanItem{}}
+	if out.Title == "" {
+		out.Title = fmt.Sprintf("%s%d日游", dest, req.Days)
+	}
+	perDay := map[int]int{}
+	for _, it := range reply.Items {
+		name := strings.TrimSpace(it.Name)
+		if name == "" || len(out.Items) >= req.Days*maxPlanItemsKept {
+			continue
+		}
+		day := it.Day
+		if day < 1 {
+			day = 1
+		}
+		if day > req.Days {
+			day = req.Days
+		}
+		if perDay[day] >= maxPlanItemsKept {
+			continue
+		}
+		perDay[day]++
+		cat := strings.TrimSpace(it.Category)
+		if !slices.Contains(model.Categories, cat) {
+			cat = "other"
+		}
+		item := PlanItem{Day: day, Name: Truncate(name, 60), Address: Truncate(strings.TrimSpace(it.Address), 100),
+			Category: cat, Note: Truncate(strings.TrimSpace(it.Note), 200)}
+		if it.Lng != nil && it.Lat != nil && plausible(*it.Lng, *it.Lat, center) {
+			lng, lat := geo.Round(*it.Lng, 6), geo.Round(*it.Lat, 6)
+			item.Lng, item.Lat = &lng, &lat
+		}
+		out.Items = append(out.Items, item)
+	}
+
+	if progress != nil {
+		progress(PlanProgress{Stage: PlanLocating, Chars: written, Items: len(out.Items)})
+	}
+	s.groundPlanItems(ctx, out.Items, dest, cityKey, center)
+	return out, nil
+}
+
+// planPrompt builds the system and user prompts of an itinerary request,
+// with the community's recommended and 踩雷 places at the destination.
+func (s *Service) planPrompt(ctx context.Context, req PlanRequest, dest, cityKey string) (system, user string) {
 	// Community knowledge for the destination.
 	var good, bad []model.Place
 	if cityKey != "" {
@@ -128,50 +238,21 @@ func (s *Service) AIPlan(ctx context.Context, req PlanRequest) (*PlanResult, err
 		}
 		b.WriteString("\n")
 	}
-	fmt.Fprintf(&b, `请规划一份按天安排的行程：每天 3–6 个真实存在的地点（景点、餐厅、住宿等），顺路、不走回头路，节奏符合偏好。
-每个地点给出：day（第几天，1–%d）、name（地点的准确名称，便于地图搜索）、address（简短地址，可为空）、category（scenic/food/hotel/shopping/transport/entertainment/other 之一）、note（40 字以内的实用建议，如最佳时间、必点菜、避坑提示）、lng/lat（GCJ-02 经纬度，不确定可填 null）。
-另给出 title（20 字以内的行程标题）和 summary（100 字以内的总体介绍）。
-只输出 JSON：{"title":"…","summary":"…","items":[{"day":1,"name":"…","address":"…","category":"scenic","note":"…","lng":120.15,"lat":30.26}]}`, req.Days)
-
-	actx, cancel := context.WithTimeout(ctx, s.Cfg.AITimeout)
-	defer cancel()
-	var reply aiPlanReply
-	system := "你是一名专业的中国旅行规划师，熟悉各地景点、美食与交通。" + communityTextRule + "回答必须是严格的 JSON，不要输出其他内容。"
-	if err := s.AI.ChatJSON(actx, system, b.String(), &reply); err != nil {
-		return nil, err
+	// Fewer stops a day for long trips keeps the answer short (and fast).
+	perDay := "3–6"
+	switch {
+	case req.Days > 7:
+		perDay = "2–4"
+	case req.Days > 3:
+		perDay = "3–5"
 	}
-
-	out := &PlanResult{Title: Truncate(strings.TrimSpace(reply.Title), 40), Summary: Truncate(strings.TrimSpace(reply.Summary), 300), Items: []PlanItem{}}
-	if out.Title == "" {
-		out.Title = fmt.Sprintf("%s%d日游", dest, req.Days)
-	}
-	for _, it := range reply.Items {
-		name := strings.TrimSpace(it.Name)
-		if name == "" || len(out.Items) >= req.Days*8 {
-			continue
-		}
-		day := it.Day
-		if day < 1 {
-			day = 1
-		}
-		if day > req.Days {
-			day = req.Days
-		}
-		cat := strings.TrimSpace(it.Category)
-		if !slices.Contains(model.Categories, cat) {
-			cat = "other"
-		}
-		item := PlanItem{Day: day, Name: Truncate(name, 60), Address: Truncate(strings.TrimSpace(it.Address), 100),
-			Category: cat, Note: Truncate(strings.TrimSpace(it.Note), 200)}
-		if it.Lng != nil && it.Lat != nil && plausible(*it.Lng, *it.Lat, center) {
-			lng, lat := geo.Round(*it.Lng, 6), geo.Round(*it.Lat, 6)
-			item.Lng, item.Lat = &lng, &lat
-		}
-		out.Items = append(out.Items, item)
-	}
-
-	s.groundPlanItems(ctx, out.Items, dest, cityKey, center)
-	return out, nil
+	fmt.Fprintf(&b, `请规划一份按天安排的行程：每天 %s 个（最多 %d 个）真实存在的地点（景点、餐厅、住宿等），顺路、不走回头路，节奏符合偏好。
+每个地点给出：day（第几天，1–%d）、name（地点的准确名称，便于地图搜索）、address（简短地址，不确定就留空）、category（scenic/food/hotel/shopping/transport/entertainment/other 之一）、note（20 字以内的实用建议，如最佳时间、必点菜、避坑提示）、lng/lat（GCJ-02 经纬度，不确定填 null）。
+另给出 title（20 字以内的行程标题）和 summary（60 字以内的总体介绍）。
+内容要简洁，直接输出一个 JSON 对象，不要 Markdown 代码块，不要任何解释：{"title":"…","summary":"…","items":[{"day":1,"name":"…","address":"…","category":"scenic","note":"…","lng":120.15,"lat":30.26}]}`,
+		perDay, maxPlanItemsPerDay, req.Days)
+	system = "你是一名专业的中国旅行规划师，熟悉各地景点、美食与交通。" + communityTextRule + "回答必须是严格的 JSON，不要输出其他内容。"
+	return system, b.String()
 }
 
 func seasonOf(m time.Month) string {

@@ -35,6 +35,7 @@ func (h *Handler) site(c *gin.Context) error {
 		"icp_beian":         st.ICPBeian,
 		"police_beian":      st.PoliceBeian,
 		"amap_search":       h.svc.Amap.Enabled(),
+		"place_search":      h.svc.Amap.Enabled() || h.svc.Tianditu.Enabled(),
 		"ai_enabled":        h.svc.AI.Enabled(),
 		"map": gin.H{
 			"attribution": h.cfg.TilesAttribution,

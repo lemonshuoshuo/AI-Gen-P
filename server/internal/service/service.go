@@ -17,15 +17,19 @@ import (
 	"triphub/internal/geo"
 	"triphub/internal/media"
 	"triphub/internal/model"
+	"triphub/internal/tianditu"
 )
 
 // Service bundles dependencies used by business logic.
 type Service struct {
-	DB       *gorm.DB
-	Cfg      *config.Config
-	Atlas    *geo.Atlas
-	Amap     *amap.Client
-	AI       *ai.Client
+	DB    *gorm.DB
+	Cfg   *config.Config
+	Atlas *geo.Atlas
+	Amap  *amap.Client
+	AI    *ai.Client
+	// Tianditu is the optional free fallback for place search and reverse
+	// geocoding (never nil; disabled without a key).
+	Tianditu *tianditu.Client
 	Media    *media.Store
 	Settings *Settings
 	Loc      *time.Location
@@ -33,7 +37,8 @@ type Service struct {
 
 // New creates a Service.
 func New(db *gorm.DB, cfg *config.Config, atlas *geo.Atlas, am *amap.Client, aic *ai.Client, store *media.Store, settings *Settings, loc *time.Location) *Service {
-	return &Service{DB: db, Cfg: cfg, Atlas: atlas, Amap: am, AI: aic, Media: store, Settings: settings, Loc: loc}
+	return &Service{DB: db, Cfg: cfg, Atlas: atlas, Amap: am, AI: aic, Tianditu: tianditu.New(cfg.TiandituKey), Media: store,
+		Settings: settings, Loc: loc}
 }
 
 // NewShareCode returns a fresh 10-character base62 share code.

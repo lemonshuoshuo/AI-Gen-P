@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, ApiError, errorMessage, type Notification, type NotificationType, type Paged } from '@/api'
-import { Avatar, Button, Empty, LoadError, PageLoader, Segmented } from '@/components/ui'
+import { Avatar, Button, Empty, LoadError, PageLoader, TabBar } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { fromNow } from '@/lib/format'
 import { flattenPages } from '@/lib/pages'
@@ -27,21 +27,23 @@ import { flattenPages } from '@/lib/pages'
 type Filter = 'all' | 'unread'
 type NoticePages = InfiniteData<Paged<Notification>, number>
 
-const typeIcon: Record<NotificationType, { icon: LucideIcon; cls: string }> = {
-  comment: { icon: MessageCircle, cls: 'bg-sky-500' },
-  reply: { icon: Reply, cls: 'bg-sky-500' },
-  like: { icon: Heart, cls: 'bg-brand-500' },
-  favorite: { icon: Bookmark, cls: 'bg-amber-500' },
-  fork: { icon: GitFork, cls: 'bg-violet-500' },
-  follow: { icon: UserPlus, cls: 'bg-emerald-500' },
-  trip_invite: { icon: Users, cls: 'bg-sky-500' },
-  partner_invite: { icon: Heart, cls: 'bg-pink-500' },
-  partner_accept: { icon: HeartHandshake, cls: 'bg-pink-500' },
-  featured: { icon: Star, cls: 'bg-amber-500' },
-  system: { icon: Megaphone, cls: 'bg-ink-700' },
+// 类型只用细线小图标区分，不再用彩色圆底
+const typeIcon: Record<NotificationType, LucideIcon> = {
+  comment: MessageCircle,
+  reply: Reply,
+  like: Heart,
+  favorite: Bookmark,
+  fork: GitFork,
+  follow: UserPlus,
+  trip_invite: Users,
+  partner_invite: Heart,
+  partner_accept: HeartHandshake,
+  featured: Star,
+  system: Megaphone,
 }
 
-const B = ({ children }: { children: ReactNode }) => <b className="font-semibold text-ink-900">{children}</b>
+/** 人名、旅程名、地点名：宋体 */
+const B = ({ children }: { children: ReactNode }) => <span className="font-display font-semibold text-ink-900">{children}</span>
 
 /** 通知的中文描述 */
 function describe(n: Notification): ReactNode {
@@ -81,10 +83,10 @@ function describe(n: Notification): ReactNode {
         </>
       )
     case 'partner_accept':
-      return <>{who} 接受了你的情侣空间邀请，你们绑定啦 💕</>
+      return <>{who} 接受了你的情侣空间邀请，你们已绑定</>
     case 'featured':
       // content 是服务端生成的同一句摘要（「你的旅程「X」被设为精选」），不再重复显示
-      return <>你的旅程{trip}被设为精选 🎉</>
+      return <>你的旅程{trip}被设为精选</>
     default:
       return n.content || '系统通知'
   }
@@ -105,24 +107,19 @@ function targetOf(n: Notification): string | null {
 }
 
 function NoticeAvatar({ n }: { n: Notification }) {
-  const t = typeIcon[n.type] ?? typeIcon.system
-  const Icon = t.icon
+  const Icon = typeIcon[n.type] ?? typeIcon.system
+  // 系统 / 精选通知没有发起人：细线圆框 + 图标
   if (!n.actor)
     return (
-      <span className={cn('flex size-10 shrink-0 items-center justify-center rounded-full text-white', t.cls)}>
-        <Icon className="size-5" />
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-full border border-ink-200 bg-white text-ink-600">
+        <Icon className="size-[18px]" strokeWidth={1.5} />
       </span>
     )
   return (
     <span className="relative size-10 shrink-0">
       <Avatar user={n.actor} size={40} />
-      <span
-        className={cn(
-          'absolute -right-0.5 -bottom-0.5 flex size-4.5 items-center justify-center rounded-full text-white ring-2 ring-white',
-          t.cls,
-        )}
-      >
-        <Icon className="size-2.5" />
+      <span className="absolute -right-1 -bottom-1 flex size-5 items-center justify-center rounded-full border border-ink-200 bg-white text-ink-600 ring-2 ring-paper">
+        <Icon className="size-2.5" strokeWidth={2} />
       </span>
     </span>
   )
@@ -148,9 +145,9 @@ function InviteActions({ tripId, onDone }: { tripId: number; onDone: () => void 
   })
   if (result === 'accepted')
     return (
-      <div className="mt-2 text-xs text-emerald-600">
+      <div className="mt-2 text-xs text-emerald-700">
         已接受 ·{' '}
-        <Link to={`/trips/${tripId}`} className="font-medium underline">
+        <Link to={`/trips/${tripId}`} className="underline underline-offset-4">
           查看旅程
         </Link>
       </div>
@@ -173,23 +170,26 @@ function NoticeItem({ n, onOpen, onRead }: { n: Notification; onOpen: () => void
   const actionable = n.type === 'trip_invite' && !!n.trip && !!n.invite_pending
   const body = (
     <>
+      {/* 未读：左侧页边一粒朱砂小点，不给整行铺底色 */}
+      {!n.read && (
+        <span className="absolute top-[1.625rem] left-0.5 size-1.5 rounded-full bg-brand-500" aria-hidden />
+      )}
       <NoticeAvatar n={n} />
       <div className="min-w-0 flex-1">
-        <p className="line-clamp-3 text-sm leading-relaxed break-words text-ink-700">{describe(n)}</p>
-        <div className="mt-1 text-xs text-ink-400">{fromNow(n.created_at)}</div>
+        <p className={cn('line-clamp-3 text-[15px] leading-relaxed break-words', n.read ? 'text-ink-600' : 'text-ink-800')}>
+          {!n.read && <span className="sr-only">未读：</span>}
+          {describe(n)}
+        </p>
+        <div className="font-num mt-1 text-xs text-ink-400">{fromNow(n.created_at)}</div>
         {actionable && n.trip && <InviteActions tripId={n.trip.id} onDone={onRead} />}
       </div>
-      {!n.read && <span className="mt-1.5 size-2 shrink-0 rounded-full bg-brand-500" aria-label="未读" />}
     </>
   )
-  const cls = cn(
-    'flex w-full gap-3 rounded-2xl p-4 text-left transition',
-    n.read ? 'bg-white shadow-card' : 'bg-brand-50 ring-1 ring-brand-100',
-  )
+  const cls = 'relative flex w-full gap-3.5 py-4 pr-1 pl-5 text-left transition-colors'
   // 待处理的旅程邀请包含操作按钮，不整体可点
   if (actionable) return <div className={cls}>{body}</div>
   return (
-    <button type="button" onClick={onOpen} className={cn(cls, 'hover:brightness-[0.98]')}>
+    <button type="button" onClick={onOpen} className={cn(cls, 'hover:bg-white/55')}>
       {body}
     </button>
   )
@@ -255,27 +255,35 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-6">
-      <div className="flex items-center justify-between gap-3">
+    <div className="mx-auto max-w-2xl px-4 pt-6 pb-12 md:pt-10">
+      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div>
-          <h1 className="text-2xl font-extrabold">通知</h1>
-          <p className="mt-1 text-sm text-ink-500">{unread > 0 ? `${unread} 条未读` : '全部已读'}</p>
+          <p className="eyebrow">Notifications · 通知</p>
+          <h1 className="mt-2 text-[28px] leading-[1.15] text-ink-900 md:text-[34px]">通知</h1>
+          <p className="mt-2 text-sm text-ink-500">
+            {unread > 0 ? (
+              <>
+                <span className="font-num text-base text-brand-600">{unread}</span> 条未读
+              </>
+            ) : (
+              '全部已读'
+            )}
+          </p>
         </div>
         <Button
           variant="outline"
           size="sm"
-          icon={<CheckCheck className="size-4" />}
+          icon={<CheckCheck className="size-4" strokeWidth={1.75} />}
           disabled={unread === 0}
           loading={readAll.isPending}
           onClick={() => readAll.mutate()}
         >
           全部已读
         </Button>
-      </div>
+      </header>
 
-      <Segmented<Filter>
-        className="mt-4"
-        size="sm"
+      <TabBar<Filter>
+        className="mt-7"
         value={filter}
         onChange={setFilter}
         options={[
@@ -284,20 +292,20 @@ export default function NotificationsPage() {
         ]}
       />
 
-      <div className="mt-4">
+      <div>
         {q.isLoading ? (
           <PageLoader />
         ) : q.isLoadingError ? (
           <LoadError title="通知加载失败" error={q.error} onRetry={() => q.refetch()} />
         ) : items.length === 0 ? (
           <Empty
-            icon={filter === 'unread' ? <BellOff className="size-12" /> : <Bell className="size-12" />}
+            icon={filter === 'unread' ? <BellOff className="size-10" /> : <Bell className="size-10" />}
             title={filter === 'unread' ? '没有未读通知' : '还没有通知'}
             desc="有人评论、点赞、关注你或邀请你一起旅行时，会在这里提醒你"
           />
         ) : (
           <>
-            <ul className="space-y-2">
+            <ul className="divide-y divide-ink-200 border-b border-ink-200">
               {items.map((n) => (
                 <li key={n.id}>
                   <NoticeItem n={n} onOpen={() => open(n)} onRead={() => readOne(n)} />

@@ -70,35 +70,49 @@ export function TrackPanel({ trip }: { trip: TripDetail }) {
     }
   }
 
+  const km = formatKm(t?.distance_km)
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-card">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
-          <Footprints className="size-5" />
-        </span>
-        <div className="min-w-0 flex-1">
+    <div className="space-y-5">
+      <div className="rounded-xl border border-ink-200 bg-white/70 p-4">
+        <p className="eyebrow flex items-center gap-1.5">
+          <Footprints className="size-3.5" strokeWidth={1.75} />
+          GPS Track · 轨迹
+        </p>
+        <div className="mt-3 min-h-12">
           {summary.isLoading ? (
             <Spinner className="size-4" />
           ) : summary.isError && !t ? (
             <p className="text-sm text-ink-500">
               轨迹信息加载失败，
-              <button type="button" onClick={() => summary.refetch()} className="text-brand-600 hover:underline">
+              <button type="button" onClick={() => summary.refetch()} className="text-brand-600 underline-offset-2 hover:underline">
                 重试
               </button>
             </p>
           ) : t && t.point_count > 0 ? (
             <>
-              <p className="text-sm font-medium text-ink-900">
-                已记录 {t.point_count} 个轨迹点 · 约 {formatKm(t.distance_km)}
-              </p>
+              <div className="flex items-end divide-x divide-ink-200">
+                <div className="pr-5">
+                  <span className="font-num text-[1.75rem] leading-none font-medium tracking-tight text-ink-900">{km.split(' ')[0]}</span>
+                  <span className="ml-1 text-xs text-ink-400">{km.split(' ')[1]}</span>
+                  <p className="mt-1.5 text-xs tracking-wide text-ink-400">轨迹里程</p>
+                </div>
+                <div className="pl-5">
+                  <span className="font-num text-[1.75rem] leading-none font-medium tracking-tight text-ink-900">
+                    {t.point_count.toLocaleString()}
+                  </span>
+                  <p className="mt-1.5 text-xs tracking-wide text-ink-400">轨迹点</p>
+                </div>
+              </div>
               {t.started_at && (
-                <p className="mt-0.5 text-xs text-ink-400">
+                <p className="font-num mt-3 text-xs tracking-wide text-ink-400">
                   {fmtTime(t.started_at)} – {fmtTime(t.ended_at)}
                 </p>
               )}
             </>
           ) : (
-            <p className="text-sm text-ink-500">还没有 GPS 轨迹</p>
+            <p className="text-sm leading-relaxed text-ink-500">
+              还没有 GPS 轨迹。出发后旅行模式会自动记录，也可以导入运动手表或户外 App 导出的 GPX 文件。
+            </p>
           )}
         </div>
       </div>
@@ -119,7 +133,7 @@ export function TrackPanel({ trip }: { trip: TripDetail }) {
           variant="outline"
           loading={progress != null}
           disabled={busy}
-          icon={<Upload className="size-4" />}
+          icon={<Upload className="size-4" strokeWidth={1.75} />}
           onClick={() => input.current?.click()}
         >
           {progress != null ? `导入中 ${Math.round(progress * 100)}%` : '导入 GPX 轨迹'}
@@ -134,10 +148,10 @@ export function TrackPanel({ trip }: { trip: TripDetail }) {
           <Button
             size="sm"
             variant="ghost"
-            className="text-red-600 hover:bg-red-50"
+            className="text-brand-600 hover:bg-brand-50"
             loading={clearing}
             disabled={busy}
-            icon={<Trash2 className="size-4" />}
+            icon={<Trash2 className="size-4" strokeWidth={1.75} />}
             onClick={clear}
           >
             清空轨迹

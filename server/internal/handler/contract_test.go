@@ -70,8 +70,11 @@ func TestGeoAround(t *testing.T) {
 	if kw != "小店" {
 		t.Fatalf("keyword not passed to AMap: %q", kw)
 	}
-	// AMap failing is reported, so the client can say the list is unavailable.
-	e.must(500, "GET", "/geo/around?lng=121&lat=31", tok, nil)
+	// AMap failing is reported (amap_error), so the client can say why the list is empty.
+	failed := e.must(200, "GET", "/geo/around?lng=121&lat=31", tok, nil).obj(t)
+	if failed["source"] != "none" || len(failed["items"].([]any)) != 0 || failed["amap_error"] != "高德调用额度已用完" {
+		t.Fatalf("around with AMap failing: %v", failed)
+	}
 }
 
 func TestTripInviteNotification(t *testing.T) {

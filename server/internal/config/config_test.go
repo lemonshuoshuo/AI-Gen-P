@@ -87,3 +87,39 @@ func TestNumbersTrimmed(t *testing.T) {
 		t.Fatal("invalid timeout accepted")
 	}
 }
+
+func TestAIOptions(t *testing.T) {
+	for _, k := range []string{"TRIPHUB_AI_THINKING", "TRIPHUB_AI_EXTRA_BODY", "TRIPHUB_AI_TIMEOUT", "TRIPHUB_TIANDITU_KEY"} {
+		t.Setenv(k, "")
+	}
+	c, err := Load()
+	if err != nil || c.AIThinking != "off" || c.AIExtraBody != nil || c.AITimeout != 120*time.Second || c.TiandituKey != "" {
+		t.Fatalf("defaults: %+v %v", c, err)
+	}
+	for in, want := range map[string]string{"on": "on", " HIGH ": "high", "low": "low", "max": "max", "false": "off", "disabled": "off", "true": "on"} {
+		t.Setenv("TRIPHUB_AI_THINKING", in)
+		if c, err := Load(); err != nil || c.AIThinking != want {
+			t.Fatalf("thinking %q: %q %v", in, c.AIThinking, err)
+		}
+	}
+	t.Setenv("TRIPHUB_AI_THINKING", "maybe")
+	if _, err := Load(); err == nil {
+		t.Fatal("invalid thinking mode accepted")
+	}
+	t.Setenv("TRIPHUB_AI_THINKING", "")
+	t.Setenv("TRIPHUB_AI_EXTRA_BODY", ` {"enable_thinking": false, "top_p": 0.8} `)
+	if c, err := Load(); err != nil || c.AIExtraBody["enable_thinking"] != false || c.AIExtraBody["top_p"] != 0.8 {
+		t.Fatalf("extra body: %v %v", c.AIExtraBody, err)
+	}
+	for _, bad := range []string{"[1]", "{not json", "null", `"x"`} {
+		t.Setenv("TRIPHUB_AI_EXTRA_BODY", bad)
+		if _, err := Load(); err == nil {
+			t.Fatalf("extra body %q accepted", bad)
+		}
+	}
+	t.Setenv("TRIPHUB_AI_EXTRA_BODY", "")
+	t.Setenv("TRIPHUB_TIANDITU_KEY", " tk ")
+	if c, err := Load(); err != nil || c.TiandituKey != "tk" {
+		t.Fatalf("tianditu key: %q %v", c.TiandituKey, err)
+	}
+}

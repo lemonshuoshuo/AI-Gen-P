@@ -117,7 +117,7 @@ func (h *Handler) applyWaypoint(c *gin.Context, t *model.Trip, wp *model.Waypoin
 			return ch, err
 		}
 		wp.District = s
-	} else if ch.coords && !creating && h.svc.Amap.Enabled() {
+	} else if ch.coords && !creating && h.svc.CanReverseGeocode() {
 		wp.District = "" // moved: refresh from reverse geocoding
 	}
 	ch.addressGiven = addressGiven
@@ -241,7 +241,8 @@ func (h *Handler) applyWaypoint(c *gin.Context, t *model.Trip, wp *model.Waypoin
 
 // locateWaypoint fills province/city (offline atlas) and, when requested and
 // available, district/address from reverse geocoding; auto-named waypoints
-// get a name from the user's address or the district/street. It also fetches
+// get a name from the user's address, the spot at the point (the AOI it is
+// in or a POI within 30 m) or the district/street. It also fetches
 // AMap's data for a new amap_id (see service.WarmPOI), all before the caller
 // takes the trip lock.
 func (h *Handler) locateWaypoint(ctx context.Context, wp *model.Waypoint, ch wpChange, in *waypointInput) {
@@ -274,6 +275,8 @@ func (h *Handler) locateWaypoint(ctx context.Context, wp *model.Waypoint, ch wpC
 	switch {
 	case ch.addressGiven:
 		wp.Name = service.Truncate(wp.Address, 60)
+	case info.Spot != "":
+		wp.Name = service.Truncate(info.Spot, 60) // the scenic area / shop the point is in or at
 	case info.District != "" && info.Street != "":
 		wp.Name = info.District + "·" + info.Street
 	case wp.District != "":

@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpRight, CircleCheck, CircleX, Flag, Inbox } from 'lucide-react'
+import { ArrowUpRight, CircleCheck, CircleX, Inbox } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, isNotFound, type Report } from '@/api'
-import { Avatar, Button, Card, Empty, Field, Modal, Pagination, Segmented, Spinner, Switch, Textarea, UserName } from '@/components/ui'
+import { Avatar, Button, Empty, Field, Modal, Pagination, Segmented, Spinner, Switch, Textarea, UserName } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { fmtTime, fromNow } from '@/lib/format'
 import { ADMIN_PAGE_SIZE, isStalePage, PanelHeader, Pill, useFilters, usePageGuard } from './common'
@@ -101,11 +101,11 @@ function HandleDialog({ report, status, onClose }: { report: Report; status: 're
       }
     >
       <div className="space-y-4">
-        <div className="rounded-xl bg-ink-50 p-3 text-sm">
-          <div className="text-xs text-ink-400">
+        <div className="border-l-2 border-ink-200 py-0.5 pl-3 text-sm">
+          <div className="text-xs tracking-wide text-ink-400">
             被举报{targetMeta[report.target_type].label} · 理由
           </div>
-          <p className="mt-1 text-ink-900">{report.reason}</p>
+          <p className="font-display mt-1 text-[15px] text-ink-900">{report.reason}</p>
         </div>
         {action && <Switch checked={alsoAct} onChange={setAlsoAct} label={action} />}
         <Field label="处理备注（可选）" hint="仅管理员可见">
@@ -121,56 +121,60 @@ function HandleDialog({ report, status, onClose }: { report: Report; status: 're
   )
 }
 
-function ReportCard({ r, onHandle }: { r: Report; onHandle: (s: 'resolved' | 'rejected') => void }) {
+function ReportItem({ r, onHandle }: { r: Report; onHandle: (s: 'resolved' | 'rejected') => void }) {
   const link = targetLink(r)
   const meta = statusMeta[r.status]
   return (
-    <Card className="p-4">
+    <article className="py-5">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
         <Pill tone="sky">{targetMeta[r.target_type]?.label ?? r.target_type}</Pill>
         <Avatar user={r.reporter} size={22} />
         <UserName user={r.reporter} className="max-w-40 text-sm" />
-        <span className="text-xs text-ink-400">{fromNow(r.created_at)} 举报</span>
+        <span className="text-xs text-ink-400">
+          <span className="font-num">{fromNow(r.created_at)}</span> 举报
+        </span>
         <span className="ml-auto">
           <Pill tone={meta.tone}>{meta.label}</Pill>
         </span>
       </div>
 
-      <p className="mt-3 text-sm break-words text-ink-900">
-        <Flag className="mr-1 inline size-3.5 -translate-y-px text-red-500" />
-        {r.reason}
-      </p>
+      <p className="font-display mt-3 text-[17px] leading-snug break-words text-ink-900">{r.reason}</p>
 
-      <div className="mt-3 flex items-start gap-3 rounded-xl bg-ink-50 p-3 text-sm">
-        <p className="line-clamp-3 min-w-0 flex-1 break-words text-ink-500">
+      {/* 被举报内容：左侧细线引文 */}
+      <div className="mt-3 flex items-start gap-3 border-l-2 border-ink-200 py-0.5 pl-3 text-sm">
+        <p className="line-clamp-3 min-w-0 flex-1 leading-relaxed break-words text-ink-500">
           {r.target_preview || <span className="text-ink-400">（内容已不存在）</span>}
         </p>
         {link && (
-          <Link to={link} className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-brand-600 hover:underline">
+          <Link to={link} className="inline-flex shrink-0 items-center gap-0.5 text-xs text-ink-700 underline-offset-4 hover:text-brand-600 hover:underline">
             查看
-            <ArrowUpRight className="size-3.5" />
+            <ArrowUpRight className="size-3.5" strokeWidth={1.75} />
           </Link>
         )}
       </div>
 
       {r.status !== 'pending' && (r.note || r.handled_at) && (
         <p className="mt-3 text-xs text-ink-400">
-          {r.handled_at && `${fmtTime(r.handled_at)} ${meta.label}`}
+          {r.handled_at && (
+            <>
+              <span className="font-num">{fmtTime(r.handled_at)}</span> {meta.label}
+            </>
+          )}
           {r.note && <span className="text-ink-500">{r.handled_at ? ' · ' : ''}备注：{r.note}</span>}
         </p>
       )}
 
       {r.status === 'pending' && (
-        <div className="mt-3 flex justify-end gap-2 border-t border-ink-100 pt-3">
-          <Button size="sm" variant="outline" icon={<CircleX className="size-4" />} onClick={() => onHandle('rejected')}>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button size="sm" variant="outline" icon={<CircleX className="size-4" strokeWidth={1.75} />} onClick={() => onHandle('rejected')}>
             驳回
           </Button>
-          <Button size="sm" icon={<CircleCheck className="size-4" />} onClick={() => onHandle('resolved')}>
+          <Button size="sm" icon={<CircleCheck className="size-4" strokeWidth={1.75} />} onClick={() => onHandle('resolved')}>
             处理
           </Button>
         </div>
       )}
-    </Card>
+    </article>
   )
 }
 
@@ -187,8 +191,15 @@ export function ReportsPanel() {
   return (
     <div>
       <PanelHeader
+        eyebrow="Reports · 举报"
         title="举报处理"
-        desc={data ? `共 ${data.total} 条` : undefined}
+        desc={
+          data ? (
+            <>
+              共 <span className="font-num text-base text-ink-900">{data.total}</span> 条
+            </>
+          ) : undefined
+        }
         extra={
           <Segmented<Status | ''>
             size="sm"
@@ -205,22 +216,22 @@ export function ReportsPanel() {
       />
       {/* 处理掉当前页最后一条后先显示加载中，退回上一页后再显示结果（而不是「没有待处理的举报」） */}
       {isLoading || isStalePage(data) ? (
-        <Card className="flex justify-center py-16">
+        <div className="flex justify-center border-y border-ink-200 py-16">
           <Spinner className="size-6" />
-        </Card>
+        </div>
       ) : !data?.items.length ? (
-        <Card>
+        <div className="border-y border-ink-200">
           <Empty
-            icon={<Inbox className="size-10" />}
+            icon={<Inbox className="size-9" />}
             title={f.status === 'pending' ? '没有待处理的举报' : '暂无举报记录'}
-            desc={f.status === 'pending' ? '社区一切正常 🎉' : undefined}
+            desc={f.status === 'pending' ? '社区一切正常。' : undefined}
           />
-        </Card>
+        </div>
       ) : (
         <div className={cn('transition-opacity', isFetching && 'opacity-60')}>
-          <div className="space-y-3">
+          <div className="divide-y divide-ink-200 border-t border-b border-ink-900 border-b-ink-200">
             {data.items.map((r) => (
-              <ReportCard key={r.id} r={r} onHandle={(status) => setHandling({ report: r, status })} />
+              <ReportItem key={r.id} r={r} onHandle={(status) => setHandling({ report: r, status })} />
             ))}
           </div>
           <Pagination page={f.page} total={data.total} pageSize={ADMIN_PAGE_SIZE} onChange={setPage} />

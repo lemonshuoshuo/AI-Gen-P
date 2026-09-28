@@ -2,17 +2,54 @@
    必须放在 base 层：否则 .maplibregl-map{position:relative} 会盖过 BaseMap 容器上的 absolute inset-0，地图高度塌成 0 */
 @import 'maplibre-gl/dist/maplibre-gl.css' layer(base);
 
-/* 地图控件风格微调 */
+/* 地图控件：细线纸质小方块，与页面上的按钮一致 */
 .maplibregl-ctrl-group {
-  border-radius: 12px !important;
+  border-radius: 7px !important;
   overflow: hidden;
-  box-shadow: var(--shadow-card) !important;
+  background: rgb(255 253 249 / 0.92) !important;
+  box-shadow: 0 0 0 1px rgb(27 26 23 / 0.1), 0 1px 2px rgb(27 26 23 / 0.04) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.maplibregl-ctrl-group button + button {
+  border-top-color: rgb(27 26 23 / 0.08) !important;
+}
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  opacity: 0.78;
 }
 .maplibregl-ctrl-attrib {
   font-size: 10px;
+  letter-spacing: 0.02em;
+}
+.maplibregl-ctrl-attrib.maplibregl-compact {
+  background: rgb(255 253 249 / 0.8);
+  box-shadow: 0 0 0 1px rgb(27 26 23 / 0.08);
 }
 .maplibregl-popup-content {
-  border-radius: 14px !important;
+  border-radius: 9px !important;
   padding: 10px 12px !important;
   box-shadow: var(--shadow-float) !important;
+}
+
+/* 夜色地图（3D 回放、足迹地球、点亮中国）：控件换成深色玻璃 + 细亮线 */
+.th-map-dark .maplibregl-ctrl-group {
+  background: rgb(12 19 20 / 0.62) !important;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.12) !important;
+}
+.th-map-dark .maplibregl-ctrl-group button + button {
+  border-top-color: rgb(255 255 255 / 0.1) !important;
+}
+.th-map-dark .maplibregl-ctrl-group button .maplibregl-ctrl-icon,
+.th-map-dark .maplibregl-ctrl-attrib-button {
+  filter: invert(1);
+  opacity: 0.72;
+}
+.th-map-dark .maplibregl-ctrl-attrib,
+.th-map-dark .maplibregl-ctrl-attrib.maplibregl-compact {
+  background: rgb(12 19 20 / 0.55);
+  color: rgb(255 255 255 / 0.55);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08);
+}
+.th-map-dark .maplibregl-ctrl-attrib a {
+  color: rgb(255 255 255 / 0.6);
 }

@@ -52,7 +52,7 @@ function ExpDialog({ user, onClose, onSave, saving }: { user: AdminUser; onClose
     >
       <div className="space-y-4">
         <p className="text-sm text-ink-500">
-          当前 <LevelBadge level={user.level} /> {user.level_name} · {user.exp} 经验
+          当前 <LevelBadge level={user.level} /> {user.level_name} · <span className="font-num">{user.exp}</span> 经验
         </p>
         <Field
           label="新的经验值"
@@ -67,9 +67,9 @@ function ExpDialog({ user, onClose, onSave, saving }: { user: AdminUser; onClose
                 key={l.level}
                 type="button"
                 onClick={() => setValue(String(l.min_exp))}
-                className="rounded-full bg-ink-100 px-2.5 py-1 text-xs text-ink-700 transition hover:bg-ink-200"
+                className="rounded-sm border border-ink-200 px-2 py-1 text-xs text-ink-600 transition-colors hover:border-ink-900/40 hover:text-ink-900"
               >
-                Lv{l.level} · {l.min_exp}
+                <span className="font-num italic">Lv.{l.level}</span> · <span className="font-num">{l.min_exp}</span>
               </button>
             ))}
           </div>
@@ -128,14 +128,14 @@ function ResetPasswordDialog({ user, onClose }: { user: AdminUser; onClose: () =
       {result ? (
         <div className="space-y-4">
           <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-700">
-            <CircleCheck className="size-4 shrink-0" />
+            <CircleCheck className="size-4 shrink-0" strokeWidth={1.75} />
             密码已重置，该用户所有设备上的登录已失效
           </p>
           <div>
-            <div className="mb-1.5 text-sm font-medium text-ink-700">新密码</div>
-            <div className="flex items-center gap-2 rounded-xl bg-ink-50 py-2 pr-2 pl-3.5 ring-1 ring-ink-100">
+            <div className="mb-1.5 text-[13px] font-medium tracking-wide text-ink-600">新密码</div>
+            <div className="flex items-center gap-2 rounded-lg border border-ink-200 bg-paper py-2 pr-2 pl-3.5">
               <code className="min-w-0 flex-1 font-mono text-base break-all text-ink-900 select-all">{result}</code>
-              <Button size="sm" variant="outline" icon={<Copy className="size-4" />} onClick={() => copy(result)}>
+              <Button size="sm" variant="outline" icon={<Copy className="size-4" strokeWidth={1.75} />} onClick={() => copy(result)}>
                 复制
               </Button>
             </div>
@@ -251,17 +251,18 @@ export function UsersPanel() {
       className: 'whitespace-nowrap',
       cell: (u) => (
         <span className="text-ink-700">
-          {u.level_name} <span className="text-xs text-ink-400 tabular-nums">{u.exp} 经验</span>
+          {u.level_name} <span className="font-num text-xs text-ink-400">{u.exp}</span>
+          <span className="text-xs text-ink-400"> 经验</span>
         </span>
       ),
     },
-    { key: 'trips', header: '旅程', className: 'tabular-nums', cell: (u) => u.trip_count },
+    { key: 'trips', header: '旅程', cell: (u) => <span className="font-num text-[15px]">{u.trip_count}</span> },
     {
       key: 'storage',
       header: '存储',
-      className: 'whitespace-nowrap tabular-nums',
+      className: 'whitespace-nowrap',
       cell: (u) => (
-        <span className="text-ink-700">
+        <span className="font-num text-ink-700">
           {fmtBytes(u.storage_used)}
           <span className="text-xs text-ink-400"> / {u.storage_quota > 0 ? fmtBytes(u.storage_quota) : '不限'}</span>
         </span>
@@ -276,7 +277,7 @@ export function UsersPanel() {
         ) : u.status === 'deleted' ? (
           <Pill>已注销</Pill>
         ) : (
-          <Pill tone="green">正常</Pill>
+          <span className="text-xs text-ink-500">正常</span>
         ),
     },
     {
@@ -299,7 +300,7 @@ export function UsersPanel() {
       <Menu
         trigger={(toggle, open) => (
           <IconButton label="更多操作" onClick={toggle} aria-expanded={open} className="size-8">
-            <Ellipsis className="size-4.5" />
+            <Ellipsis className="size-4.5" strokeWidth={1.75} />
           </IconButton>
         )}
       >
@@ -338,7 +339,13 @@ export function UsersPanel() {
 
   return (
     <div>
-      <PanelHeader title="用户管理" desc={data ? `共 ${data.total} 位用户` : undefined} />
+      <PanelHeader eyebrow="Members · 用户" title="用户管理" desc={
+          data ? (
+            <>
+              共 <span className="font-num text-base text-ink-900">{data.total}</span> 位用户
+            </>
+          ) : undefined
+        } />
       <FilterBar>
         <SearchInput
           value={f.q}

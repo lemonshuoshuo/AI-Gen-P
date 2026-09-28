@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { LocateFixed, MapPinned, Search } from 'lucide-react'
+import { LocateFixed, MapPinned, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, type Category } from '@/api'
+import { MoreButton, Note, PageHead } from '@/components/editorial'
 import { PlaceRow } from '@/components/place/PlaceCard'
-import { Button, Empty, Input, LoadError, Segmented } from '@/components/ui'
+import { Button, Empty, LoadError, TabBar } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { getCurrentPosition } from '@/lib/geo'
 import { categories, categoryList } from '@/lib/meta'
@@ -61,85 +62,126 @@ export default function PlacesPage() {
   const failed = active.isLoadingError
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6">
-      <h1 className="text-2xl font-extrabold">打卡地</h1>
-      <p className="mt-1 text-sm text-ink-500">来自大家公开旅程的真实打卡：哪里值得去，哪里是坑，一看便知</p>
+    <div className="mx-auto max-w-4xl px-4 pt-8 pb-16 md:px-6 md:pt-12">
+      <PageHead
+        eyebrow="Places · 打卡地"
+        title="打卡地"
+        dek="来自大家公开旅程的真实打卡：哪里值得去，哪里是坑，一看便知。"
+      />
 
       <form
-        className="mt-4 flex gap-2"
+        role="search"
+        className="mt-8 flex items-center gap-3 border-b border-ink-900 transition-colors focus-within:border-brand-500"
         onSubmit={(e) => {
           e.preventDefault()
           set('q', kw.trim())
         }}
       >
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-400" />
-          <Input value={kw} onChange={(e) => setKw(e.target.value)} placeholder="搜索店名、景点、城市" className="pl-9" />
-        </div>
-        <Button type="submit">搜索</Button>
+        <Search className="size-[18px] shrink-0 text-ink-400" strokeWidth={1.5} />
+        <input
+          value={kw}
+          onChange={(e) => setKw(e.target.value)}
+          placeholder="搜索店名、景点、城市"
+          aria-label="搜索打卡地"
+          className="font-display h-12 min-w-0 flex-1 bg-transparent text-[17px] text-ink-900 outline-none placeholder:text-ink-300 md:h-14 md:text-[19px]"
+        />
+        <button type="submit" className="shrink-0 py-2 text-[13px] tracking-[0.14em] text-ink-700 transition-colors hover:text-ink-900">
+          搜索 →
+        </button>
       </form>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <Segmented<Sort>
-          value={sort}
-          onChange={(v) => (v === 'nearby' ? locate() : set('sort', v))}
-          options={[
-            { value: 'hot', label: '热门' },
-            { value: 'rating', label: '高分' },
-            { value: 'avoid', label: '⚠️ 避雷榜' },
-            { value: 'nearby', label: <span className="inline-flex items-center gap-1"><LocateFixed className="size-3.5" />附近</span> },
-          ]}
-        />
+      <TabBar<Sort>
+        className="mt-8"
+        value={sort}
+        onChange={(v) => (v === 'nearby' ? locate() : set('sort', v))}
+        options={[
+          { value: 'hot', label: '热门' },
+          { value: 'rating', label: '高分' },
+          { value: 'avoid', label: '避雷榜' },
+          {
+            value: 'nearby',
+            label: (
+              <span className="inline-flex items-center gap-1">
+                <LocateFixed className="size-3.5" strokeWidth={1.5} />
+                附近
+              </span>
+            ),
+          },
+        ]}
+      />
+      <div className="scrollbar-none -mx-4 mt-4 flex gap-1.5 overflow-x-auto px-4 md:mx-0 md:flex-wrap md:px-0" role="group" aria-label="分类">
         {city && (
-          <button type="button" onClick={() => set('city', '')} className="rounded-full bg-ink-900 px-3 py-1 text-xs text-white">
-            {city} ✕
+          <button
+            type="button"
+            onClick={() => set('city', '')}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-ink-900 px-3 text-[13px] text-paper"
+            aria-label={`取消城市筛选：${city}`}
+          >
+            {city}
+            <X className="size-3.5" strokeWidth={1.75} />
           </button>
         )}
-      </div>
-      <div className="scrollbar-none mt-3 flex gap-2 overflow-x-auto">
-        {(['', ...categoryList] as (Category | '')[]).map((c) => (
-          <button
-            key={c || 'all'}
-            type="button"
-            onClick={() => set('category', c)}
-            className={cn(
-              'shrink-0 rounded-full px-3 py-1 text-sm transition',
-              category === c ? 'bg-brand-500 text-white' : 'bg-white text-ink-600 shadow-card hover:bg-ink-50',
-            )}
-          >
-            {c ? categories[c].label : '全部'}
-          </button>
-        ))}
+        {(['', ...categoryList] as (Category | '')[]).map((c) => {
+          const active = category === c
+          const Icon = c ? categories[c].icon : null
+          return (
+            <button
+              key={c || 'all'}
+              type="button"
+              aria-pressed={active}
+              onClick={() => set('category', c)}
+              className={cn(
+                'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-[13px] tracking-wide transition-colors',
+                active ? 'border-ink-900 bg-ink-900 text-paper' : 'border-ink-200 text-ink-600 hover:border-ink-400 hover:text-ink-900',
+              )}
+            >
+              {Icon && <Icon className="size-3.5" strokeWidth={1.5} style={active ? undefined : { color: categories[c as Category].color }} />}
+              {c ? categories[c].label : '全部分类'}
+            </button>
+          )
+        })}
       </div>
 
       {sort === 'avoid' && (
-        <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-800">
-          ⚠️ 避雷榜：被标记「踩雷」较多的地点。评价来自用户真实体验，仅供参考。
-        </p>
+        <Note tone="caution" label="Caution" className="mt-6">
+          避雷榜收录被标记「踩雷」较多的地点。评价来自旅行者的真实体验，仅供参考。
+        </Note>
       )}
 
-      <div className="mt-4 space-y-2.5">
-        {loading &&
-          Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-24 animate-pulse rounded-2xl bg-white shadow-card" />)}
+      <div className="mt-4">
+        {loading && (
+          <div className="divide-y divide-ink-200" aria-busy="true" aria-label="加载中">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 py-5">
+                <div className="h-8 w-8 animate-pulse rounded-sm bg-ink-100" />
+                <div className="size-14 animate-pulse rounded-md bg-ink-100 sm:size-[72px]" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-2/5 animate-pulse rounded-sm bg-ink-100" />
+                  <div className="h-3 w-3/5 animate-pulse rounded-sm bg-ink-100" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         {!loading && failed && <LoadError error={active.error} onRetry={() => active.refetch()} />}
         {!loading && !failed && places.length === 0 && (
           <Empty
-            icon={<MapPinned className="size-12" />}
+            icon={<MapPinned className="size-11" />}
             title={sort === 'nearby' && !pos ? '需要定位权限' : '暂时没有打卡地'}
-            desc={sort === 'nearby' && !pos ? '允许定位后查看附近大家打卡过的地方' : '公开旅程里的打卡点会汇总到这里'}
+            desc={sort === 'nearby' && !pos ? '允许定位后，查看附近大家打卡过的地方' : '公开旅程里的打卡点，会汇总到这里'}
             action={sort === 'nearby' && !pos && <Button onClick={locate}>获取位置</Button>}
           />
         )}
-        {places.map((p, i) => (
-          <PlaceRow key={p.id} place={p} rank={sort !== 'nearby' && !q ? i + 1 : undefined} />
-        ))}
-        {sort !== 'nearby' && list.hasNextPage && (
-          <div className="flex justify-center pt-2">
-            <Button variant="outline" loading={list.isFetchingNextPage} onClick={() => list.fetchNextPage()}>
-              加载更多
-            </Button>
-          </div>
+        {places.length > 0 && (
+          <ol className="divide-y divide-ink-200 border-b border-ink-200">
+            {places.map((p, i) => (
+              <li key={p.id}>
+                <PlaceRow place={p} rank={sort !== 'nearby' && !q ? i + 1 : undefined} />
+              </li>
+            ))}
+          </ol>
         )}
+        {sort !== 'nearby' && list.hasNextPage && <MoreButton loading={list.isFetchingNextPage} onClick={() => list.fetchNextPage()} />}
       </div>
     </div>
   )

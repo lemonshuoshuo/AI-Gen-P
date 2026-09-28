@@ -32,50 +32,53 @@ export function PhotoViewer({
   if (index == null || !photos[i]) return null
   const p = photos[i]
   const where = captionOf?.(p)
+  const navBtn =
+    'absolute top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/30 text-white/80 transition-colors hover:border-white/40 hover:text-white'
   return createPortal(
-    <div className="animate-fade-in fixed inset-0 z-[120] flex flex-col bg-black/95 text-white" onClick={onClose}>
-      <div className="flex items-center justify-between p-3 text-sm">
-        <span className="tabular-nums text-white/60">
-          {i + 1} / {photos.length}
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="查看照片"
+      className="animate-fade-in fixed inset-0 z-[120] flex flex-col bg-[#0c1314]/[0.97] text-white"
+      onClick={onClose}
+    >
+      <div className="flex items-center justify-between px-4 py-3">
+        <span className="font-num text-sm tracking-widest text-white/55">
+          {String(i + 1).padStart(2, '0')} <span className="text-white/25">/</span> {String(photos.length).padStart(2, '0')}
         </span>
-        <button type="button" onClick={onClose} className="rounded-full p-2 hover:bg-white/10" aria-label="关闭">
-          <X className="size-6" />
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full p-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+          aria-label="关闭"
+        >
+          <X className="size-6" strokeWidth={1.5} />
         </button>
       </div>
       <div className="relative flex min-h-0 flex-1 items-center justify-center px-2" onClick={(e) => e.stopPropagation()}>
-        <img src={p.url} alt={p.caption} className="max-h-full max-w-full rounded-lg object-contain" />
+        <img src={p.url} alt={p.caption} className="max-h-full max-w-full rounded-md object-contain" />
         {i > 0 && (
-          <button
-            type="button"
-            onClick={() => setI(i - 1)}
-            className="absolute left-2 rounded-full bg-white/10 p-2 hover:bg-white/20"
-            aria-label="上一张"
-          >
-            <ChevronLeft className="size-6" />
+          <button type="button" onClick={() => setI(i - 1)} className={`${navBtn} left-3`} aria-label="上一张">
+            <ChevronLeft className="size-6" strokeWidth={1.5} />
           </button>
         )}
         {i < photos.length - 1 && (
-          <button
-            type="button"
-            onClick={() => setI(i + 1)}
-            className="absolute right-2 rounded-full bg-white/10 p-2 hover:bg-white/20"
-            aria-label="下一张"
-          >
-            <ChevronRight className="size-6" />
+          <button type="button" onClick={() => setI(i + 1)} className={`${navBtn} right-3`} aria-label="下一张">
+            <ChevronRight className="size-6" strokeWidth={1.5} />
           </button>
         )}
       </div>
-      <div className="px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-center text-sm" onClick={(e) => e.stopPropagation()}>
-        {p.caption && <p className="mb-1">{p.caption}</p>}
-        <p className="text-white/50">
+      <div className="px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-center" onClick={(e) => e.stopPropagation()}>
+        {p.caption && <p className="font-display mb-1.5 text-[15px] text-white/90">{p.caption}</p>}
+        <p className="text-xs tracking-wide text-white/50">
           {where && (
             <>
-              <MapPin className="mr-0.5 inline size-3.5" />
+              <MapPin className="mr-1 inline size-3.5 align-[-2px]" strokeWidth={1.5} />
               {where}
-              {'  '}
+              {p.taken_at && <span className="mx-2 text-white/25">·</span>}
             </>
           )}
-          {p.taken_at && fmtTime(p.taken_at, 'YYYY-MM-DD HH:mm')}
+          {p.taken_at && <span className="font-num">{fmtTime(p.taken_at, 'YYYY.MM.DD HH:mm')}</span>}
         </p>
       </div>
     </div>,

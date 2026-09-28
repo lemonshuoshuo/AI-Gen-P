@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
-import { Clock, MapPin, MessageCircle, Wallet } from 'lucide-react'
+import { ArrowUpRight, MessageCircle } from 'lucide-react'
 import { isAvoided } from '@/api'
 import type { Photo, PlaceStats, Waypoint } from '@/api/types'
 import { recommendRate } from '@/components/place/PlaceCard'
@@ -10,33 +10,51 @@ import { fmtTime } from '@/lib/format'
 import { categoryOf, waypointStatus } from '@/lib/meta'
 import { NavigateMenu } from './NavigateMenu'
 
+/**
+ * 印章式序号（与地图上的 markerHtml 一致）：已到达为墨色实心，计划中为虚线空心，跳过为淡灰；
+ * 右下角小圆点是分类色
+ */
 export function WaypointNumber({ w, label, className }: { w: Waypoint; label: string; className?: string }) {
-  const color = w.status === 'skipped' ? '#9895a5' : categoryOf(w.category).color
+  const skipped = w.status === 'skipped'
   const todo = w.planned && w.status === 'todo'
   return (
     <span
-      className={cn('flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold', className)}
-      style={
-        todo
-          ? { color, border: `2px dashed ${color}`, background: '#fff' }
-          : { color: '#fff', background: color, boxShadow: `0 2px 6px ${color}55` }
-      }
+      className={cn(
+        'font-num relative flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full px-1.5 text-[13px] leading-none font-medium',
+        skipped
+          ? 'border border-ink-300 bg-ink-100 text-ink-400'
+          : todo
+            ? 'border-[1.5px] border-dashed border-ink-900 bg-white text-ink-900'
+            : 'bg-ink-900 text-paper',
+        className,
+      )}
     >
       {label}
+      {!skipped && (
+        <span
+          aria-hidden
+          className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full ring-[1.5px] ring-paper"
+          style={{ background: categoryOf(w.category).color }}
+        />
+      )}
     </span>
   )
 }
 
-/** 关联地点的社区统计：多人踩雷时红色提示，否则 2 人以上打卡时显示打卡人数和推荐率 */
+/** 关联地点的社区统计：多人踩雷时朱砂提示，否则 2 人以上打卡时显示打卡人数和推荐率 */
 export function PlaceStatsBadge({ stats, className }: { stats?: PlaceStats | null; className?: string }) {
   if (!stats) return null
   if (isAvoided(stats))
     return (
       <span
         title={`社区 ${stats.checkin_count} 人打卡，${stats.avoid_count} 人踩雷`}
-        className={cn('inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-red-600', className)}
+        className={cn(
+          'inline-flex items-center gap-1 rounded-sm bg-brand-50 px-1.5 py-0.5 text-xs font-medium tracking-wide whitespace-nowrap text-brand-600 ring-1 ring-brand-200 ring-inset',
+          className,
+        )}
       >
-        ⚠️ {stats.avoid_count} 人踩雷
+        <span className="text-[10px] leading-none">✕</span>
+        {stats.avoid_count} 人踩雷
       </span>
     )
   if (stats.checkin_count < 2) return null
@@ -45,16 +63,25 @@ export function PlaceStatsBadge({ stats, className }: { stats?: PlaceStats | nul
     <span
       title="社区公开打卡统计"
       className={cn(
-        'inline-flex items-center rounded-full bg-ink-50 px-2 py-0.5 text-xs whitespace-nowrap',
-        rate != null && rate >= 60 ? 'text-emerald-600' : 'text-ink-500',
+        'inline-flex items-center py-0.5 text-xs tracking-wide whitespace-nowrap',
+        rate != null && rate >= 60 ? 'text-emerald-700' : 'text-ink-500',
         className,
       )}
     >
-      {stats.checkin_count} 人打卡{rate != null && ` · 推荐率 ${rate}%`}
+      <span className="font-num">{stats.checkin_count}</span>&nbsp;人打卡
+      {rate != null && (
+        <>
+          &nbsp;·&nbsp;推荐率&nbsp;<span className="font-num">{rate}%</span>
+        </>
+      )}
     </span>
   )
 }
 
+const quietBtn =
+  'inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs tracking-wide text-ink-500 transition-colors hover:bg-ink-900/5 hover:text-ink-900'
+
+/** 行程里的一站：像旅行指南一样排版（印章序号、宋体地名、灰色备注、项目间细线由外层列表负责） */
 export function WaypointItem({
   w,
   label,
@@ -77,73 +104,66 @@ export function WaypointItem({
   showStatus?: boolean
 }) {
   const st = waypointStatus[w.status]
+  const skipped = w.status === 'skipped'
   const address = [w.district, w.address].filter(Boolean).join(' · ') || w.city
+  const time = w.arrived_at ? fmtTime(w.arrived_at) : w.planned_at ? `计划 ${fmtTime(w.planned_at)}` : ''
   return (
     <div
       id={`wp-${w.id}`}
       onClick={onSelect}
       className={cn(
-        'relative flex cursor-pointer gap-3 rounded-2xl p-3 transition',
-        selected ? 'bg-brand-50 ring-2 ring-brand-200' : 'hover:bg-ink-50',
-        w.status === 'skipped' && 'opacity-60',
+        'relative -mx-3 flex cursor-pointer gap-3.5 rounded-lg px-3 py-4 transition-colors sm:gap-4',
+        selected ? 'bg-white shadow-card' : 'hover:bg-white/60',
       )}
     >
+      {selected && <span aria-hidden className="absolute top-4 bottom-4 left-0 w-[2px] rounded-full bg-brand-500" />}
       <WaypointNumber w={w} label={label} className="mt-0.5" />
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <h4 className={cn('font-semibold', w.status === 'skipped' && 'line-through')}>
+      <div className={cn('min-w-0 flex-1', skipped && 'opacity-60')}>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <h4 className={cn('font-display text-[17px] leading-snug text-ink-900', skipped && 'line-through decoration-ink-300')}>
             {/* 整行可点：名称做成按钮，键盘也能选中（回车 / 空格触发的点击冒泡到整行的 onSelect）；
                 删除线不会延伸到按钮里，要单独加 */}
             {onSelect ? (
-              <button type="button" className={cn('text-left', w.status === 'skipped' && 'line-through')}>
+              <button type="button" className={cn('text-left', skipped && 'line-through decoration-ink-300')}>
                 {w.name || '未命名地点'}
               </button>
             ) : (
               w.name || '未命名地点'
             )}
           </h4>
-          <CategoryChip category={w.category} />
           <VerdictBadge verdict={w.verdict} />
-          <PlaceStatsBadge stats={w.place_stats} />
-          {showStatus && w.planned && (
-            <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', st.cls)}>{st.label}</span>
+          {showStatus && w.planned && w.status !== 'todo' && (
+            <span className={cn('text-xs tracking-wide', w.status === 'visited' ? 'text-emerald-700' : 'text-ink-400')}>
+              {st.label}
+            </span>
           )}
-          {showStatus && !w.planned && (
-            <span className="rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700">计划外</span>
-          )}
+          {showStatus && w.planned && w.status === 'todo' && <span className="text-xs tracking-wide text-sky-600">{st.label}</span>}
+          {showStatus && !w.planned && <span className="text-xs tracking-wide text-violet-600">计划外</span>}
         </div>
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-400">
-          {address && (
-            <span className="inline-flex min-w-0 items-center gap-0.5">
-              <MapPin className="size-3 shrink-0" />
-              <span className="truncate">{address}</span>
-            </span>
-          )}
-          {w.rating > 0 && <Stars value={w.rating} size={12} />}
+        <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-ink-400">
+          <CategoryChip category={w.category} />
+          {address && <span className="min-w-0 truncate">{address}</span>}
+          {time && <span className="font-num tracking-wide">{time}</span>}
           {w.cost > 0 && (
-            <span className="inline-flex items-center gap-0.5">
-              <Wallet className="size-3" />¥{w.cost}/人
+            <span>
+              人均 <span className="font-num">¥{w.cost}</span>
             </span>
           )}
-          {(w.arrived_at || w.planned_at) && (
-            <span className="inline-flex items-center gap-0.5">
-              <Clock className="size-3" />
-              {w.arrived_at ? fmtTime(w.arrived_at) : `计划 ${fmtTime(w.planned_at)}`}
-            </span>
-          )}
+          {w.rating > 0 && <Stars value={w.rating} size={11} />}
+          <PlaceStatsBadge stats={w.place_stats} className="!py-0" />
         </div>
         {w.note && (
           <p
             className={cn(
-              'mt-2 rounded-xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap',
-              w.verdict === 'avoid' ? 'bg-red-50 text-red-900' : 'bg-ink-50 text-ink-700',
+              'mt-2.5 text-[14px] leading-7 whitespace-pre-wrap',
+              w.verdict === 'avoid' ? 'border-l-2 border-brand-400 pl-3 text-ink-700' : 'text-ink-500',
             )}
           >
             {w.note}
           </p>
         )}
         {photos.length > 0 && (
-          <div className="scrollbar-none mt-2 flex gap-1.5 overflow-x-auto">
+          <div className="scrollbar-none mt-3 flex gap-1.5 overflow-x-auto">
             {photos.map((p) => (
               <button
                 key={p.id}
@@ -152,30 +172,25 @@ export function WaypointItem({
                   e.stopPropagation()
                   onPhoto?.(p)
                 }}
-                className="size-20 shrink-0 overflow-hidden rounded-xl bg-ink-100"
+                className="size-[76px] shrink-0 overflow-hidden rounded-md bg-ink-100 ring-1 ring-ink-900/5 transition-opacity hover:opacity-90"
+                aria-label={p.caption || '查看照片'}
               >
                 <img src={p.thumb_url} alt={p.caption} loading="lazy" className="size-full object-cover" />
               </button>
             ))}
           </div>
         )}
-        <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-          <NavigateMenu target={{ lng: w.lng, lat: w.lat, name: w.name || '目的地', address: w.address }} />
+        <div className="-ml-2 mt-2 flex flex-wrap items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+          <NavigateMenu variant="ghost" target={{ lng: w.lng, lat: w.lat, name: w.name || '目的地', address: w.address }} />
           {w.place_id && (
-            <Link
-              to={`/places/${w.place_id}`}
-              className="inline-flex h-7 items-center gap-1 rounded-lg bg-ink-100 px-2.5 text-xs font-medium text-ink-700 hover:bg-ink-200"
-            >
+            <Link to={`/places/${w.place_id}`} className={quietBtn}>
               大家怎么说
+              <ArrowUpRight className="size-3" strokeWidth={1.75} />
             </Link>
           )}
           {onComment && (
-            <button
-              type="button"
-              onClick={onComment}
-              className="inline-flex h-7 items-center gap-1 rounded-lg px-2 text-xs text-ink-500 hover:bg-ink-100"
-            >
-              <MessageCircle className="size-3.5" />
+            <button type="button" onClick={onComment} className={quietBtn}>
+              <MessageCircle className="size-3.5" strokeWidth={1.75} />
               评论
             </button>
           )}

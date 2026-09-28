@@ -40,7 +40,7 @@ export function WaypointForm({
   const showExperience = phase !== 'planning' || w.status === 'visited'
 
   return (
-    <div className="space-y-3 rounded-2xl bg-ink-50 p-3" onClick={(e) => e.stopPropagation()}>
+    <div className="space-y-3.5 rounded-xl border border-ink-200 bg-ink-50/70 p-3.5" onClick={(e) => e.stopPropagation()}>
       <div className="grid grid-cols-2 gap-2">
         <Field label="名称" className="col-span-2">
           <Input value={f.name} onChange={(e) => set('name', e.target.value)} maxLength={80} />
@@ -104,28 +104,36 @@ export function WaypointForm({
       {showExperience && (
         <>
           <div>
-            <span className="mb-1.5 block text-sm font-medium text-ink-700">体验如何</span>
-            <div className="flex flex-wrap gap-2">
-              {(Object.keys(verdicts) as Exclude<Verdict, ''>[]).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => set('verdict', f.verdict === v ? '' : v)}
-                  className={cn(
-                    'rounded-full px-3 py-1 text-sm ring-1 transition',
-                    f.verdict === v ? verdicts[v].cls + ' font-semibold ring-2' : 'bg-white text-ink-500 ring-ink-200',
-                  )}
-                >
-                  {verdicts[v].mark} {verdicts[v].label}
-                </button>
-              ))}
+            <span className="mb-1.5 block text-[13px] font-medium tracking-wide text-ink-600">体验如何</span>
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="体验如何">
+              {(Object.keys(verdicts) as Exclude<Verdict, ''>[]).map((v) => {
+                const on = f.verdict === v
+                const c = verdicts[v].color
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => set('verdict', on ? '' : v)}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm tracking-wide transition-colors',
+                      on ? 'font-medium' : 'border-ink-200 bg-white text-ink-500 hover:border-ink-400 hover:text-ink-900',
+                    )}
+                    style={on ? { color: c, borderColor: c + '80', background: c + '12' } : undefined}
+                  >
+                    <span className="text-[11px] leading-none">{verdicts[v].mark}</span>
+                    {verdicts[v].label}
+                  </button>
+                )
+              })}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2 text-sm text-ink-700">
+            <div className="flex items-center gap-2 text-[13px] tracking-wide text-ink-600">
               评分 <Stars value={f.rating} onChange={(v) => set('rating', v)} size={20} />
             </div>
-            <label className="flex items-center gap-2 text-sm text-ink-700">
+            <label className="flex items-center gap-2 text-[13px] tracking-wide text-ink-600">
               人均 ¥
               <Input
                 type="number"

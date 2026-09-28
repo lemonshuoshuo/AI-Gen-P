@@ -38,12 +38,15 @@ export function LegLine({ leg, className }: { leg: TripLeg; className?: string }
   const Icon = m.icon
   return (
     <div
-      className={cn('flex min-w-0 items-center gap-1 text-[11px] text-ink-400', className)}
+      className={cn('flex min-w-0 items-center gap-1.5 text-[11px] tracking-wide text-ink-400', className)}
       title={leg.estimated ? '按直线距离估算，仅供参考' : '高德路径规划'}
     >
-      <Icon className="size-3 shrink-0" />
+      <Icon className="size-3 shrink-0" strokeWidth={1.75} />
       <span className="truncate">
-        {`${m.label} ${leg.estimated ? '约 ' : ''}${fmtMinutes(leg.duration_s)} · ${formatDistance(leg.distance_m)}`}
+        {m.label} {leg.estimated ? '约 ' : ''}
+        <span className="font-num text-ink-500">{fmtMinutes(leg.duration_s)}</span>
+        <span className="mx-1 text-ink-300">·</span>
+        <span className="font-num">{formatDistance(leg.distance_m)}</span>
       </span>
     </div>
   )
@@ -66,10 +69,10 @@ export function LegsSummary({
 }) {
   const days = data?.days.filter((d) => d.stops >= 2) ?? []
   return (
-    <div className="rounded-2xl bg-white p-3 shadow-card">
+    <div className="rounded-xl border border-ink-200 bg-white/70 px-3.5 pt-3 pb-3">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-medium text-ink-700">路上用时</span>
-        {loading && <Loader2 className="size-3.5 animate-spin text-ink-400" />}
+        <p className="eyebrow">Transit · 路上用时</p>
+        {loading && <Loader2 className="size-3.5 animate-spin text-ink-400" strokeWidth={1.75} aria-label="计算中" />}
         <Segmented<LegMode>
           size="sm"
           className="ml-auto"
@@ -81,7 +84,7 @@ export function LegsSummary({
               value: m,
               label: (
                 <span className="inline-flex items-center gap-1">
-                  <Icon className="size-3" />
+                  <Icon className="size-3" strokeWidth={1.75} />
                   {label}
                 </span>
               ),
@@ -91,12 +94,17 @@ export function LegsSummary({
       </div>
       {data ? (
         days.length > 0 ? (
-          <ul className="mt-2 space-y-1 text-xs text-ink-500">
+          <ul className="mt-2 divide-y divide-ink-100 text-xs text-ink-500">
             {days.map((d) => (
-              <li key={d.day}>
-                <span className="font-medium text-ink-700">{d.day ? `第${d.day}天` : '未分天'}</span>
-                {`：${d.stops} 站 · 路上约 ${fmtMinutes(d.duration_s)} · ${formatDistance(d.distance_m)}`}
-                {d.estimated && <span className="text-ink-400">（含估算）</span>}
+              <li key={d.day} className="flex items-baseline gap-3 py-1.5">
+                <span className="font-num w-14 shrink-0 text-[11px] tracking-[0.14em] text-ink-400 uppercase">
+                  {d.day ? `Day ${String(d.day).padStart(2, '0')}` : '未分天'}
+                </span>
+                <span className="min-w-0 flex-1 text-ink-600">
+                  <span className="font-num">{d.stops}</span> 站 · 路上约 <span className="font-num text-ink-900">{fmtMinutes(d.duration_s)}</span>
+                  {d.estimated && <span className="text-ink-400">（含估算）</span>}
+                </span>
+                <span className="font-num shrink-0 text-ink-400">{formatDistance(d.distance_m)}</span>
               </li>
             ))}
           </ul>

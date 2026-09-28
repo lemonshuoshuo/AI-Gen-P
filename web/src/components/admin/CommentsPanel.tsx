@@ -13,15 +13,15 @@ export function CommentWhere({ c }: { c: Pick<Comment, 'trip' | 'place' | 'trip_
   if (c.trip || c.trip_id)
     return (
       <Link to={`/trips/${c.trip?.id ?? c.trip_id}`} className={cls}>
-        <Route className="size-3.5 shrink-0 text-ink-400" />
-        <span className="truncate">{c.trip ? `《${c.trip.title}》` : `旅程 #${c.trip_id}`}</span>
+        <Route className="size-3.5 shrink-0 text-ink-400" strokeWidth={1.5} />
+        <span className="font-display truncate">{c.trip ? `《${c.trip.title}》` : `旅程 #${c.trip_id}`}</span>
       </Link>
     )
   if (c.place || c.place_id)
     return (
       <Link to={`/places/${c.place?.id ?? c.place_id}`} className={cls}>
-        <MapPin className="size-3.5 shrink-0 text-ink-400" />
-        <span className="truncate">{c.place ? c.place.name : `打卡地 #${c.place_id}`}</span>
+        <MapPin className="size-3.5 shrink-0 text-ink-400" strokeWidth={1.5} />
+        <span className="font-display truncate">{c.place ? c.place.name : `打卡地 #${c.place_id}`}</span>
       </Link>
     )
   return <span className="text-ink-400">—</span>
@@ -69,9 +69,9 @@ export function CommentsPanel() {
           <div className="mb-1 flex items-center gap-2 lg:hidden">
             <Avatar user={c.author} size={22} />
             <UserName user={c.author} className="text-sm" />
-            <span className="ml-auto shrink-0 text-xs text-ink-400">{fromNow(c.created_at)}</span>
+            <span className="font-num ml-auto shrink-0 text-xs text-ink-400">{fromNow(c.created_at)}</span>
           </div>
-          <p className={c.deleted ? 'text-ink-400 line-through' : 'line-clamp-3 break-words text-ink-900'}>
+          <p className={c.deleted ? 'text-ink-400 line-through' : 'line-clamp-3 leading-relaxed break-words text-ink-800'}>
             {c.reply_to && <span className="text-ink-400">回复 @{c.reply_to.nickname || c.reply_to.username}：</span>}
             {c.content}
           </p>
@@ -95,14 +95,20 @@ export function CommentsPanel() {
       key: 'time',
       header: '时间',
       hideOnMobile: true,
-      className: 'whitespace-nowrap text-ink-500',
-      cell: (c) => fromNow(c.created_at),
+      className: 'whitespace-nowrap text-ink-400',
+      cell: (c) => <span className="font-num text-[13px]">{fromNow(c.created_at)}</span>,
     },
   ]
 
   return (
     <div>
-      <PanelHeader title="评论管理" desc={data ? `共 ${data.total} 条评论` : undefined} />
+      <PanelHeader eyebrow="Comments · 评论" title="评论管理" desc={
+          data ? (
+            <>
+              共 <span className="font-num text-base text-ink-900">{data.total}</span> 条评论
+            </>
+          ) : undefined
+        } />
       <FilterBar>
         <SearchInput value={f.q} onChange={(q) => set({ q })} placeholder="搜索评论内容或作者" className="w-full sm:w-72" />
       </FilterBar>

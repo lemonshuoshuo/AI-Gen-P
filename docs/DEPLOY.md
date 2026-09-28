@@ -72,8 +72,36 @@ docker compose logs -f app
 还会用于 **路径规划**：路线编辑中显示相邻两站之间步行 / 公交地铁 / 驾车的用时。结果缓存 7 天，与搜索等功能消耗同一份高德调用额度；未配置 Key 时按直线距离估算用时。
 
 1. 注册 [高德开放平台](https://lbs.amap.com/)，完成开发者认证
-2. 控制台 → 应用管理 → 创建应用 → 添加 Key，**服务平台选择「Web服务」**
-3. 把 Key 填到 `.env` 的 `AMAP_KEY=`，然后 `docker compose up -d`
+2. 控制台 → 应用管理 → 创建应用 → 添加 Key，**服务平台选择「Web服务」**（不是「Web端(JS API)」，也不是 Android / iOS / 小程序；服务器上调用的只能是「Web服务」Key，否则所有请求都会被高德拒绝）
+3. 如果给 Key 设置了 IP 白名单，要填服务器的**公网出口 IP**（不设白名单也可以）
+4. 把 Key 填到 `.env` 的 `AMAP_KEY=`，然后 `docker compose up -d`
+5. 用管理员账号打开「管理后台」，查看**服务诊断**（接口 `GET /api/v1/admin/diagnostics`）：「高德」一项显示「正常」即配置成功
+
+搜索框会同时查询高德的关键字搜索和输入提示并合并结果，民宿、小店这类只出现在输入提示里的地点也能搜到。
+
+**配置了 Key 却搜不到具体店铺 / 民宿？** 多半是 Key 本身有问题：高德拒绝请求时，服务端会退回到只能搜省市名称的离线搜索（配置了天地图时退回天地图），同时暂停调用高德 10 分钟，并在搜索结果中带上原因（`amap_error`，网页上会显示给你）。服务诊断里会直接显示原因，常见的有：
+
+| 诊断信息 | 高德错误码 | 处理 |
+|---|---|---|
+| 高德 Key 的服务平台不是「Web服务」 | 10009 USERKEY_PLAT_NOMATCH | 在高德控制台为本站**新建**一个服务平台为「Web服务」的 Key，替换 `.env` 里的 `AMAP_KEY` |
+| 高德 Key 无效，请检查 .env 中的 AMAP_KEY | 10001 INVALID_USER_KEY | Key 复制错了（多了空格 / 少了字符）或已删除 |
+| 服务器 IP 不在高德 Key 的白名单中 | 10005 INVALID_USER_IP | 在高德控制台把服务器的公网 IP 加入白名单，或清空白名单 |
+| 高德调用额度已用完 | 10003 / 10044 / 10041 | 当日免费额度用完，次日恢复；或在高德控制台提升额度 |
+| 该 Key 没有此接口权限 | 10012 INSUFFICIENT_PRIVILEGES | 在高德控制台确认该 Key 开通了搜索、逆地理编码、输入提示、路径规划等 Web 服务 |
+| 服务器无法连接高德（restapi.amap.com） | – | 服务器不能访问外网，检查防火墙 / 出站规则 / DNS |
+
+修改 `.env` 后执行 `docker compose up -d` 使其生效，再在服务诊断里确认。
+
+### 天地图（可选，免费的地点搜索备用）
+
+[天地图](https://www.tianditu.gov.cn/) 是国家地理信息公共服务平台，个人注册即可免费申请 Key。配置后：没有高德 Key、高德调用失败（Key 错误、额度用完）或高德搜不到时，地点搜索改用天地图；地图点选位置、打卡点自动命名在高德不可用时也会用天地图识别附近地点和地址。天地图的数据比高德少，建议作为高德的补充，而不是替代。
+
+1. 打开 [天地图控制台](https://console.tianditu.gov.cn/) 注册并登录（需要手机号验证）
+2. 「应用管理」→「创建新应用」，应用名称按「应用名称-应用场景」填写（如「TripHub-旅行地图」，信息不完整的应用可能被限流），**应用类型选择「服务端」**（浏览器端 Key 在服务器上调用会报「权限类型错误」）；如填写 IP 白名单，填服务器的公网出口 IP
+3. 复制生成的 Key，填到 `.env` 的 `TIANDITU_KEY=`，然后 `docker compose up -d`
+4. 在「管理后台 → 服务诊断」中确认「天地图」一项显示「正常」
+
+天地图的坐标（CGCS2000，与 WGS-84 基本一致）由服务端自动转换为网站统一使用的 GCJ-02。天地图的接口格式按其公开文档实现；如果服务诊断显示正常但搜索结果不理想，可以只把它当作高德的备用。
 
 ## 六、AI 推荐与 AI 规划（可选）
 
@@ -81,13 +109,28 @@ docker compose logs -f app
 
 | 服务 | AI_BASE_URL | AI_MODEL |
 |---|---|---|
-| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
+| DeepSeek | `https://api.deepseek.com` | `deepseek-flash`（快，推荐）或 `deepseek-v4-pro` |
 | 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` |
 | Kimi | `https://api.moonshot.cn/v1` | `moonshot-v1-8k` |
 | 本地 Ollama | `http://host.docker.internal:11434/v1` | 如 `qwen2.5:7b`（`AI_API_KEY` 留空，见下方说明） |
 
+`AI_BASE_URL` 填服务商文档里的 base URL 即可：带不带 `/v1`、末尾有没有 `/`、甚至直接填完整的 `…/chat/completions` 地址都可以。
+
 配置后，前端会出现「AI 帮我规划」，旅行中的「推荐下一站」也会由 AI 结合位置、时间和社区评价给出理由。
 未配置时，推荐功能会自动使用规则推荐（计划中的下一站 + 附近社区高分地点 + 避雷提醒）。
+配置完成后在「管理后台 → 服务诊断」查看「AI」一项：会实际向模型发一条消息，显示是否正常、用时，失败时给出原因（Key 无效、余额不足、模型不存在、超时、连不上等）。
+
+### 深度思考与超时
+
+DeepSeek 等模型**默认开启深度思考**：先输出很长的思考过程再给答案，生成一份多日行程可能要好几分钟，容易超时。TripHub 默认关闭深度思考（`AI_THINKING=off`）：
+
+- DeepSeek（地址含 `deepseek`）：请求中带 `"thinking": {"type": "disabled"}`
+- 阿里云百炼 / 通义千问（地址含 `dashscope` 或 `aliyuncs`）：请求中带 `"enable_thinking": false`
+- 其他服务商不额外传参数；需要时用 `AI_EXTRA_BODY` 传入该服务商的参数（一个 JSON 对象，会合并到每次请求中并覆盖上面的设置），例如 `AI_EXTRA_BODY={"reasoning_effort":"low"}`
+
+想要更深入的规划可设 `AI_THINKING=on`，或 `low` / `high` / `max`（DeepSeek 的思考强度 `reasoning_effort`），同时把 `AI_TIMEOUT` 调大（如 `300s`）。服务商不认识这些参数（返回 400 且提到未知参数）时，服务端会自动去掉它们重试一次。
+
+`AI_TIMEOUT` 缺省 120 秒，是一次 AI 规划最长等待的时间；旅行中的「推荐下一站」最多等 20 秒，超时自动改用规则推荐。网页端的「AI 帮我规划」使用流式接口，会实时显示「正在思考 / 正在生成（已生成 N 字）/ 正在核对地点」的进度。流式响应带有 `X-Accel-Buffering: no` 并且每 10 秒发送一次心跳，**内置 Caddy 和按 `nginx.conf.example` 配置的 Nginx 都不需要额外设置**；自己的 Nginx 只需保证 `proxy_read_timeout` 大于 `AI_TIMEOUT`（示例为 600s）。
 
 ### 使用本机 Ollama
 
@@ -207,6 +250,7 @@ export TRIPHUB_ADMIN_USERNAME=admin TRIPHUB_ADMIN_PASSWORD=你的密码
 | `TRIPHUB_JWT_SECRET` | 自动生成 | 登录签名密钥，留空时自动生成并保存为数据目录下的 `jwt_secret`；自己设置时至少 32 个字符 |
 | `TRIPHUB_ADMIN_USERNAME` / `TRIPHUB_ADMIN_PASSWORD` | – | 管理员账号：用户名不存在时创建（密码 8–64 位），不会修改已有账号的密码 |
 | `TRIPHUB_AMAP_KEY` | – | 高德 Web 服务 Key（见第五节） |
+| `TRIPHUB_TIANDITU_KEY` | – | 天地图「服务端」Key（可选，免费的地点搜索 / 逆地理编码备用，见第五节） |
 | `TRIPHUB_CORS_ORIGINS` | – | 允许跨域的来源，逗号分隔（`*` 表示任意）；留空只允许同源 |
 | `TRIPHUB_TRUSTED_PROXIES` | 本机和内网地址 | 可信反向代理的 IP / 网段（逗号分隔），只采信它们传来的 `X-Forwarded-For` / `X-Real-IP`；`none` 表示都不信任（不用反向代理、直接开放应用端口时建议设为 `none`） |
 | `TRIPHUB_MAX_UPLOAD_MB` | `20` | 单张照片最大 MB |
@@ -214,7 +258,9 @@ export TRIPHUB_ADMIN_USERNAME=admin TRIPHUB_ADMIN_PASSWORD=你的密码
 | `TRIPHUB_TILES_NORMAL` / `TRIPHUB_TILES_SATELLITE` / `TRIPHUB_TILES_SATELLITE_LABEL` | 高德瓦片 | 自定义底图瓦片 URL 模板，逗号分隔，必须是 GCJ-02 坐标系 |
 | `TRIPHUB_TILES_ATTRIBUTION` | `© 高德地图` | 地图右下角显示的底图版权 / 审图号（可含 HTML），换用其他瓦片时填写对应的版权与审图号 |
 | `TRIPHUB_AI_BASE_URL` / `TRIPHUB_AI_API_KEY` / `TRIPHUB_AI_MODEL` | – | OpenAI 兼容接口（见第六节），填了地址和模型才启用 AI |
-| `TRIPHUB_AI_TIMEOUT` | `30s` | AI 请求超时（`90s`、`5m` 这样的时长或秒数） |
+| `TRIPHUB_AI_TIMEOUT` | `120s` | AI 规划的超时（`90s`、`5m` 这样的时长或秒数）；「推荐下一站」最多等 20 秒 |
+| `TRIPHUB_AI_THINKING` | `off` | 深度思考：`off`（关闭，快）/ `on` / `low` / `high` / `max`（后三者为 DeepSeek 的思考强度），见第六节 |
+| `TRIPHUB_AI_EXTRA_BODY` | – | 合并到每次 AI 请求中的 JSON 对象（服务商特有参数，覆盖 `TRIPHUB_AI_THINKING` 的设置），如 `{"enable_thinking": false}` |
 | `GOMEMLIMIT` | 不限（Docker Compose 部署为 `800MiB`） | 程序的内存软上限（如 `800MiB`、`1500MiB`，单位须写 `MiB` / `GiB`），避免与同一台服务器上的 PostgreSQL 抢内存；处理大照片时仍可能临时超过 |
 
 用 Docker Compose 部署时，在 `.env` 中写去掉 `TRIPHUB_` 前缀的同名变量即可（如 `AMAP_KEY`、`TRUSTED_PROXIES`，对应关系见 `docker-compose.yml`；`GOMEMLIMIT` 同名）；`TRIPHUB_DB_DSN`、`TRIPHUB_DATA_DIR` 已由 `docker-compose.yml` 设置好（数据库密码填 `DB_PASSWORD`），只有 `TRIPHUB_ADDR` 不通过 `.env` 传入。
@@ -244,6 +290,8 @@ docker compose up -d --build       # 在服务器上编译前端和后端，自�
 
 ## 常见问题
 
+- **搜索不到具体店铺 / 民宿 / 酒店**：到「管理后台 → 服务诊断」查看高德一项的原因，最常见的是 Key 的服务平台不是「Web服务」，见第五节的表格。
+- **AI 规划超时 / 很慢**：服务诊断中查看 AI 的用时；确认 `AI_THINKING` 为 `off`（缺省），换用更快的模型（如 DeepSeek 的 `deepseek-flash`），或调大 `AI_TIMEOUT`。
 - **地图空白 / 只显示省界轮廓**：浏览器访问不到高德瓦片服务器（`webrd0x.is.autonavi.com`），检查网络；页面会自动退回到内置的省界底图。
 - **定位失败**：确认是 HTTPS 访问，并在手机浏览器 / 微信中允许定位权限。
 - **iPhone 上传的照片没有位置**：在系统相册选择照片时点「选项」打开「位置」；或者在微信外用 Safari 打开网站。

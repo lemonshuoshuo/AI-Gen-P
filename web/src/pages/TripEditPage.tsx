@@ -1,26 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Marker, type MapMouseEvent } from 'maplibre-gl'
 import { DndContext, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import {
-  ArrowLeft,
-  Crosshair,
-  Eye,
-  Footprints,
-  GripVertical,
-  ImageIcon,
-  Info,
-  Play,
-  Route,
-  Star,
-  Trash2,
-  UserPlus,
-  Users,
-  X,
-} from 'lucide-react'
+import { ArrowLeft, Box, Crosshair, Eye, GripVertical, Heart, Mountain, Play, Route, Star, Trash2, UserPlus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   api,
@@ -38,7 +23,8 @@ import {
   type WaypointInput,
 } from '@/api'
 import { BaseMap, useMap } from '@/components/map/BaseMap'
-import { FitOnce, RouteLines } from '@/components/map/layers'
+import { FitOnce, RouteLines, markerHtml } from '@/components/map/layers'
+import { MapPicker, geoPickUnsupported } from '@/components/editor/MapPicker'
 import { PhotoImporter } from '@/components/editor/PhotoImporter'
 import { PlaceSearch, type PickSource } from '@/components/editor/PlaceSearch'
 import { LegLine, LegsSummary, useTripLegs } from '@/components/editor/RouteLegs'
@@ -57,31 +43,25 @@ import {
   Segmented,
   Select,
   Switch,
-  Tag,
+  TabBar,
   Textarea,
   UserName,
   VerdictBadge,
   buttonClass,
   confirmDialog,
 } from '@/components/ui'
+import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { invalidateTripLists } from '@/lib/cache'
 import { cn } from '@/lib/cn'
 import { dayjs } from '@/lib/format'
-import { categoryOf, phases, visibilities, waypointStatus } from '@/lib/meta'
+import { phases, visibilities, waypointStatus } from '@/lib/meta'
 import { actualPath, bySeq, plannedPath } from '@/lib/trip'
 import { useAuth } from '@/stores/auth'
 
 type Panel = 'route' | 'info' | 'photos' | 'track' | 'members'
+type LngLat = [number, number]
 
-/* ---------------- 地图上可拖动的打卡点 ---------------- */
-function editableMarkerHtml(w: Waypoint, index: number, sel: boolean) {
-  const c = w.status === 'skipped' ? '#9895a5' : categoryOf(w.category).color
-  const todo = w.planned && w.status === 'todo'
-  return `<div style="display:flex;flex-direction:column;align-items:center;cursor:grab">
-        <div style="min-width:${sel ? 34 : 28}px;height:${sel ? 34 : 28}px;padding:0 6px;border-radius:999px;display:flex;align-items:center;justify-content:center;font:700 12px system-ui;color:${todo ? c : '#fff'};background:${todo ? '#fff' : c};border:2.5px ${todo ? 'dashed' : 'solid'} ${todo ? c : '#fff'};box-shadow:0 2px 8px rgba(0,0,0,.25);${sel ? 'outline:3px solid rgba(255,90,95,.45)' : ''}">${index + 1}</div>
-        <div style="width:2px;height:8px;background:${c}"></div></div>`
-}
-
+/* ---------------- 地图上可拖动的打卡点（与详情页同一套印章式标记） ---------------- */
 function EditableMarkers({
   waypoints,
   selectedId,
@@ -91,7 +71,7 @@ function EditableMarkers({
   waypoints: Waypoint[]
   selectedId: number | null
   onSelect: (w: Waypoint) => void
-  onMove: (w: Waypoint, lngLat: [number, number]) => void
+  onMove: (w: Waypoint, lngLat: LngLat) => void
 }) {
   const map = useMap()
   const cb = useRef({ onSelect, onMove })
@@ -106,7 +86,8 @@ function EditableMarkers({
       const el = document.createElement('div')
       const sel = w.id === selRef.current
       // anchor: 'bottom' 让针尖正好在坐标上：拖动结束时 getLngLat() 就是看到的针尖位置
-      el.innerHTML = editableMarkerHtml(w, i, sel)
+      el.innerHTML = markerHtml(w, String(i + 1), sel)
+      el.style.cursor = 'grab'
       el.style.zIndex = sel ? '1' : ''
       const m = new Marker({ element: el, anchor: 'bottom', draggable: true }).setLngLat([w.lng, w.lat]).addTo(map)
       el.addEventListener('click', (e) => {
@@ -129,14 +110,14 @@ function EditableMarkers({
       const sel = x.w.id === selectedId
       if (x.sel === sel) continue
       x.sel = sel
-      x.el.innerHTML = editableMarkerHtml(x.w, x.i, sel)
+      x.el.innerHTML = markerHtml(x.w, String(x.i + 1), sel)
       x.el.style.zIndex = sel ? '1' : ''
     }
   }, [selectedId])
   return null
 }
 
-function MapClick({ enabled, onClick }: { enabled: boolean; onClick: (p: [number, number]) => void }) {
+function MapClick({ enabled, onClick }: { enabled: boolean; onClick: (p: LngLat) => void }) {
   const map = useMap()
   const cb = useRef(onClick)
   cb.current = onClick
@@ -153,12 +134,66 @@ function MapClick({ enabled, onClick }: { enabled: boolean; onClick: (p: [number
   return null
 }
 
-function FlyTo({ target }: { target: [number, number] | null }) {
+function FlyTo({ target }: { target: LngLat | null }) {
   const map = useMap()
   useEffect(() => {
     if (map && target) map.flyTo({ center: target, zoom: Math.max(map.getZoom(), 14), duration: 700 })
   }, [map, target])
   return null
+}
+
+const mapChip = (on: boolean) =>
+  cn(
+    'inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] tracking-wide shadow-card transition-colors',
+    on ? 'bg-ink-900 text-paper hover:bg-ink-700' : 'glass text-ink-800 hover:text-ink-900',
+  )
+
+/** 地图左上角：点选地点、3D 视角（倾斜地图看路线的起伏走向） */
+function MapTools({ pickMode, picking, onTogglePick }: { pickMode: boolean; picking: boolean; onTogglePick: () => void }) {
+  const map = useMap()
+  const desktop = useIsDesktop()
+  const [tilted, setTilted] = useState(false)
+  useEffect(() => {
+    if (!map) return
+    const sync = () => setTilted(map.getPitch() > 15)
+    sync()
+    map.on('pitchend', sync)
+    return () => {
+      map.off('pitchend', sync)
+    }
+  }, [map])
+  const toggleTilt = () => {
+    if (!map) return
+    const next = !tilted
+    setTilted(next)
+    map.easeTo(next ? { pitch: 55, bearing: -15, duration: 1100 } : { pitch: 0, bearing: 0, duration: 900 })
+  }
+  return (
+    <div className="absolute top-3 left-3 z-10 flex max-w-[calc(100%-7.5rem)] flex-col items-start gap-2">
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={onTogglePick} aria-pressed={pickMode} className={mapChip(pickMode)}>
+          {pickMode ? <X className="size-4" strokeWidth={1.75} /> : <Crosshair className="size-4" strokeWidth={1.75} />}
+          {pickMode ? '取消点选' : '在地图上点选'}
+        </button>
+        <button
+          type="button"
+          onClick={toggleTilt}
+          aria-pressed={tilted}
+          title={tilted ? '回到平面视角' : '倾斜地图，立体地看路线'}
+          className={mapChip(tilted)}
+        >
+          <Mountain className="size-4" strokeWidth={1.75} />
+          3D 视角
+        </button>
+      </div>
+      {/* 宽屏上候选面板会盖住这条提示：选了位置后不再显示 */}
+      {pickMode && !(picking && desktop) && (
+        <p className="glass animate-fade-in rounded-lg px-3 py-1.5 text-xs leading-relaxed text-ink-700 shadow-card">
+          {picking ? '点地图上的其他位置，可以重新选择' : '点击地图上的景点、店铺或任意位置，会列出那里可选的地点'}
+        </p>
+      )}
+    </div>
+  )
 }
 
 /* ---------------- 可排序列表项 ---------------- */
@@ -187,66 +222,90 @@ function SortableRow({
   onSave: (p: WaypointInput) => void
   onDelete: () => void
   saving: boolean
-  /** 从上一个计划点到这里的路段（放在卡片里，拖动时跟着这一行走） */
+  /** 从上一个计划点到这里的路段（放在这一行里，拖动时跟着这一行走） */
   leg?: TripLeg
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: w.id })
   const st = waypointStatus[w.status]
+  const statusTone = w.status === 'visited' ? 'text-emerald-700' : w.status === 'skipped' ? 'text-ink-400' : 'text-sky-600'
   return (
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={cn('rounded-2xl bg-white shadow-card', isDragging && 'relative z-10 shadow-float', selected && 'ring-2 ring-brand-200')}
+      className={cn(
+        'relative transition-colors',
+        (selected || editing) && 'bg-white',
+        isDragging && 'z-10 rounded-lg bg-white shadow-float',
+      )}
     >
+      {selected && <span aria-hidden className="absolute top-2 bottom-2 left-0 w-[2px] rounded-full bg-brand-500" />}
       {leg && (
-        <div className="flex items-center gap-1 border-b border-dashed border-ink-100 px-3 py-1 text-[11px] text-ink-400">
-          <span className="shrink-0">距上一站 ·</span>
+        <div className="flex items-center gap-1.5 pt-2 pr-3 pl-[3.6rem] text-[11px] text-ink-300">
+          <span className="shrink-0">距上一站</span>
           <LegLine leg={leg} />
         </div>
       )}
-      <div className="flex items-center gap-2 p-2.5" onClick={onSelect}>
+      <div className="flex items-center gap-2.5 py-3 pr-1.5 pl-1" onClick={onSelect}>
         <button
           type="button"
           {...attributes}
           {...listeners}
-          className="cursor-grab touch-none p-1 text-ink-400 hover:text-ink-700 active:cursor-grabbing"
+          className="cursor-grab touch-none rounded p-1 text-ink-300 transition-colors hover:text-ink-700 active:cursor-grabbing"
           aria-label="拖动排序"
           onClick={(e) => e.stopPropagation()}
         >
-          <GripVertical className="size-4" />
+          <GripVertical className="size-4" strokeWidth={1.5} />
         </button>
         <WaypointNumber w={w} label={String(index + 1)} />
         <div className="min-w-0 flex-1">
           {/* 名称做成按钮，键盘也能选中；回车 / 空格触发的点击冒泡到整行的 onSelect */}
-          <button type="button" className="block w-full truncate text-left text-sm font-semibold">
+          <button
+            type="button"
+            className={cn(
+              'font-display block w-full truncate text-left text-[15.5px] leading-snug text-ink-900',
+              w.status === 'skipped' && 'text-ink-400 line-through decoration-ink-300',
+            )}
+          >
             {w.name || '未命名地点'}
           </button>
-          <div className="mt-0.5 flex flex-wrap items-center gap-1">
-            {w.day > 0 && <Tag className="!py-0 text-[11px]">第{w.day}天</Tag>}
-            <CategoryChip category={w.category} className="!py-0 text-[11px]" />
-            {phase !== 'planning' && w.planned && <span className={cn('rounded-full px-1.5 text-[11px]', st.cls)}>{st.label}</span>}
-            {!w.planned && <span className="rounded-full bg-violet-50 px-1.5 text-[11px] text-violet-700">计划外</span>}
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] tracking-wide">
+            {w.day > 0 && (
+              <span className="font-num text-ink-500">
+                第 {w.day} 天
+              </span>
+            )}
+            <CategoryChip category={w.category} className="text-[11px]" />
+            {phase !== 'planning' && w.planned && <span className={statusTone}>{st.label}</span>}
+            {!w.planned && <span className="text-violet-600">计划外</span>}
             <VerdictBadge verdict={w.verdict} className="!py-0 text-[11px]" />
             <PlaceStatsBadge stats={w.place_stats} className="!py-0 text-[11px]" />
           </div>
         </div>
-        <Button size="xs" variant={editing ? 'secondary' : 'ghost'} onClick={(e) => (e.stopPropagation(), onEdit(!editing))}>
-          {editing ? '收起' : '编辑'}
-        </Button>
         <button
           type="button"
-          className="p-1.5 text-ink-400 hover:text-red-500"
+          onClick={(e) => (e.stopPropagation(), onEdit(!editing))}
+          aria-expanded={editing}
+          className={cn(
+            'h-7 shrink-0 rounded-md px-2.5 text-xs tracking-wide transition-colors',
+            editing ? 'bg-ink-900 text-paper' : 'text-ink-500 hover:bg-ink-900/5 hover:text-ink-900',
+          )}
+        >
+          {editing ? '收起' : '编辑'}
+        </button>
+        <button
+          type="button"
+          className="shrink-0 rounded-md p-1.5 text-ink-300 transition-colors hover:bg-brand-50 hover:text-brand-600"
           onClick={(e) => {
             e.stopPropagation()
             onDelete()
           }}
-          aria-label="删除"
+          aria-label={`删除「${w.name || '未命名地点'}」`}
         >
-          <Trash2 className="size-4" />
+          <Trash2 className="size-4" strokeWidth={1.5} />
         </button>
       </div>
       {editing && (
-        <div className="px-2.5 pb-2.5">
+        <div className="px-2 pb-3">
           <WaypointForm w={w} phase={phase} maxDay={maxDay} saving={saving} onCancel={() => onEdit(false)} onSave={onSave} />
         </div>
       )}
@@ -304,27 +363,31 @@ function InfoPanel({ trip, onSaved }: { trip: TripDetail; onSaved: (t: TripDetai
     }
   }
   return (
-    <div className="space-y-4">
-      <Field label="标题">
-        <Input value={f.title} onChange={(e) => set('title', e.target.value)} maxLength={100} />
-      </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="开始日期">
-          <Input type="date" value={f.start_date} onChange={(e) => set('start_date', e.target.value)} />
+    <div className="space-y-7">
+      <section className="space-y-4">
+        <p className="eyebrow">Basics · 基本信息</p>
+        <Field label="标题">
+          <Input value={f.title} onChange={(e) => set('title', e.target.value)} maxLength={100} className="font-display text-base" />
         </Field>
-        <Field label="结束日期">
-          <Input type="date" value={f.end_date} min={f.start_date} onChange={(e) => set('end_date', e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="开始日期">
+            <Input type="date" value={f.start_date} onChange={(e) => set('start_date', e.target.value)} />
+          </Field>
+          <Field label="结束日期">
+            <Input type="date" value={f.end_date} min={f.start_date} onChange={(e) => set('end_date', e.target.value)} />
+          </Field>
+        </div>
+        <Field label="旅程状态">
+          <Segmented<Phase>
+            value={f.phase}
+            onChange={(v) => set('phase', v)}
+            options={(Object.keys(phases) as Phase[]).map((p) => ({ value: p, label: phases[p].label }))}
+          />
         </Field>
-      </div>
-      <Field label="旅程状态">
-        <Segmented<Phase>
-          value={f.phase}
-          onChange={(v) => set('phase', v)}
-          options={(Object.keys(phases) as Phase[]).map((p) => ({ value: p, label: phases[p].label }))}
-        />
-      </Field>
+      </section>
       {trip.is_owner && (
-        <>
+        <section className="space-y-4 border-t border-ink-200 pt-6">
+          <p className="eyebrow">Sharing · 谁能看到</p>
           <Field
             label="谁可以看"
             hint={
@@ -333,7 +396,7 @@ function InfoPanel({ trip, onSaved }: { trip: TripDetail; onSaved: (t: TripDetai
                 {trip.status === 'pending' && (
                   <span className="mt-0.5 block text-amber-700">公开申请审核中，通过后才会出现在发现广场</span>
                 )}
-                {trip.status === 'hidden' && <span className="mt-0.5 block text-red-600">已被管理员隐藏，改为公开也不会显示</span>}
+                {trip.status === 'hidden' && <span className="mt-0.5 block text-brand-600">已被管理员隐藏，改为公开也不会显示</span>}
               </>
             }
           >
@@ -357,22 +420,25 @@ function InfoPanel({ trip, onSaved }: { trip: TripDetail; onSaved: (t: TripDetai
           >
             <Switch checked={f.live_share} onChange={(v) => set('live_share', v)} />
           </Field>
-        </>
+        </section>
       )}
-      <Field label="一句话简介">
-        <Textarea value={f.summary} onChange={(e) => set('summary', e.target.value)} maxLength={500} className="min-h-16" />
-      </Field>
-      <Field label="游记正文" hint="支持 Markdown：## 标题、**加粗**、- 列表">
-        <Textarea
-          value={f.content}
-          onChange={(e) => set('content', e.target.value)}
-          className="min-h-48"
-          placeholder="写写这段旅程的故事、整体攻略、预算、交通建议…"
-        />
-      </Field>
-      <Field label="标签" hint="空格分隔，如：情侣 美食 周末游">
-        <Input value={f.tags} onChange={(e) => set('tags', e.target.value)} />
-      </Field>
+      <section className="space-y-4 border-t border-ink-200 pt-6">
+        <p className="eyebrow">Journal · 游记</p>
+        <Field label="一句话简介">
+          <Textarea value={f.summary} onChange={(e) => set('summary', e.target.value)} maxLength={500} className="min-h-16" />
+        </Field>
+        <Field label="游记正文" hint="支持 Markdown：## 标题、**加粗**、- 列表">
+          <Textarea
+            value={f.content}
+            onChange={(e) => set('content', e.target.value)}
+            className="min-h-56 leading-7"
+            placeholder="写写这段旅程的故事、整体攻略、预算、交通建议…"
+          />
+        </Field>
+        <Field label="标签" hint="空格分隔，如：情侣 美食 周末游">
+          <Input value={f.tags} onChange={(e) => set('tags', e.target.value)} />
+        </Field>
+      </section>
       <Button block loading={saving} onClick={save}>
         保存旅程信息
       </Button>
@@ -412,44 +478,65 @@ function PhotosPanel({ trip, refresh }: { trip: TripDetail; refresh: () => void 
   }
   const sorted = [...trip.waypoints].sort(bySeq)
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PhotoImporter tripId={trip.id} onDone={refresh} defaultAuto={trip.phase !== 'planning'} compact={trip.photos.length > 0} />
       {trip.photos.length > 0 && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {trip.photos.map((p) => (
-            <div key={p.id} className="overflow-hidden rounded-xl bg-white shadow-card">
-              <div className="relative aspect-square bg-ink-100">
-                <img src={p.thumb_url} alt="" loading="lazy" className="size-full object-cover" />
-                {trip.cover_url === p.url && (
-                  <span className="absolute top-1.5 left-1.5 rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">封面</span>
-                )}
-              </div>
-              <div className="space-y-1.5 p-1.5">
-                <Select
-                  value={p.waypoint_id ?? 0}
-                  onChange={(e) => assign(p.id, Number(e.target.value))}
-                  className="h-7 rounded-lg pl-2 text-xs"
-                >
-                  <option value={0}>未关联打卡点</option>
-                  {sorted.map((w, i) => (
-                    <option key={w.id} value={w.id}>
-                      {i + 1}. {w.name}
-                    </option>
-                  ))}
-                </Select>
-                <div className="flex justify-between">
-                  <button type="button" onClick={() => setCover(p.url)} className="flex items-center gap-0.5 text-xs text-ink-500 hover:text-amber-600">
-                    <Star className="size-3" />
-                    设为封面
-                  </button>
-                  <button type="button" onClick={() => remove(p.id)} className="text-ink-400 hover:text-red-500" aria-label="删除">
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <>
+          <p className="eyebrow">
+            Photos · 照片 <span className="font-num ml-1 text-ink-500">{trip.photos.length}</span>
+          </p>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-3">
+            {trip.photos.map((p) => {
+              const isCover = trip.cover_url === p.url
+              return (
+                <figure key={p.id} className="min-w-0">
+                  <div className="relative aspect-square overflow-hidden rounded-md bg-ink-100 ring-1 ring-ink-900/5">
+                    <img src={p.thumb_url} alt="" loading="lazy" className="size-full object-cover" />
+                    {isCover && (
+                      <span className="absolute top-1.5 left-1.5 rounded-sm bg-ink-900/85 px-1.5 py-0.5 text-[10px] tracking-widest text-paper">
+                        封面
+                      </span>
+                    )}
+                  </div>
+                  <figcaption className="mt-1.5 space-y-1">
+                    <Select
+                      value={p.waypoint_id ?? 0}
+                      onChange={(e) => assign(p.id, Number(e.target.value))}
+                      className="h-7 rounded-md pl-2 text-xs"
+                      aria-label="关联打卡点"
+                    >
+                      <option value={0}>未关联打卡点</option>
+                      {sorted.map((w, i) => (
+                        <option key={w.id} value={w.id}>
+                          {i + 1}. {w.name}
+                        </option>
+                      ))}
+                    </Select>
+                    <div className="flex items-center justify-between">
+                      <button
+                        type="button"
+                        disabled={isCover}
+                        onClick={() => setCover(p.url)}
+                        className="flex items-center gap-1 text-xs text-ink-500 transition-colors hover:text-ink-900 disabled:text-ink-300"
+                      >
+                        <Star className="size-3" strokeWidth={1.75} />
+                        {isCover ? '当前封面' : '设为封面'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => remove(p.id)}
+                        className="rounded p-0.5 text-ink-300 transition-colors hover:text-brand-600"
+                        aria-label="删除照片"
+                      >
+                        <Trash2 className="size-3.5" strokeWidth={1.5} />
+                      </button>
+                    </div>
+                  </figcaption>
+                </figure>
+              )
+            })}
+          </div>
+        </>
       )}
     </div>
   )
@@ -508,43 +595,49 @@ function MembersPanel({ trip }: { trip: TripDetail }) {
   const partner = me?.partner
   const partnerIn = partner && members.some((m) => m.user.id === partner.id)
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-ink-500">共同作者可以一起编辑路线、打卡、上传照片。和情侣一起的旅程会出现在「我们」的足迹里。</p>
+    <div className="space-y-5">
+      <p className="text-sm leading-relaxed text-ink-500">共同作者可以一起编辑路线、打卡、上传照片。和情侣一起的旅程会出现在「我们」的足迹里。</p>
       {trip.is_owner && partner && !partnerIn && (
         <button
           type="button"
           onClick={() => invite(partner.username)}
-          className="bg-love-gradient flex w-full items-center gap-3 rounded-2xl p-3 text-left text-white"
+          className="bg-love-gradient flex w-full items-center gap-3 rounded-xl p-3 text-left text-white transition hover:brightness-110"
         >
           <Avatar user={partner} size={36} ring />
-          <span className="flex-1 text-sm font-medium">把 {partner.nickname || partner.username} 加入这段旅程 💕</span>
+          <span className="flex-1 text-sm">
+            把 <span className="font-display text-[15px]">{partner.nickname || partner.username}</span> 加入这段旅程
+          </span>
+          <Heart className="size-4 opacity-80" strokeWidth={1.75} />
         </button>
       )}
       {trip.is_owner && (
         <div className="flex gap-2">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="输入对方用户名" />
-          <Button disabled={!name.trim()} onClick={() => invite(name.trim())} icon={<UserPlus className="size-4" />}>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="输入对方用户名" aria-label="用户名" />
+          <Button disabled={!name.trim()} onClick={() => invite(name.trim())} icon={<UserPlus className="size-4" strokeWidth={1.75} />}>
             邀请
           </Button>
         </div>
       )}
-      <div className="space-y-2">
-        {members.map((m) => (
-          <div key={m.user.id} className="flex items-center gap-3 rounded-2xl bg-white p-3 shadow-card">
-            <Avatar user={m.user} size={36} />
-            <div className="min-w-0 flex-1">
-              <UserName user={m.user} />
-              <div className="text-xs text-ink-400">
-                {m.role === 'owner' ? '作者' : m.status === 'pending' ? '已邀请，等待接受' : '共同作者'}
+      <div>
+        <p className="eyebrow mb-1">Members · 成员</p>
+        <ul className="divide-y divide-ink-200 border-y border-ink-200">
+          {members.map((m) => (
+            <li key={m.user.id} className="flex items-center gap-3 py-3">
+              <Avatar user={m.user} size={36} />
+              <div className="min-w-0 flex-1">
+                <UserName user={m.user} />
+                <div className="mt-0.5 text-xs tracking-wide text-ink-400">
+                  {m.role === 'owner' ? '作者' : m.status === 'pending' ? '已邀请，等待接受' : '共同作者'}
+                </div>
               </div>
-            </div>
-            {m.role !== 'owner' && (trip.is_owner || m.user.id === me?.id) && (
-              <Button size="xs" variant="ghost" onClick={() => remove(m)}>
-                {m.user.id === me?.id ? '退出' : '移除'}
-              </Button>
-            )}
-          </div>
-        ))}
+              {m.role !== 'owner' && (trip.is_owner || m.user.id === me?.id) && (
+                <Button size="xs" variant="ghost" onClick={() => remove(m)}>
+                  {m.user.id === me?.id ? '退出' : '移除'}
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   )
@@ -563,9 +656,11 @@ export default function TripEditPage() {
   const [editing, setEditing] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [pickMode, setPickMode] = useState(false)
+  // 地图选点：点击的位置（打开候选面板）
+  const [pickPoint, setPickPoint] = useState<LngLat | null>(null)
   const [addDay, setAddDay] = useState(0)
   const [addAs, setAddAs] = useState<'plan' | 'visited' | null>(null)
-  const [flyTarget, setFlyTarget] = useState<[number, number] | null>(null)
+  const [flyTarget, setFlyTarget] = useState<LngLat | null>(null)
   const [order, setOrder] = useState<Waypoint[]>([])
   const [legMode, setLegMode] = useState<LegMode>('transit')
   // 待滚动到的地点：新加的点要等刷新后列表渲染出这一行才能滚过去
@@ -610,7 +705,7 @@ export default function TripEditPage() {
     invalidateTripLists(qc)
     return qc.invalidateQueries({ queryKey: key })
   }
-  const near = order.length ? ([order[order.length - 1].lng, order[order.length - 1].lat] as [number, number]) : null
+  const near = order.length ? ([order[order.length - 1].lng, order[order.length - 1].lat] as LngLat) : null
   // 每个计划点「距上一站」的路段。只用和当前列表相邻关系一致的：排序、删除、改天数后，
   // 新结果算出来之前还显示着旧结果，其中有的路段已经不再连着相邻的两站
   const legByTo = new Map<number, TripLeg>()
@@ -646,8 +741,9 @@ export default function TripEditPage() {
   const onPick = (it: GeoSearchItem, from: PickSource) =>
     addWaypoint({
       // 离线搜索（source: local）的结果是城市 / 省份的中心点，没有 amap_id：不提交名称，由服务端自动命名，
-      // 否则会被当作用户起的店名，新建一个叫「杭州市」的地点；社区地点用原名，服务端按同名同位置关联到已有地点和评价
-      name: it.amap_id || from === 'community' ? it.name : undefined,
+      // 否则会被当作用户起的店名，新建一个叫「杭州市」的地点；社区地点用原名，服务端按同名同位置关联到已有地点和评价。
+      // 天地图结果没有高德 ID，但是真实的店铺 / 景点名称，照常提交
+      name: it.amap_id || from === 'community' || from === 'tianditu' ? it.name : undefined,
       address: it.address,
       lng: it.lng,
       lat: it.lat,
@@ -659,10 +755,20 @@ export default function TripEditPage() {
       district: it.district || undefined,
     })
 
-  // 地图选点不提交名称：服务端逆地理补全地址并自动命名；打开编辑框让用户填写真正的店名
-  const onMapPick = (p: [number, number]) => {
+  const endPick = () => {
+    setPickPoint(null)
     setPickMode(false)
+  }
+  // 旧逻辑（服务端没有 /geo/pick 或用户选择直接用坐标）：不提交名称，服务端逆地理补全地址并自动命名；
+  // 打开编辑框让用户填写真正的店名
+  const pickByCoords = (p: LngLat) => {
+    endPick()
     addWaypoint({ lng: p[0], lat: p[1] }, true)
+  }
+  // 地图点击：列出那里的景区 / 店铺 / 社区地点，选好后再加入；面板打开时再点地图会换一个位置
+  const onMapClick = (p: LngLat) => {
+    if (geoPickUnsupported()) pickByCoords(p)
+    else setPickPoint(p)
   }
 
   const saveWaypoint = async (w: Waypoint, patch: WaypointInput) => {
@@ -678,7 +784,7 @@ export default function TripEditPage() {
     }
   }
 
-  const moveWaypoint = async (w: Waypoint, p: [number, number]) => {
+  const moveWaypoint = async (w: Waypoint, p: LngLat) => {
     try {
       await api.waypoints.update(w.id, { lng: p[0], lat: p[1] })
       refresh()
@@ -714,36 +820,22 @@ export default function TripEditPage() {
     }
   }
 
-  const tabs: { value: Panel; label: string; icon: typeof Route }[] = [
-    { value: 'route', label: '路线', icon: Route },
-    { value: 'info', label: '信息', icon: Info },
-    { value: 'photos', label: `照片${trip.photos.length ? ` ${trip.photos.length}` : ''}`, icon: ImageIcon },
-    { value: 'track', label: '轨迹', icon: Footprints },
-    { value: 'members', label: '成员', icon: Users },
+  const count = (n: number) => (n ? <span className="font-num ml-1 text-[13px] text-ink-400">{n}</span> : null)
+  const tabs: { value: Panel; label: ReactNode }[] = [
+    { value: 'route', label: <>路线{count(order.length)}</> },
+    { value: 'info', label: '信息' },
+    { value: 'photos', label: <>照片{count(trip.photos.length)}</> },
+    { value: 'track', label: '轨迹' },
+    { value: 'members', label: '成员' },
   ]
+  // 3D 预览：沿计划路线飞一遍（至少两个地点才有路线）
+  const canPreview = order.length >= 2
 
   return (
-    <div className="md:grid md:h-[calc(100dvh-3.5rem)] md:grid-cols-[440px_1fr]">
-      <div className="sticky top-14 z-20 md:static md:order-2 md:h-full">
+    <div className="md:grid md:h-[calc(100dvh-3.5rem)] md:grid-cols-[minmax(400px,460px)_1fr]">
+      <div className="sticky top-14 z-20 border-b border-ink-200 md:static md:order-2 md:h-full md:border-b-0">
         {/* 手机上展开编辑框时地图变矮，给表单留出空间 */}
-        <BaseMap
-          className={cn('md:h-full', editing !== null ? 'h-[22vh]' : 'h-[38vh]')}
-          kindSwitcher
-          locate
-          overlay={
-            <div className="absolute top-3 left-3 z-10">
-              <Button
-                size="sm"
-                variant={pickMode ? 'primary' : 'outline'}
-                icon={pickMode ? <X className="size-4" /> : <Crosshair className="size-4" />}
-                onClick={() => setPickMode((v) => !v)}
-              >
-                {pickMode ? '取消点选' : '在地图上点选'}
-              </Button>
-              {pickMode && <p className="glass mt-2 rounded-xl px-3 py-1.5 text-xs text-ink-700 shadow-card">点击地图任意位置添加打卡点</p>}
-            </div>
-          }
-        >
+        <BaseMap className={cn('md:h-full', editing !== null ? 'h-[22vh]' : 'h-[38vh]')} kindSwitcher locate>
           <RouteLines planned={planned} actual={trip.phase !== 'planning' ? actual : undefined} />
           <EditableMarkers
             waypoints={order}
@@ -755,66 +847,96 @@ export default function TripEditPage() {
             }}
             onMove={moveWaypoint}
           />
-          <MapClick enabled={pickMode} onClick={onMapPick} />
+          <MapClick enabled={pickMode} onClick={onMapClick} />
           <FitOnce points={order.map((w) => [w.lng, w.lat])} fitKey={`${trip.id}-${order.length > 0}`} />
           <FlyTo target={flyTarget} />
+          <MapTools
+            pickMode={pickMode}
+            picking={!!pickPoint}
+            onTogglePick={() => {
+              if (pickMode) endPick()
+              else {
+                setPickMode(true)
+                setPanel('route')
+              }
+            }}
+          />
+          {pickPoint && (
+            <MapPicker
+              point={pickPoint}
+              onClose={() => setPickPoint(null)}
+              onFallback={pickByCoords}
+              onChoose={(input, openEditor) => {
+                endPick()
+                addWaypoint(input, openEditor)
+              }}
+            />
+          )}
         </BaseMap>
       </div>
 
-      <div className="flex min-h-0 flex-col bg-ink-50 md:order-1 md:border-r md:border-ink-200">
-        <div className="border-b border-ink-200 bg-white px-4 pt-3">
-          <div className="flex items-center gap-2">
-            <Link to={`/trips/${trip.id}`} className="rounded-full p-1.5 hover:bg-ink-100" aria-label="返回">
-              <ArrowLeft className="size-5" />
+      <div className="flex min-h-0 flex-col md:order-1 md:border-r md:border-ink-200">
+        <header className="px-4 pt-3 md:px-5 md:pt-4">
+          <div className="flex items-center gap-1.5">
+            <Link
+              to={`/trips/${trip.id}`}
+              className="-ml-1.5 rounded-full p-1.5 text-ink-600 transition-colors hover:bg-ink-900/5 hover:text-ink-900"
+              aria-label="返回旅程"
+            >
+              <ArrowLeft className="size-5" strokeWidth={1.5} />
             </Link>
-            <h1 className="min-w-0 flex-1 truncate font-bold">{trip.title}</h1>
-            <Link to={`/trips/${trip.id}`} className={buttonClass({ size: 'sm', variant: 'ghost' })}>
-              <Eye className="size-4" />
-              预览
+            <p className="eyebrow min-w-0 flex-1 truncate">Editing · {phases[trip.phase].label}</p>
+            <Link
+              to={`/trips/${trip.id}`}
+              className={buttonClass({ size: 'sm', variant: 'ghost', className: 'px-2 sm:px-3' })}
+              title="预览旅程页"
+            >
+              <Eye className="size-4" strokeWidth={1.75} />
+              <span className="hidden sm:inline">预览</span>
+            </Link>
+            <Link
+              to={`/trips/${trip.id}/replay?plan=1`}
+              onClick={(e) => {
+                if (canPreview) return
+                e.preventDefault()
+                toast('先添加至少两个地点，再来 3D 预览路线')
+              }}
+              aria-disabled={!canPreview}
+              className={buttonClass({ size: 'sm', variant: 'outline', className: cn('px-2.5', !canPreview && 'opacity-50') })}
+              title="沿计划路线 3D 飞行预览"
+            >
+              <Box className="size-4" strokeWidth={1.75} />
+              3D 预览
             </Link>
             {trip.phase !== 'finished' && (
-              <Button size="sm" icon={<Play className="size-4" />} onClick={() => nav(`/trips/${trip.id}/go`)}>
+              <Button size="sm" variant="accent" icon={<Play className="size-3.5" strokeWidth={1.75} />} onClick={() => nav(`/trips/${trip.id}/go`)}>
                 出发
               </Button>
             )}
           </div>
-          <div className="mt-2 flex">
-            {tabs.map((t) => (
-              <button
-                key={t.value}
-                type="button"
-                onClick={() => setPanel(t.value)}
-                className={cn(
-                  'flex flex-1 items-center justify-center gap-1.5 border-b-2 py-2.5 text-sm font-medium',
-                  panel === t.value ? 'border-brand-500 text-brand-600' : 'border-transparent text-ink-400',
-                )}
-              >
-                <t.icon className="size-4" />
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
+          <h1 className="mt-2 line-clamp-2 text-[21px] leading-snug text-ink-900 md:text-[24px]">{trip.title}</h1>
+          <TabBar<Panel> value={panel} onChange={setPanel} options={tabs} className="mt-4 gap-5 md:gap-6" />
+        </header>
 
         {/* 手机上整页滚动（列表不是滚动容器，scrollIntoView 才能把行滚到吸顶地图的下方） */}
-        <div className="flex-1 p-4 md:overflow-y-auto">
+        <div className="flex-1 px-4 pt-4 pb-8 md:overflow-y-auto md:px-5">
           {panel === 'route' && (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <PlaceSearch onPick={onPick} city={trip.cities[0]} near={near} />
               <div className="flex flex-wrap items-center gap-2 text-xs text-ink-500">
-                <span className="shrink-0">添加到</span>
+                <span className="shrink-0 tracking-wide">添加到</span>
                 <div className="w-28 shrink-0">
-                <Select value={addDay} onChange={(e) => setAddDay(Number(e.target.value))} className="h-8 rounded-lg text-xs">
-                  <option value={0}>不分天</option>
-                  {Array.from({ length: maxDay + 1 }, (_, i) => i + 1).map((d) => (
-                    <option key={d} value={d}>
-                      第 {d} 天
-                    </option>
-                  ))}
-                </Select>
+                  <Select value={addDay} onChange={(e) => setAddDay(Number(e.target.value))} className="h-8 rounded-md text-xs" aria-label="添加到第几天">
+                    <option value={0}>不分天</option>
+                    {Array.from({ length: maxDay + 1 }, (_, i) => i + 1).map((d) => (
+                      <option key={d} value={d}>
+                        第 {d} 天
+                      </option>
+                    ))}
+                  </Select>
                 </div>
                 {trip.phase === 'planning' ? (
-                  <span className="ml-auto text-right">新加的点会作为计划路线</span>
+                  <span className="ml-auto text-right text-ink-400">新加的点会作为计划路线</span>
                 ) : (
                   <Segmented<'plan' | 'visited'>
                     size="sm"
@@ -829,60 +951,64 @@ export default function TripEditPage() {
                 )}
               </div>
               {trip.phase !== 'finished' && planned.length >= 2 && (
-                <LegsSummary
-                  data={legs.data}
-                  mode={legMode}
-                  onMode={setLegMode}
-                  loading={legs.isFetching}
-                  error={legs.isError}
-                />
+                <LegsSummary data={legs.data} mode={legMode} onMode={setLegMode} loading={legs.isFetching} error={legs.isError} />
               )}
               {order.length === 0 ? (
                 <Empty
-                  icon={<Route className="size-10" />}
+                  icon={<Route className="size-9" />}
                   title="还没有打卡点"
                   desc="搜索地点、在地图上点选，或者到「照片」里从照片自动生成"
                 />
               ) : (
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-                  <SortableContext items={order.map((w) => w.id)} strategy={verticalListSortingStrategy}>
-                    <div className="space-y-2">
-                      {order.map((w, i) => (
-                        <div
-                          id={`wp-${w.id}`}
-                          key={w.id}
-                          className={cn(
-                            'md:scroll-mt-3',
-                            editing !== null ? 'scroll-mt-[calc(3.5rem+22vh+0.75rem)]' : 'scroll-mt-[calc(3.5rem+38vh+0.75rem)]',
-                          )}
-                        >
-                          <SortableRow
-                            w={w}
-                            index={i}
-                            phase={trip.phase}
-                            selected={selected === w.id}
-                            editing={editing === w.id}
-                            maxDay={maxDay}
-                            saving={saving}
-                            onSelect={() => {
-                              setSelected(w.id)
-                              setFlyTarget([w.lng, w.lat])
-                            }}
-                            onEdit={(v) => {
-                              setEditing(v ? w.id : null)
-                              if (v) scrollTo.current = w.id
-                            }}
-                            onSave={(p) => saveWaypoint(w, p)}
-                            onDelete={() => deleteWaypoint(w)}
-                            leg={legOf.get(w.id)}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </SortableContext>
-                </DndContext>
+                <div>
+                  <div className="flex items-baseline justify-between pt-2 pb-2">
+                    <p className="eyebrow">Itinerary · 路线</p>
+                    <p className="text-[11px] tracking-wide text-ink-400">
+                      <span className="font-num">{order.length}</span> 个地点
+                    </p>
+                  </div>
+                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+                    <SortableContext items={order.map((w) => w.id)} strategy={verticalListSortingStrategy}>
+                      <div className="divide-y divide-ink-200 border-y border-ink-200">
+                        {order.map((w, i) => (
+                          <div
+                            id={`wp-${w.id}`}
+                            key={w.id}
+                            className={cn(
+                              'md:scroll-mt-3',
+                              editing !== null ? 'scroll-mt-[calc(3.5rem+22vh+0.75rem)]' : 'scroll-mt-[calc(3.5rem+38vh+0.75rem)]',
+                            )}
+                          >
+                            <SortableRow
+                              w={w}
+                              index={i}
+                              phase={trip.phase}
+                              selected={selected === w.id}
+                              editing={editing === w.id}
+                              maxDay={maxDay}
+                              saving={saving}
+                              onSelect={() => {
+                                setSelected(w.id)
+                                setFlyTarget([w.lng, w.lat])
+                              }}
+                              onEdit={(v) => {
+                                setEditing(v ? w.id : null)
+                                if (v) scrollTo.current = w.id
+                              }}
+                              onSave={(p) => saveWaypoint(w, p)}
+                              onDelete={() => deleteWaypoint(w)}
+                              leg={legOf.get(w.id)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                </div>
               )}
-              {order.length > 1 && <p className="text-center text-xs text-ink-400">拖动左侧把手调整顺序，拖动地图上的标记可微调位置</p>}
+              {order.length > 1 && (
+                <p className="text-center text-[11px] tracking-wide text-ink-400">拖动左侧把手调整顺序，拖动地图上的标记可微调位置</p>
+              )}
             </div>
           )}
           {panel === 'info' && (
@@ -910,4 +1036,3 @@ export default function TripEditPage() {
     </div>
   )
 }
-

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Camera, HardDrive, KeyRound, Sparkles, UserRound, UserX } from 'lucide-react'
+import { Camera, UserX } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type Me } from '@/api'
-import { Avatar, Button, Card, Field, Input, LevelBadge, Modal, Textarea } from '@/components/ui'
+import { Avatar, Button, Field, Input, LevelBadge, Modal, Textarea } from '@/components/ui'
 import { useSite } from '@/hooks/useSite'
 import { cn } from '@/lib/cn'
 import { fmtBytes } from '@/lib/format'
@@ -25,22 +25,39 @@ const expRules = [
   ['被设为精选', 50],
 ] as const
 
-function Section({ icon, title, children, className }: { icon: ReactNode; title: string; children: ReactNode; className?: string }) {
+/** 一组设置：小标题 + 宋体标题，组与组之间一道细线（第一组是墨线） */
+function Section({
+  eyebrow,
+  title,
+  children,
+  className,
+}: {
+  eyebrow: string
+  title: string
+  children: ReactNode
+  className?: string
+}) {
   return (
-    <Card className={cn('p-4 sm:p-5', className)}>
-      <h2 className="mb-4 flex items-center gap-2 font-bold">
-        <span className="text-brand-500">{icon}</span>
-        {title}
-      </h2>
+    <section className={cn('border-t border-ink-200 py-8 first:border-ink-900', className)}>
+      <p className="eyebrow">{eyebrow}</p>
+      <h2 className="mt-1.5 mb-6 text-xl text-ink-900">{title}</h2>
       {children}
-    </Card>
+    </section>
   )
 }
 
-function ProgressBar({ value, className, barCls = 'bg-brand-gradient' }: { value: number; className?: string; barCls?: string }) {
+/** 细进度线：一道淡细线上叠一段有色线 */
+function ProgressLine({ value, className, barCls = 'bg-ink-900' }: { value: number; className?: string; barCls?: string }) {
+  const pct = Math.min(100, Math.max(0, value * 100))
   return (
-    <div className={cn('h-2 overflow-hidden rounded-full bg-ink-100', className)}>
-      <div className={cn('h-full rounded-full transition-all', barCls)} style={{ width: `${Math.min(100, Math.max(0, value * 100))}%` }} />
+    <div
+      className={cn('relative h-[3px] bg-ink-200', className)}
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(pct)}
+    >
+      <div className={cn('absolute inset-y-0 left-0 transition-all', barCls)} style={{ width: `${pct}%` }} />
     </div>
   )
 }
@@ -79,7 +96,7 @@ function ProfileSection({ user }: { user: Me }) {
   })
 
   return (
-    <Section icon={<UserRound className="size-4.5" />} title="个人资料">
+    <Section eyebrow="Profile" title="个人资料">
       <div className="flex items-center gap-4">
         <button
           type="button"
@@ -90,14 +107,14 @@ function ProfileSection({ user }: { user: Me }) {
         >
           <Avatar user={user} size={72} />
           <span className="absolute inset-0 flex items-center justify-center rounded-full bg-ink-900/40 text-white opacity-0 transition group-hover:opacity-100">
-            <Camera className="size-5" />
+            <Camera className="size-5" strokeWidth={1.5} />
           </span>
         </button>
         <div className="min-w-0">
           <Button
             variant="outline"
             size="sm"
-            icon={<Camera className="size-4" />}
+            icon={<Camera className="size-4" strokeWidth={1.75} />}
             loading={avatar.isPending}
             onClick={() => fileRef.current?.click()}
           >
@@ -159,71 +176,81 @@ function LevelSection({ user }: { user: Me }) {
   const progress = nextExp ? (user.exp - base) / Math.max(1, nextExp - base) : 1
 
   return (
-    <Section icon={<Sparkles className="size-4.5" />} title="等级与经验">
-      <div className="flex items-center gap-2">
-        <LevelBadge level={user.level} className="h-5 px-1.5 text-xs" />
-        <span className="font-semibold">{user.level_name}</span>
-        <span className="ml-auto text-sm text-ink-500 tabular-nums">
-          {user.exp}
-          {nextExp ? ` / ${nextExp}` : ''} 经验
-        </span>
+    <Section eyebrow="Level · 等级" title="等级与经验">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+        <div>
+          <div className="flex items-center gap-2 text-sm text-ink-600">
+            <LevelBadge level={user.level} className="h-5 px-1.5 text-xs" />
+            <span className="font-display text-[17px] text-ink-900">{user.level_name}</span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-1.5">
+            <span className="font-num text-5xl leading-none tracking-tight text-ink-900">{user.exp}</span>
+            {nextExp ? <span className="font-num text-lg text-ink-400">/ {nextExp}</span> : null}
+            <span className="ml-1 text-xs text-ink-400">经验</span>
+          </div>
+        </div>
+        <p className="text-xs text-ink-400 sm:text-right">
+          {nextExp ? (
+            <>
+              再获得 <span className="font-num text-sm text-ink-900">{Math.max(0, nextExp - user.exp)}</span> 经验
+              <br className="max-sm:hidden" />
+              升级到 <span className="font-num italic">Lv.{user.level + 1}</span>
+              {next ? `「${next.name}」` : ''}
+            </>
+          ) : (
+            '已达到最高等级'
+          )}
+        </p>
       </div>
-      <ProgressBar value={progress} className="mt-2.5" />
-      <p className="mt-2 text-xs text-ink-400">
-        {nextExp
-          ? `再获得 ${Math.max(0, nextExp - user.exp)} 经验升级到 Lv${user.level + 1}${next ? `「${next.name}」` : ''}`
-          : '已达到最高等级，你就是传奇 ✨'}
-      </p>
+      <ProgressLine value={progress} className="mt-4" barCls="bg-brand-500" />
 
       {levels.length > 0 && (
-        <div className="mt-4 overflow-hidden rounded-xl ring-1 ring-ink-100">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-ink-50 text-left text-xs text-ink-400">
-                <th className="px-3 py-2 font-medium">等级</th>
-                <th className="px-3 py-2 font-medium">称号</th>
-                <th className="px-3 py-2 text-right font-medium">所需经验</th>
-                <th className="px-3 py-2 text-right font-medium">存储空间</th>
-              </tr>
-            </thead>
-            <tbody>
-              {levels.map((l) => {
-                const current = l.level === user.level
-                return (
-                  <tr
-                    key={l.level}
-                    className={cn(
-                      'border-t border-ink-100',
-                      current ? 'bg-brand-50 font-medium' : l.level > user.level && 'text-ink-400',
-                    )}
-                  >
-                    <td className="px-3 py-2">
-                      <LevelBadge level={l.level} />
-                    </td>
-                    <td className="px-3 py-2">
-                      {l.name}
-                      {current && <span className="ml-1.5 text-xs text-brand-600">当前</span>}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{l.min_exp}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{fmtBytes(l.quota_mb * 1024 ** 2)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <table className="mt-8 w-full border-t border-ink-900 text-sm">
+          <thead>
+            <tr className="border-b border-ink-200 text-left text-xs text-ink-400">
+              <th className="py-2.5 pr-3 font-normal tracking-wide">等级</th>
+              <th className="px-3 py-2.5 font-normal tracking-wide">称号</th>
+              <th className="px-3 py-2.5 text-right font-normal tracking-wide">所需经验</th>
+              <th className="py-2.5 pl-3 text-right font-normal tracking-wide">存储空间</th>
+            </tr>
+          </thead>
+          <tbody>
+            {levels.map((l) => {
+              const current = l.level === user.level
+              return (
+                <tr key={l.level} className={cn('border-b border-ink-200', l.level > user.level ? 'text-ink-400' : 'text-ink-700')}>
+                  <td className="py-2.5 pr-3">
+                    <LevelBadge level={l.level} />
+                  </td>
+                  <td className={cn('px-3 py-2.5', current && 'font-display text-ink-900')}>
+                    {l.name}
+                    {current && <span className="ml-2 font-sans text-xs text-brand-600">当前</span>}
+                  </td>
+                  <td className="font-num px-3 py-2.5 text-right">{l.min_exp}</td>
+                  <td className="font-num py-2.5 pl-3 text-right">{fmtBytes(l.quota_mb * 1024 ** 2)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       )}
 
-      <div className="mt-4">
-        <div className="mb-2 text-xs font-medium text-ink-500">如何获得经验</div>
-        <div className="flex flex-wrap gap-1.5">
+      <div className="mt-8">
+        <p className="eyebrow">How to earn · 如何获得经验</p>
+        {/* 像一份价目表：名称 …… 经验值 */}
+        <dl className="mt-3 grid gap-x-8 sm:grid-cols-2">
           {expRules.map(([label, n]) => (
-            <span key={label} className="rounded-full bg-ink-100 px-2 py-0.5 text-xs text-ink-700">
-              {label} <b className="text-brand-600">+{n}</b>
-            </span>
+            <div key={label} className="flex items-baseline gap-2 border-b border-dotted border-ink-300 py-2 text-sm">
+              <dt className="text-ink-600">{label}</dt>
+              <dd className="font-num ml-auto text-ink-900">+{n}</dd>
+            </div>
           ))}
-        </div>
-        {site && <p className="mt-2 text-xs text-ink-400">每天最多获得 {site.exp_daily_cap} 经验（被设为精选不受此限制）</p>}
+        </dl>
+        {site && (
+          <p className="mt-3 text-xs text-ink-400">
+            每天最多获得 <span className="font-num">{site.exp_daily_cap}</span> 经验（被设为精选不受此限制）
+          </p>
+        )}
       </div>
     </Section>
   )
@@ -232,18 +259,27 @@ function LevelSection({ user }: { user: Me }) {
 function StorageSection({ user }: { user: Me }) {
   const unlimited = user.storage_quota <= 0
   const ratio = unlimited ? 0 : user.storage_used / user.storage_quota
-  const barCls = ratio > 0.9 ? 'bg-red-500' : ratio > 0.75 ? 'bg-amber-500' : 'bg-brand-gradient'
+  const barCls = ratio > 0.9 ? 'bg-brand-500' : ratio > 0.75 ? 'bg-amber-500' : 'bg-ink-900'
+  const [used, usedUnit] = fmtBytes(user.storage_used).split(' ')
   return (
-    <Section icon={<HardDrive className="size-4.5" />} title="存储空间">
-      <div className="flex items-baseline justify-between gap-3 text-sm">
-        <span>
-          已使用 <b className="tabular-nums">{fmtBytes(user.storage_used)}</b>
-          <span className="text-ink-400"> / {unlimited ? '不限' : fmtBytes(user.storage_quota)}</span>
-        </span>
-        {!unlimited && <span className="text-ink-500 tabular-nums">{Math.round(ratio * 100)}%</span>}
+    <Section eyebrow="Storage · 存储" title="存储空间">
+      <div className="flex items-end justify-between gap-3">
+        <div className="flex items-baseline gap-1.5">
+          <span className="font-num text-5xl leading-none tracking-tight text-ink-900">{used}</span>
+          <span className="font-num text-sm text-ink-400">{usedUnit}</span>
+          <span className="ml-1 text-sm text-ink-400">
+            / <span className="font-num">{unlimited ? '不限' : fmtBytes(user.storage_quota)}</span>
+          </span>
+        </div>
+        {!unlimited && (
+          <span className="font-num text-2xl leading-none text-ink-500">
+            {Math.round(ratio * 100)}
+            <span className="text-sm">%</span>
+          </span>
+        )}
       </div>
-      {!unlimited && <ProgressBar value={ratio} className="mt-2.5" barCls={barCls} />}
-      <p className="mt-2 text-xs text-ink-400">
+      {!unlimited && <ProgressLine value={ratio} className="mt-4" barCls={barCls} />}
+      <p className="mt-3 text-xs text-ink-400">
         {unlimited
           ? '管理员账号不受存储空间限制'
           : ratio > 0.9
@@ -272,7 +308,7 @@ function PasswordSection() {
     m.mutate()
   }
   return (
-    <Section icon={<KeyRound className="size-4.5" />} title="修改密码">
+    <Section eyebrow="Security · 安全" title="修改密码">
       <form className="space-y-4" onSubmit={submit}>
         <Field label="当前密码">
           <Input
@@ -331,20 +367,21 @@ function DeleteAccountSection({ user }: { user: Me }) {
     setAck(false)
   }
   return (
-    <Card className="p-4 sm:p-5">
-      <h2 className="mb-3 flex items-center gap-2 font-bold text-red-600">
-        <UserX className="size-4.5" />
+    <section className="border-t border-ink-200 py-8">
+      <p className="eyebrow !text-brand-600">Danger zone · 注销</p>
+      <h2 className="mt-1.5 mb-4 flex items-center gap-2 text-xl text-ink-900">
+        <UserX className="size-5 text-brand-600" strokeWidth={1.5} />
         注销账号
       </h2>
       <p className="text-sm leading-relaxed text-ink-500">
         注销后账号无法恢复：只有你能编辑的旅程会被删除（含照片、轨迹和评论）；有其他共同作者的旅程会转交给最早加入的共同作者；你上传的照片和
         GPS 轨迹全部删除，你的评论显示为「已删除」；点赞、收藏、关注、情侣绑定和所有设备上的登录都会解除。
-        <Link to="/legal/privacy" className="text-brand-600 hover:underline">
+        <Link to="/legal/privacy" className="text-ink-900 underline decoration-ink-300 underline-offset-4 hover:decoration-ink-900">
           详见《隐私政策》
         </Link>
       </p>
       {isAdmin(user) ? (
-        <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <p className="mt-4 border-l-2 border-amber-500 py-0.5 pl-3 text-sm leading-relaxed text-ink-600">
           管理员账号不能注销；如需注销，请先让其他管理员取消你的管理员权限。
         </p>
       ) : (
@@ -384,13 +421,13 @@ function DeleteAccountSection({ user }: { user: Me }) {
               type="checkbox"
               checked={ack}
               onChange={(e) => setAck(e.target.checked)}
-              className="mt-0.5 size-4 shrink-0 accent-red-500"
+              className="mt-0.5 size-4 shrink-0 accent-brand-600"
             />
             我已了解注销后数据无法恢复
           </label>
         </div>
       </Modal>
-    </Card>
+    </section>
   )
 }
 
@@ -401,12 +438,18 @@ export default function SettingsPage() {
     void useAuth.getState().refreshMe()
   }, [])
   return (
-    <div className="mx-auto max-w-2xl space-y-5 px-4 py-6">
-      <h1 className="text-2xl font-extrabold">账号设置</h1>
-      <ProfileSection user={user} />
-      <LevelSection user={user} />
-      <StorageSection user={user} />
-      <PasswordSection />
+    <div className="mx-auto max-w-2xl px-4 pt-6 pb-12 md:pt-10">
+      <header className="mb-8">
+        <p className="eyebrow">Account · 账号</p>
+        <h1 className="mt-2 text-[28px] leading-[1.15] text-ink-900 md:text-[34px]">账号设置</h1>
+        <p className="mt-2 text-sm text-ink-500">个人资料、等级经验、存储空间与账号安全</p>
+      </header>
+      <div>
+        <ProfileSection user={user} />
+        <LevelSection user={user} />
+        <StorageSection user={user} />
+        <PasswordSection />
+      </div>
       <DeleteAccountSection user={user} />
     </div>
   )

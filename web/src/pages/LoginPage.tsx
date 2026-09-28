@@ -2,13 +2,15 @@ import { useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Footprints, Heart, Route, Sparkles } from 'lucide-react'
 import { api, errorMessage } from '@/api'
-import { Logo } from '@/components/layout/AppLayout'
+import { Note } from '@/components/editorial'
+import { RouteSketch } from '@/components/editorial/RouteSketch'
+import { Logo, SealMark } from '@/components/layout/AppLayout'
 import { SiteFooter } from '@/components/layout/SiteFooter'
 import { Markdown } from '@/components/Markdown'
 import { Button, Field, Input, LoadError, Modal, Spinner } from '@/components/ui'
 import { useSite } from '@/hooks/useSite'
+import { cn } from '@/lib/cn'
 import { useAuth } from '@/stores/auth'
 
 type LegalDoc = 'terms' | 'privacy'
@@ -38,11 +40,71 @@ function LegalModal({ doc, onClose }: { doc: LegalDoc | null; onClose: () => voi
 }
 
 const highlights = [
-  { icon: Route, title: '计划 vs 实际', desc: '规划路线，按图出行，结束后对比' },
-  { icon: Sparkles, title: 'AI 推荐下一站', desc: '到了一个地方，推荐附近值得去的' },
-  { icon: Footprints, title: '3D 足迹回放', desc: '点亮去过的城市，回放每一段旅程' },
-  { icon: Heart, title: '我们一起走过的地方', desc: '情侣空间，记录两个人的足迹' },
+  { title: '计划与实际', desc: '先规划路线，按图出行，归来逐站对照' },
+  { title: '下一站推荐', desc: '走到哪里，就推荐附近值得去的地方' },
+  { title: '3D 足迹回放', desc: '点亮去过的城市，重温每一段路' },
+  { title: '我们', desc: '两个人的旅行，记在同一本手账里' },
 ]
+
+/** 左侧扉页：题记、线描路线、四条功能目录（纸面 + 细线，不用发光色块） */
+function Frontispiece({ siteName }: { siteName: string }) {
+  return (
+    <aside className="relative hidden w-[46%] max-w-[660px] flex-col border-r border-ink-200 bg-ink-100/55 px-12 py-10 lg:flex xl:px-16">
+      <div className="flex items-center justify-between">
+        <Logo />
+        <span className="eyebrow">Travel Journal · 旅行手账</span>
+      </div>
+
+      <div className="flex flex-1 flex-col justify-center py-8">
+        <figure>
+          <blockquote className="relative">
+            <span aria-hidden className="font-num absolute -top-9 -left-1 text-[88px] leading-none text-brand-500 select-none">
+              &ldquo;
+            </span>
+            <p className="font-display pt-8 text-[30px] leading-[1.5] text-ink-900 xl:text-[34px]">
+              世界是一本书，
+              <br />
+              不旅行的人只读了其中一页。
+            </p>
+          </blockquote>
+          <figcaption className="mt-4 flex items-center gap-3 text-[13px] tracking-wider text-ink-500">
+            <span className="h-px w-8 bg-ink-400" />
+            圣奥古斯丁
+          </figcaption>
+        </figure>
+        <div className="mt-8 flex items-end gap-6">
+          <RouteSketch className="max-h-[210px] w-auto max-w-[300px] opacity-90" />
+          <div className="mb-3 hidden flex-col items-start gap-2 xl:flex">
+            <SealMark size={38} />
+            <span className="eyebrow leading-relaxed">
+              Est. <span className="font-num">2026</span>
+              <br />
+              上海 → 黄山
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <ol className="grid grid-cols-2 border-t border-ink-900/80">
+        {highlights.map((h, i) => (
+          <li
+            key={h.title}
+            className={cn('flex gap-3 py-4', i % 2 === 0 ? 'border-r border-ink-200 pr-4' : 'pl-5', i < 2 && 'border-b border-ink-200')}
+          >
+            <span className="font-num pt-0.5 text-[13px] text-ink-400 italic">{String(i + 1).padStart(2, '0')}</span>
+            <span className="min-w-0">
+              <span className="font-display block text-[15px] text-ink-900">{h.title}</span>
+              <span className="mt-0.5 block text-xs leading-relaxed text-ink-500">{h.desc}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+      <p className="eyebrow mt-6">
+        © <span className="font-num">{new Date().getFullYear()}</span> {siteName}
+      </p>
+    </aside>
+  )
+}
 
 export default function LoginPage() {
   const isRegister = useLocation().pathname === '/register'
@@ -86,50 +148,25 @@ export default function LoginPage() {
     }
   }
 
+  const legalLink = 'text-ink-900 underline decoration-ink-300 underline-offset-4 transition-colors hover:decoration-ink-900'
+
   return (
     <div className="flex min-h-dvh">
-      <aside className="bg-night relative hidden w-[46%] flex-col justify-between overflow-hidden p-10 text-white lg:flex">
-        <div
-          className="pointer-events-none absolute -top-40 -right-40 size-[520px] rounded-full opacity-40 blur-3xl"
-          style={{ background: 'radial-gradient(circle, #ff5a5f, transparent 60%)' }}
-        />
-        <div
-          className="pointer-events-none absolute -bottom-40 -left-20 size-[480px] rounded-full opacity-30 blur-3xl"
-          style={{ background: 'radial-gradient(circle, #7c5cff, transparent 60%)' }}
-        />
-        <Logo light />
-        <div className="relative">
-          <h1 className="text-4xl leading-tight font-extrabold">
-            把每一次出发
-            <br />
-            都变成<span className="text-brand-300">值得回看</span>的足迹
-          </h1>
-          <p className="mt-4 max-w-md text-white/60">
-            记录旅途的每一个打卡点，分享真实的推荐与避雷，让下一个出发的人少走弯路。
-          </p>
-          <div className="mt-10 grid max-w-lg grid-cols-2 gap-4">
-            {highlights.map((h) => (
-              <div key={h.title} className="rounded-2xl bg-white/5 p-4 ring-1 ring-white/10">
-                <h.icon className="size-5 text-brand-300" />
-                <div className="mt-2 font-semibold">{h.title}</div>
-                <div className="mt-0.5 text-sm text-white/50">{h.desc}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <p className="text-xs text-white/30">© {site?.name || 'TripHub'}</p>
-      </aside>
+      <Frontispiece siteName={site?.name || 'TripHub'} />
 
-      <main className="flex flex-1 flex-col items-center justify-center px-6 py-10">
-        <div className="w-full max-w-sm">
-          <Logo className="mb-10 lg:hidden" />
-          <h2 className="text-2xl font-bold">{isRegister ? '创建账号' : '欢迎回来'}</h2>
-          <p className="mt-1 text-sm text-ink-500">
-            {isRegister ? '开始记录你的第一段旅程' : '登录后继续你的旅程'}
+      <main className="flex flex-1 flex-col px-6 pt-8 pb-8 sm:px-10">
+        <div className="m-auto w-full max-w-[22rem] py-6">
+          <Logo className="mb-12 lg:hidden" />
+          <p className="eyebrow">{isRegister ? 'Join · 注册' : 'Sign in · 登录'}</p>
+          <h1 className="mt-2.5 text-[28px] leading-tight md:text-[32px]">{isRegister ? '开一本新的旅行手账' : '欢迎回来'}</h1>
+          <p className="mt-2 text-sm leading-relaxed text-ink-500">
+            {isRegister ? '注册后就能记录你的第一段旅程' : '登录后，接着写你的旅程'}
           </p>
 
           {isRegister && site && !site.registration_open ? (
-            <div className="mt-8 rounded-2xl bg-amber-50 p-4 text-sm text-amber-800">站点暂时关闭了注册，请稍后再来。</div>
+            <Note tone="amber" label="Notice" className="mt-8">
+              站点暂时关闭了注册，请稍后再来。
+            </Note>
           ) : (
             <form onSubmit={submit} className="mt-8 space-y-4">
               {isRegister ? (
@@ -137,33 +174,35 @@ export default function LoginPage() {
                   <Field label="用户名" hint="3-20 位字母、数字或下划线，注册后不可修改">
                     <Input value={form.username} onChange={set('username')} autoComplete="username" required autoFocus />
                   </Field>
-                  <Field label="昵称（可选）">
-                    <Input value={form.nickname} onChange={set('nickname')} maxLength={20} />
-                  </Field>
-                  <Field label="邮箱（可选）" hint="可用邮箱登录">
-                    <Input type="email" value={form.email} onChange={set('email')} autoComplete="email" />
-                  </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="昵称（可选）">
+                      <Input value={form.nickname} onChange={set('nickname')} maxLength={20} />
+                    </Field>
+                    <Field label="邮箱（可选）">
+                      <Input type="email" value={form.email} onChange={set('email')} autoComplete="email" />
+                    </Field>
+                  </div>
                   <Field label="密码" hint="8–64 位，不要用过于简单的密码">
                     <Input type="password" value={form.password} onChange={set('password')} autoComplete="new-password" required />
                   </Field>
                   <Field label="确认密码">
                     <Input type="password" value={form.password2} onChange={set('password2')} autoComplete="new-password" required />
                   </Field>
-                  <div className="flex items-start gap-2 text-sm text-ink-600">
+                  <div className="flex items-start gap-2.5 pt-1 text-[13px] leading-relaxed text-ink-600">
                     <input
                       id="agree-terms"
                       type="checkbox"
                       checked={agree}
                       onChange={(e) => setAgree(e.target.checked)}
-                      className="mt-0.5 size-4 shrink-0 accent-brand-500"
+                      className="mt-[3px] size-4 shrink-0 accent-ink-900"
                     />
                     <span>
                       <label htmlFor="agree-terms">我已阅读并同意</label>
-                      <button type="button" onClick={() => setLegal('terms')} className="text-brand-600 hover:underline">
+                      <button type="button" onClick={() => setLegal('terms')} className={cn(legalLink, 'mx-0.5')}>
                         《用户协议》
                       </button>
                       和
-                      <button type="button" onClick={() => setLegal('privacy')} className="text-brand-600 hover:underline">
+                      <button type="button" onClick={() => setLegal('privacy')} className={cn(legalLink, 'mx-0.5')}>
                         《隐私政策》
                       </button>
                     </span>
@@ -179,29 +218,31 @@ export default function LoginPage() {
                   </Field>
                 </>
               )}
-              <Button type="submit" block size="lg" loading={loading}>
-                {isRegister ? '注册' : '登录'}
-              </Button>
+              <div className="pt-2">
+                <Button type="submit" block size="lg" loading={loading}>
+                  {isRegister ? '注册' : '登录'}
+                </Button>
+              </div>
             </form>
           )}
 
-          <p className="mt-6 text-center text-sm text-ink-500">
-            {isRegister ? '已有账号？' : '还没有账号？'}
-            <Link
-              to={`${isRegister ? '/login' : '/register'}${next !== '/' ? `?next=${encodeURIComponent(next)}` : ''}`}
-              className="font-medium text-brand-600"
-            >
-              {isRegister ? '去登录' : '立即注册'}
-            </Link>
-          </p>
-          <p className="mt-3 text-center">
-            <Link to="/" className="text-sm text-ink-400 hover:text-ink-700">
+          <div className="mt-8 flex items-center justify-between border-t border-ink-200 pt-5 text-sm">
+            <span className="text-ink-500">
+              {isRegister ? '已有账号？' : '还没有账号？'}
+              <Link
+                to={`${isRegister ? '/login' : '/register'}${next !== '/' ? `?next=${encodeURIComponent(next)}` : ''}`}
+                className={cn(legalLink, 'ml-1 font-medium')}
+              >
+                {isRegister ? '去登录' : '立即注册'}
+              </Link>
+            </span>
+            <Link to="/" className="text-ink-400 transition-colors hover:text-ink-900">
               先随便逛逛 →
             </Link>
-          </p>
-          {/* 登录 / 注册页没有站点布局：在这里显示备案号和用户协议、隐私政策 */}
-          <SiteFooter compact className="mt-10" />
+          </div>
         </div>
+        {/* 登录 / 注册页没有站点布局：在这里显示备案号和用户协议、隐私政策 */}
+        <SiteFooter compact className="mt-8" />
       </main>
       <LegalModal doc={legal} onClose={() => setLegal(null)} />
     </div>

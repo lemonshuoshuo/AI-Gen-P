@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { MessageCircle, Trash2, X } from 'lucide-react'
+import { MapPin, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type Comment, type Waypoint } from '@/api'
 import { ReportDialog } from '@/components/report/ReportDialog'
 import { Avatar, Button, Empty, LoadError, Textarea, UserName, confirmDialog } from '@/components/ui'
 import { useRequireAuth } from '@/hooks/useRequireAuth'
+import { cn } from '@/lib/cn'
 import { fromNow } from '@/lib/format'
 import { flattenPages } from '@/lib/pages'
 import { useAuth } from '@/stores/auth'
@@ -85,80 +86,87 @@ export function CommentSection({ tripId, placeId, count, onCountChange, waypoint
   }
 
   const renderComment = (c: Comment, isReply = false) => (
-    <div key={c.id} className="flex gap-2.5">
-      <Avatar user={c.author} size={isReply ? 26 : 34} />
+    <div key={c.id} className={cn('flex gap-3', !isReply && 'py-5')}>
+      <Avatar user={c.author} size={isReply ? 24 : 32} />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
           <UserName user={c.author} />
           {c.reply_to && (
             <span className="text-xs text-ink-400">
               回复 <span className="text-ink-700">@{c.reply_to.nickname || c.reply_to.username}</span>
             </span>
           )}
+          <span className="font-num ml-auto text-xs text-ink-400">{fromNow(c.created_at)}</span>
         </div>
         {c.waypoint_id && wpName(c.waypoint_id) && (
           <button
             type="button"
             onClick={() => onJumpWaypoint?.(c.waypoint_id!)}
-            className="mt-1 inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-xs text-sky-700"
+            className="mt-1.5 inline-flex items-center gap-1 rounded-[3px] border border-ink-200 px-1.5 py-0.5 text-xs text-ink-600 transition-colors hover:border-ink-400 hover:text-ink-900"
           >
-            📍 {wpName(c.waypoint_id)}
+            <MapPin className="size-3" strokeWidth={1.75} />
+            {wpName(c.waypoint_id)}
           </button>
         )}
-        <p className={`mt-1 text-sm leading-relaxed whitespace-pre-wrap ${c.deleted ? 'text-ink-400 italic' : 'text-ink-700'}`}>
+        <p className={cn('mt-1.5 text-[14.5px] leading-[1.8] whitespace-pre-wrap', c.deleted ? 'text-ink-400 italic' : 'text-ink-700')}>
           {c.deleted ? '该评论已删除' : c.content}
         </p>
-        <div className="mt-1 flex items-center gap-3 text-xs text-ink-400">
-          <span>{fromNow(c.created_at)}</span>
+        <div className="mt-1.5 flex items-center gap-4 text-xs text-ink-400">
           {!c.deleted && (
-            <button
-              type="button"
-              className="hover:text-brand-600"
-              onClick={() => requireAuth(() => startReply(c))}
-            >
+            <button type="button" className="transition-colors hover:text-ink-900" onClick={() => requireAuth(() => startReply(c))}>
               回复
             </button>
           )}
           {!c.deleted && c.author.id !== user?.id && (
-            <button type="button" className="hover:text-red-600" onClick={() => requireAuth(() => setReporting(c.id))}>
+            <button type="button" className="transition-colors hover:text-brand-600" onClick={() => requireAuth(() => setReporting(c.id))}>
               举报
             </button>
           )}
           {c.can_delete && !c.deleted && (
-            <button type="button" className="hover:text-red-600" onClick={() => remove(c)} aria-label="删除">
-              <Trash2 className="size-3.5" />
+            <button type="button" className="transition-colors hover:text-brand-600" onClick={() => remove(c)} aria-label="删除" title="删除">
+              <Trash2 className="size-3.5" strokeWidth={1.5} />
             </button>
           )}
         </div>
-        {!!c.replies?.length && <div className="mt-3 space-y-3">{c.replies.map((r) => renderComment(r, true))}</div>}
+        {!!c.replies?.length && (
+          <div className="mt-4 space-y-4 border-l border-ink-200 pl-4">{c.replies.map((r) => renderComment(r, true))}</div>
+        )}
       </div>
     </div>
   )
 
   return (
-    <section id="comments">
-      <h3 className="mb-4 flex items-center gap-2 text-lg font-bold">
-        <MessageCircle className="size-5" />
-        评论 {shown > 0 && <span className="text-sm font-normal text-ink-400">{shown}</span>}
-      </h3>
+    <section id="comments" aria-labelledby="comments-title">
+      <div className="flex items-end justify-between gap-4 border-b border-ink-200 pb-3">
+        <div>
+          <p className="eyebrow">Comments · 评论</p>
+          <h2 id="comments-title" className="mt-1 text-[20px] leading-snug md:text-[22px]">
+            评论
+            {shown > 0 && <span className="font-num ml-2 text-base text-ink-400">{shown}</span>}
+          </h2>
+        </div>
+      </div>
 
-      <div className="rounded-2xl bg-white p-3 shadow-card">
+      <div className="mt-5 rounded-lg border border-ink-200 bg-white transition-colors focus-within:border-ink-900">
         {(replyTo || waypointId) && (
-          <div className="mb-2 flex items-center gap-2 text-xs text-ink-500">
+          <div className="flex items-center gap-2 border-b border-ink-100 px-3.5 py-2 text-xs text-ink-500">
             {replyTo ? (
-              <span>
-                回复 @{replyTo.author.nickname || replyTo.author.username}：{replyTo.content.slice(0, 30)}
+              <span className="min-w-0 truncate">
+                回复 <span className="text-ink-800">@{replyTo.author.nickname || replyTo.author.username}</span>：{replyTo.content.slice(0, 30)}
               </span>
             ) : (
-              <span className="rounded-full bg-sky-50 px-2 py-0.5 text-sky-700">📍 评论打卡点：{wpName(waypointId!)}</span>
+              <span className="inline-flex min-w-0 items-center gap-1 truncate">
+                <MapPin className="size-3 shrink-0" strokeWidth={1.75} />
+                评论打卡点：<span className="text-ink-800">{wpName(waypointId!)}</span>
+              </span>
             )}
             <button
               type="button"
               onClick={() => (replyTo ? setReplyTo(null) : onClearWaypoint?.())}
-              className="text-ink-400 hover:text-ink-700"
+              className="ml-auto shrink-0 rounded-sm p-0.5 text-ink-400 hover:text-ink-900"
               aria-label="取消"
             >
-              <X className="size-3.5" />
+              <X className="size-3.5" strokeWidth={1.75} />
             </button>
           </div>
         )}
@@ -168,12 +176,13 @@ export function CommentSection({ tripId, placeId, count, onCountChange, waypoint
               ref={inputRef}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder={placeId ? '说说你的真实体验，或问问去过的人～' : '说点什么，或者问问作者细节～'}
+              placeholder={placeId ? '说说你的真实体验，或者问问去过的人' : '说点什么，或者问问作者细节'}
+              aria-label="评论内容"
               maxLength={1000}
-              className="min-h-20 border-transparent bg-ink-100 focus:bg-white"
+              className="min-h-24 resize-y rounded-lg border-transparent bg-transparent px-3.5 text-[14.5px] focus:border-transparent focus:ring-0"
             />
-            <div className="mt-2 flex items-center justify-between">
-              <span className="text-xs text-ink-400">{text.length}/1000</span>
+            <div className="flex items-center justify-between border-t border-ink-100 px-3.5 py-2">
+              <span className="font-num text-xs text-ink-400">{text.length} / 1000</span>
               <Button size="sm" disabled={!text.trim()} loading={send.isPending} onClick={() => requireAuth(() => send.mutate())}>
                 发布
               </Button>
@@ -184,25 +193,26 @@ export function CommentSection({ tripId, placeId, count, onCountChange, waypoint
           <button
             type="button"
             onClick={() => requireAuth(() => {})}
-            className="flex min-h-20 w-full items-center justify-center rounded-xl bg-ink-100 px-3 text-sm text-ink-500 transition hover:text-brand-600"
+            className="flex min-h-24 w-full items-center justify-center gap-2 rounded-lg px-3 text-sm text-ink-500 transition-colors hover:text-ink-900"
           >
             {placeId ? '登录后说说你的真实体验，或问问去过的人' : '登录后参与评论'}
+            <span aria-hidden>→</span>
           </button>
         )}
       </div>
 
-      <div className="mt-5 space-y-5">
+      <div className="mt-2 divide-y divide-ink-200">
         {comments.map((c) => renderComment(c))}
-        {q.isLoadingError && <LoadError className="py-8" title="评论加载失败" error={q.error} onRetry={() => q.refetch()} />}
-        {!q.isLoading && !q.isLoadingError && comments.length === 0 && <Empty title="还没有评论" desc="来抢沙发吧" className="py-8" />}
-        {q.hasNextPage && (
-          <div className="flex justify-center">
-            <Button variant="ghost" size="sm" loading={q.isFetchingNextPage} onClick={() => q.fetchNextPage()}>
-              查看更多评论
-            </Button>
-          </div>
-        )}
       </div>
+      {q.isLoadingError && <LoadError className="py-8" title="评论加载失败" error={q.error} onRetry={() => q.refetch()} />}
+      {!q.isLoading && !q.isLoadingError && comments.length === 0 && <Empty title="还没有评论" desc="来写下第一条吧" className="py-10" />}
+      {q.hasNextPage && (
+        <div className="flex justify-center border-t border-ink-200 pt-4">
+          <Button variant="ghost" size="sm" loading={q.isFetchingNextPage} onClick={() => q.fetchNextPage()}>
+            查看更多评论
+          </Button>
+        </div>
+      )}
       <ReportDialog target={reporting ? { type: 'comment', id: reporting } : null} onClose={() => setReporting(null)} />
     </section>
   )

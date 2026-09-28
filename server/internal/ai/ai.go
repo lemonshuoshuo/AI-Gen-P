@@ -178,13 +178,11 @@ type Delta struct {
 	Reasoning string
 }
 
-// optionalFields are body fields a provider may not know; a request they
-// break is retried once without them (see retryable).
-var optionalFields = []string{"response_format", "thinking", "enable_thinking", "reasoning_effort"}
-
-// body builds the request body: the base fields, then the optional ones
-// (JSON mode, thinking switch, TRIPHUB_AI_EXTRA_BODY). optional lists the
-// keys that a retry without optional fields drops.
+// body builds the request body: the base fields (model, messages,
+// temperature, stream, max_tokens), then the optional ones a provider may
+// not know: JSON mode (response_format), the thinking switch (thinking,
+// reasoning_effort, enable_thinking) and TRIPHUB_AI_EXTRA_BODY. optional
+// lists the keys that a retry without optional fields drops (see retryable).
 func (c *Client) body(msgs []Message, o Options, stream bool) (body map[string]any, optional []string) {
 	temp := 0.4
 	if o.Temperature != nil {
@@ -273,14 +271,24 @@ func (c *Client) Complete(ctx context.Context, msgs []Message, o Options) (strin
 	defer cancel()
 	start := time.Now()
 	body, optional := c.body(msgs, o, false)
+	return c.completeRetry(ctx, body, optional, start)
+}
+
+// completeRetry is complete, retried once without the optional fields when
+// the provider rejects one of them.
+func (c *Client) completeRetry(ctx context.Context, body map[string]any, optional []string, start time.Time) (string, error) {
 	text, err := c.complete(ctx, body, start)
 	if c.retryable(err, optional) {
-		for _, k := range optional {
-			delete(body, k)
-		}
+		stripOptional(body, optional)
 		text, err = c.complete(ctx, body, start)
 	}
 	return text, err
+}
+
+func stripOptional(body map[string]any, optional []string) {
+	for _, k := range optional {
+		delete(body, k)
+	}
 }
 
 func (c *Client) withDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -438,7 +446,10 @@ func errorText(raw json.RawMessage) string {
 	return strings.Join(parts, " | ")
 }
 
-var modelMissingRe = regexp.MustCompile(`(?i)(model[^.]{0,80}(not[ _]?exist|not[ _]found|does not exist|unknown|invalid|no such|不存在)|model_not_found|模型不存在|unknown model|invalid model)`)
+// modelMissingRe matches "model not found" messages: DeepSeek "Model Not
+// Exist", OpenAI "The model `x` does not exist", Ollama "model 'x' not
+// found", Kimi "Not found the model x", 智谱 "模型不存在".
+var modelMissingRe = regexp.MustCompile(`(?i)(model_not_found|模型不存在|unknown model|no such model|not found the model|model[^.|]{0,60}?(does not exist|not[ _]?exist|not[ _]found))`)
 
 // classify maps an HTTP status and the provider's message to an *Error.
 func (c *Client) classify(status int, msg string) *Error {
@@ -502,17 +513,22 @@ func (c *Client) ChatStream(ctx context.Context, msgs []Message, o Options, onDe
 	start := time.Now()
 	body, optional := c.body(msgs, o, true)
 	text, got, err := c.stream(ctx, body, start, onDelta)
-	if !got && c.retryable(err, optional) {
-		for _, k := range optional {
-			delete(body, k)
-		}
+	if !got && c.retryable(err, optional) && !namesStream(err) {
+		stripOptional(body, optional)
+		optional = nil
 		text, got, err = c.stream(ctx, body, start, onDelta)
 	}
 	if err != nil && !got && streamUnsupported(err) {
 		body["stream"] = false
-		text, err = c.complete(ctx, body, start)
+		text, err = c.completeRetry(ctx, body, optional, start)
 	}
 	return text, err
+}
+
+// namesStream reports a rejection that is about streaming itself.
+func namesStream(err error) bool {
+	var e *Error
+	return errors.As(err, &e) && strings.Contains(strings.ToLower(e.Detail), "stream")
 }
 
 // streamUnsupported reports errors after which a non-streaming request may

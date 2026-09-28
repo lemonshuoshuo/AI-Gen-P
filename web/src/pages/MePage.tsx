@@ -16,47 +16,52 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { api } from '@/api'
-import { Avatar, Card, LevelBadge } from '@/components/ui'
-import { useSite } from '@/hooks/useSite'
+import { Avatar, buttonClass, LevelBadge } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { fmtCount } from '@/lib/format'
+import { useSite } from '@/hooks/useSite'
 import { isAdmin, useAuth } from '@/stores/auth'
 
 interface LinkItem {
   to: string
   label: string
   icon: LucideIcon
-  color: string
   extra?: ReactNode
 }
 
+/** 待处理数量：小号 Fraunces 数字 + 文字，朱砂色（情侣空间用胭脂色），不用色块 */
 function Badge({ children, tone = 'brand' }: { children: ReactNode; tone?: 'brand' | 'love' }) {
   return (
-    <span
-      className={cn(
-        'inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white',
-        tone === 'love' ? 'bg-love-gradient' : 'bg-brand-500',
-      )}
-    >
+    <span className={cn('inline-flex items-center gap-1.5 text-[13px]', tone === 'love' ? 'text-pink-600' : 'text-brand-600')}>
+      <span className={cn('size-1.5 rounded-full', tone === 'love' ? 'bg-pink-500' : 'bg-brand-500')} aria-hidden />
       {children}
     </span>
   )
 }
 
-function LinkGroup({ items }: { items: LinkItem[] }) {
+const Num = ({ children }: { children: ReactNode }) => <span className="font-num">{children}</span>
+
+/** 目录式的细线列表：细线图标 + 标签 + 右侧补充 + 箭头 */
+function LinkGroup({ title, items }: { title: string; items: LinkItem[] }) {
   return (
-    <Card className="divide-y divide-ink-100 overflow-hidden">
-      {items.map((it) => (
-        <Link key={it.to} to={it.to} className="flex items-center gap-3 px-4 py-3.5 transition hover:bg-ink-50 active:bg-ink-100">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-xl text-white" style={{ background: it.color }}>
-            <it.icon className="size-4.5" />
-          </span>
-          <span className="flex-1 text-[15px] font-medium text-ink-900">{it.label}</span>
-          {it.extra && <span className="min-w-0 truncate text-sm text-ink-400">{it.extra}</span>}
-          <ChevronRight className="size-4 shrink-0 text-ink-300" />
-        </Link>
-      ))}
-    </Card>
+    <section>
+      <p className="eyebrow">{title}</p>
+      <ul className="mt-2 divide-y divide-ink-200 border-y border-ink-200">
+        {items.map((it) => (
+          <li key={it.to}>
+            <Link
+              to={it.to}
+              className="group flex items-center gap-3.5 py-3.5 transition-colors hover:bg-white/55 active:bg-white/80"
+            >
+              <it.icon className="size-[18px] shrink-0 text-ink-500 group-hover:text-ink-900" strokeWidth={1.5} />
+              <span className="flex-1 text-[15px] text-ink-900">{it.label}</span>
+              {it.extra && <span className="min-w-0 truncate text-sm text-ink-400">{it.extra}</span>}
+              <ChevronRight className="size-4 shrink-0 text-ink-300 transition-transform group-hover:translate-x-0.5" strokeWidth={1.5} />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
@@ -86,25 +91,29 @@ export default function MePage() {
   const stats = profile.data?.stats
 
   const main: LinkItem[] = [
-    { to: `/u/${user.username}`, label: '我的主页', icon: User, color: '#0ea5e9' },
+    { to: `/u/${user.username}`, label: '我的主页', icon: User },
     {
       to: '/me/trips',
       label: '我的旅程',
       icon: MapIcon,
-      color: '#ff5a5f',
-      extra: tripInvites > 0 && <Badge>{tripInvites} 个邀请</Badge>,
+      extra: tripInvites > 0 && (
+        <Badge>
+          <Num>{tripInvites}</Num> 个邀请
+        </Badge>
+      ),
     },
-    { to: '/me/favorites', label: '我的收藏', icon: Bookmark, color: '#f59e0b' },
-    { to: '/footprints', label: '我的足迹', icon: Footprints, color: '#10b981' },
+    { to: '/me/favorites', label: '我的收藏', icon: Bookmark },
+    { to: '/footprints', label: '我的足迹', icon: Footprints },
     {
       to: '/together',
       label: '我们（情侣空间）',
       icon: Heart,
-      color: '#ec4899',
       extra: user.partner ? (
         `和 ${user.partner.nickname || user.partner.username}`
       ) : partnerInvites > 0 ? (
-        <Badge tone="love">{partnerInvites} 个邀请</Badge>
+        <Badge tone="love">
+          <Num>{partnerInvites}</Num> 个邀请
+        </Badge>
       ) : (
         '未绑定'
       ),
@@ -115,50 +124,73 @@ export default function MePage() {
       to: '/notifications',
       label: '通知',
       icon: Bell,
-      color: '#8b5cf6',
-      extra: unread > 0 && <Badge>{unread > 99 ? '99+' : unread}</Badge>,
+      extra: unread > 0 && (
+        <Badge>
+          <Num>{unread > 99 ? '99+' : unread}</Num> 条未读
+        </Badge>
+      ),
     },
-    { to: '/settings', label: '账号设置', icon: Settings, color: '#64748b' },
-    ...(isAdmin(user) ? [{ to: '/admin', label: '管理后台', icon: Shield, color: '#1c1b22' }] : []),
+    { to: '/settings', label: '账号设置', icon: Settings },
+    ...(isAdmin(user) ? [{ to: '/admin', label: '管理后台', icon: Shield }] : []),
   ]
 
   return (
-    <div className="mx-auto max-w-lg space-y-4 px-4 py-6">
-      {/* 资料卡 */}
-      <div className="bg-brand-gradient relative overflow-hidden rounded-3xl p-5 text-white shadow-lg shadow-brand-500/20">
-        <div className="pointer-events-none absolute -top-16 -right-10 size-48 rounded-full bg-white/10" />
-        <div className="relative flex items-center gap-4">
-          <Avatar user={user} size={64} ring />
+    <div className="mx-auto max-w-lg px-4 pt-6 pb-12 md:pt-10">
+      {/* 刊头：头像、宋体名字、等级与经验细线 */}
+      <header>
+        <p className="eyebrow">Traveler · 旅人</p>
+        <div className="mt-4 flex items-center gap-4">
+          <Avatar user={user} size={68} />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-xl font-extrabold">{user.nickname || user.username}</div>
-            <div className="truncate text-sm text-white/75">@{user.username}</div>
-            <div className="mt-1.5 flex items-center gap-1.5 text-sm">
-              <LevelBadge level={user.level} className="ring-1 ring-white/60" />
-              <span className="font-medium">{user.level_name}</span>
-              {isAdmin(user) && <span className="rounded bg-white/20 px-1.5 text-xs">管理员</span>}
+            <h1 className="truncate text-[26px] leading-tight text-ink-900">{user.nickname || user.username}</h1>
+            <div className="mt-1 flex min-w-0 items-center gap-2 text-sm text-ink-500">
+              <span className="truncate">@{user.username}</span>
+              {isAdmin(user) && (
+                <span className="inline-flex h-4 shrink-0 items-center rounded-sm bg-ink-900 px-1 text-[10px] leading-none text-paper">
+                  管理员
+                </span>
+              )}
             </div>
           </div>
-          <Link
-            to="/settings"
-            aria-label="编辑资料"
-            className="flex size-9 shrink-0 items-center justify-center self-start rounded-full bg-white/20 transition hover:bg-white/30"
-          >
-            <PenLine className="size-4" />
+          <Link to="/settings" aria-label="编辑资料" className={buttonClass({ variant: 'outline', size: 'sm', className: 'self-start' })}>
+            <PenLine className="size-3.5" strokeWidth={1.75} />
+            <span className="max-sm:sr-only">编辑资料</span>
           </Link>
         </div>
-        <div className="relative mt-4">
-          <div className="flex justify-between text-xs text-white/80 tabular-nums">
-            <span>经验 {user.exp}</span>
-            <span>{nextExp ? `下一级 ${nextExp}` : '已满级'}</span>
+
+        <div className="mt-6">
+          <div className="flex items-end justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <LevelBadge level={user.level} className="h-5 px-1.5 text-xs" />
+              <span className="font-display text-[15px] text-ink-900">{user.level_name}</span>
+            </div>
+            <div className="text-xs text-ink-400">
+              经验 <span className="font-num text-xl leading-none text-ink-900">{user.exp}</span>
+              {nextExp ? (
+                <>
+                  {' '}
+                  / <span className="font-num">{nextExp}</span>
+                </>
+              ) : (
+                ' · 已满级'
+              )}
+            </div>
           </div>
-          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/25">
-            <div className="h-full rounded-full bg-white" style={{ width: `${progress * 100}%` }} />
+          <div
+            className="relative mt-2.5 h-[3px] bg-ink-200"
+            role="progressbar"
+            aria-label="升级进度"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progress * 100)}
+          >
+            <div className="absolute inset-y-0 left-0 bg-brand-500" style={{ width: `${progress * 100}%` }} />
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* 数据 */}
-      <Card className="grid grid-cols-4 py-3.5 text-center">
+      {/* 数据：大号 Fraunces 数字，竖细线分隔 */}
+      <div className="mt-8 grid grid-cols-4 divide-x divide-ink-200 border-y border-ink-200">
         {(
           [
             ['旅程', stats?.trips],
@@ -167,30 +199,34 @@ export default function MePage() {
             ['获赞', stats?.likes],
           ] as const
         ).map(([label, v]) => (
-          <Link key={label} to={`/u/${user.username}`} className="min-w-0">
-            <div className="text-lg font-bold tabular-nums">{v == null ? '–' : fmtCount(v)}</div>
-            <div className="text-xs text-ink-400">{label}</div>
+          <Link
+            key={label}
+            to={`/u/${user.username}`}
+            className="min-w-0 py-4 text-center transition-colors hover:bg-white/55"
+          >
+            <div className="font-num text-[1.75rem] leading-none text-ink-900">{v == null ? '–' : fmtCount(v)}</div>
+            <div className="mt-2 text-xs tracking-wide text-ink-400">{label}</div>
           </Link>
         ))}
-      </Card>
+      </div>
 
-      <LinkGroup items={main} />
-      <LinkGroup items={more} />
+      <div className="mt-10 space-y-8">
+        <LinkGroup title="Journal · 旅行" items={main} />
+        <LinkGroup title="Account · 账户" items={more} />
+      </div>
 
-      <Card className="overflow-hidden">
-        <button
-          type="button"
-          onClick={async () => {
-            // 先离开受保护页面再登出，避免被重定向到登录页
-            await nav('/', { replace: true })
-            await logout()
-          }}
-          className="flex w-full items-center justify-center gap-2 py-3.5 text-[15px] font-medium text-red-600 transition hover:bg-red-50"
-        >
-          <LogOut className="size-4.5" />
-          退出登录
-        </button>
-      </Card>
+      <button
+        type="button"
+        onClick={async () => {
+          // 先离开受保护页面再登出，避免被重定向到登录页
+          await nav('/', { replace: true })
+          await logout()
+        }}
+        className="mt-8 flex w-full items-center justify-center gap-2 border-y border-ink-200 py-3.5 text-[15px] text-ink-500 transition-colors hover:bg-white/55 hover:text-brand-600"
+      >
+        <LogOut className="size-[18px]" strokeWidth={1.5} />
+        退出登录
+      </button>
     </div>
   )
 }

@@ -32,6 +32,10 @@ type Suggestion struct {
 	score float64
 }
 
+// RecommendAITimeout bounds the AI rerank of recommendations (or
+// TRIPHUB_AI_TIMEOUT when shorter); on timeout the rule-based results stay.
+const RecommendAITimeout = 20 * time.Second
+
 // MinAvoidWarn is the number of distinct users who must mark a place 踩雷
 // (with 踩雷 outnumbering 推荐) before it is pushed as a warning or listed
 // for the AI planner to avoid; one person's opinion is not a warning.
@@ -444,7 +448,8 @@ func (s *Service) aiRerank(ctx context.Context, trip *model.Trip, wps, todo, act
 如果你知道候选之外、附近非常值得一去的地点，可以在 ideas 中给出最多 2 个（只写确实存在的真实地点名称）。
 只输出 JSON，格式：{"picks":[{"index":1,"reason":"…"}],"text":"…","ideas":[{"name":"…","reason":"…"}]}`)
 
-	actx, cancel := context.WithTimeout(ctx, s.Cfg.AITimeout)
+	// A traveller is waiting on the spot: a short budget, then the rules.
+	actx, cancel := context.WithTimeout(ctx, min(RecommendAITimeout, s.Cfg.AITimeout))
 	defer cancel()
 	var reply aiRecommendReply
 	system := "你是一名熟悉中国各地的资深旅行向导，根据游客的实时位置、时间和行程推荐下一站。" + communityTextRule + "回答必须是严格的 JSON。"

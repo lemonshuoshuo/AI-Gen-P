@@ -1,10 +1,7 @@
 package handler
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"log/slog"
 	"math"
 	"net/http"
 	"slices"
@@ -14,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"triphub/internal/ai"
 	"triphub/internal/geo"
 	"triphub/internal/model"
 	"triphub/internal/service"
@@ -538,55 +534,5 @@ func (h *Handler) legs(c *gin.Context) error {
 		return err
 	}
 	c.JSON(http.StatusOK, h.svc.TripLegs(c.Request.Context(), wps, mode))
-	return nil
-}
-
-func (h *Handler) aiPlan(c *gin.Context) error {
-	if !h.svc.AI.Enabled() {
-		return errBad("未配置 AI 服务")
-	}
-	var req struct {
-		Destination string `json:"destination"`
-		Days        int    `json:"days"`
-		Preferences string `json:"preferences"`
-		StartDate   string `json:"start_date"`
-	}
-	if err := bindJSON(c, &req); err != nil {
-		return err
-	}
-	dest, err := clean(req.Destination, "目的地", 30, true)
-	if err != nil {
-		return err
-	}
-	if req.Days == 0 {
-		req.Days = 3
-	}
-	if req.Days < 1 || req.Days > 15 {
-		return errBad("天数范围为 1–15 天")
-	}
-	prefs, err := clean(req.Preferences, "偏好", 300, false)
-	if err != nil {
-		return err
-	}
-	if _, err := parseDate(req.StartDate, "start_date"); err != nil {
-		return err
-	}
-	if !h.aiLimit.Allow(fmt.Sprintf("u%d", currentUserID(c))) {
-		return errTooMany("AI 使用过于频繁，请稍后再试")
-	}
-	res, err := h.svc.AIPlan(c.Request.Context(), service.PlanRequest{
-		Destination: dest, Days: req.Days, Preferences: prefs, StartDate: strings.TrimSpace(req.StartDate),
-	})
-	if err != nil {
-		slog.Warn("ai plan failed", "err", err)
-		if errors.Is(err, context.DeadlineExceeded) {
-			return &apiError{http.StatusInternalServerError, "internal", "AI 服务响应超时，请稍后再试"}
-		}
-		if errors.Is(err, ai.ErrNoJSON) {
-			return &apiError{http.StatusInternalServerError, "internal", "AI 返回的内容无法解析，请重试"}
-		}
-		return &apiError{http.StatusInternalServerError, "internal", "AI 服务暂时不可用，请稍后再试"}
-	}
-	c.JSON(http.StatusOK, res)
 	return nil
 }

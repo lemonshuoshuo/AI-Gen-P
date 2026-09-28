@@ -45,16 +45,20 @@ type FootStats struct {
 
 // FootPoint is a visited waypoint.
 type FootPoint struct {
-	Lng       float64 `json:"lng"`
-	Lat       float64 `json:"lat"`
-	Name      string  `json:"name"`
-	City      string  `json:"city"`
-	Province  string  `json:"province"`
-	Category  string  `json:"category"`
-	Verdict   string  `json:"verdict"`
-	TripID    int64   `json:"trip_id"`
-	TripTitle string  `json:"trip_title"`
-	Date      *string `json:"date"`
+	WaypointID int64 `json:"waypoint_id"`
+	// PhotoThumb is the thumbnail of the waypoint's first photo (in the
+	// order of the trip page), "" when it has none.
+	PhotoThumb string  `json:"photo_thumb_url"`
+	Lng        float64 `json:"lng"`
+	Lat        float64 `json:"lat"`
+	Name       string  `json:"name"`
+	City       string  `json:"city"`
+	Province   string  `json:"province"`
+	Category   string  `json:"category"`
+	Verdict    string  `json:"verdict"`
+	TripID     int64   `json:"trip_id"`
+	TripTitle  string  `json:"trip_title"`
+	Date       *string `json:"date"`
 }
 
 // FootProvince counts visited waypoints per province.
@@ -183,7 +187,7 @@ func (s *Service) BuildFootprints(db *gorm.DB, tripIDs *gorm.DB) (*Footprints, e
 		})
 
 		for _, w := range route {
-			points = append(points, FootPoint{
+			points = append(points, FootPoint{WaypointID: w.ID,
 				Lng: geo.Round(w.Lng, 6), Lat: geo.Round(w.Lat, 6), Name: w.Name, City: w.City, Province: w.Province,
 				Category: w.Category, Verdict: w.Verdict, TripID: t.ID, TripTitle: t.Title, Date: s.pointDate(&t, &w),
 			})
@@ -220,6 +224,13 @@ func (s *Service) BuildFootprints(db *gorm.DB, tripIDs *gorm.DB) (*Footprints, e
 		points = sampled
 	}
 	if points != nil {
+		thumbs, err := firstPhotoThumbs(db, points)
+		if err != nil {
+			return nil, err
+		}
+		for i := range points {
+			points[i].PhotoThumb = thumbs[points[i].WaypointID]
+		}
 		out.Points = points
 	}
 	for _, p := range provCount {
@@ -251,6 +262,37 @@ func (s *Service) BuildFootprints(db *gorm.DB, tripIDs *gorm.DB) (*Footprints, e
 	if !first.IsZero() {
 		f, l := first.Format("2006-01-02"), last.Format("2006-01-02")
 		out.Stats.FirstDate, out.Stats.LastDate = &f, &l
+	}
+	return out, nil
+}
+
+// firstPhotoThumbs returns the thumbnail URL of the first photo (by taken_at,
+// then id, as the trip page lists them) of each point's waypoint. The trips
+// of a footprint are ones whose photos the viewer may see (the callers
+// select them: the viewer's own, the couple's shared, or public trips
+// without hidden live progress), and a photo only counts for a waypoint of
+// its own trip.
+func firstPhotoThumbs(db *gorm.DB, points []FootPoint) (map[int64]string, error) {
+	out := map[int64]string{}
+	ids := make([]int64, 0, len(points))
+	for _, p := range points {
+		ids = append(ids, p.WaypointID)
+	}
+	var rows []struct {
+		WaypointID int64
+		ThumbPath  string
+	}
+	for start := 0; start < len(ids); start += 5000 {
+		chunk := ids[start:min(start+5000, len(ids))]
+		if err := db.Raw(`SELECT DISTINCT ON (p.waypoint_id) p.waypoint_id, p.thumb_path
+FROM photos p JOIN waypoints w ON w.id = p.waypoint_id AND w.trip_id = p.trip_id
+WHERE p.waypoint_id IN ?
+ORDER BY p.waypoint_id, p.taken_at ASC NULLS LAST, p.id ASC`, chunk).Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			out[r.WaypointID] = media.URL(r.ThumbPath)
+		}
 	}
 	return out, nil
 }

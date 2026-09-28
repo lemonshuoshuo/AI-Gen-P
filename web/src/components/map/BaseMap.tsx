@@ -7,7 +7,7 @@ import { useSite } from '@/hooks/useSite'
 import { loadAtlas } from '@/lib/atlas'
 import { cn } from '@/lib/cn'
 import { CHINA_CENTER, getCurrentPosition } from '@/lib/geo'
-import { buildStyle, defaultAttribution, defaultTiles, setBaseKind, type BaseKind } from './style'
+import { atlasPaint, buildStyle, defaultAttribution, defaultTiles, setBaseKind, type BaseKind } from './style'
 import './maplibre.css'
 
 setWorkerUrl(workerUrl)
@@ -42,13 +42,14 @@ async function addAtlasFallback(map: MLMap, kind: () => BaseKind) {
   try {
     const atlas = await loadAtlas()
     if (!map.getStyle() || map.getSource('th-atlas')) return
+    const paint = atlasPaint(kind())
     map.addSource('th-atlas', { type: 'geojson', data: atlas.provinces })
     map.addLayer(
       {
         id: 'th-atlas-fill',
         type: 'fill',
         source: 'th-atlas',
-        paint: { 'fill-color': kind() === 'dark' ? '#131d1f' : '#faf7f0', 'fill-opacity': 0.9 },
+        paint: { 'fill-color': paint.fill as string, 'fill-opacity': 0.9 },
       },
       'th-normal',
     )
@@ -57,7 +58,7 @@ async function addAtlasFallback(map: MLMap, kind: () => BaseKind) {
         id: 'th-atlas-line',
         type: 'line',
         source: 'th-atlas',
-        paint: { 'line-color': kind() === 'dark' ? '#2c3d40' : '#cdc3b1', 'line-width': 0.8 },
+        paint: { 'line-color': paint.line as string, 'line-width': 0.8 },
       },
       'th-normal',
     )
@@ -65,6 +66,10 @@ async function addAtlasFallback(map: MLMap, kind: () => BaseKind) {
     /* 忽略 */
   }
 }
+
+/** 地图上的细线纸质小按钮（底图切换、定位、全程等） */
+export const mapChipClass =
+  'flex h-8 items-center justify-center gap-1.5 rounded-lg border border-ink-900/10 bg-white/90 px-2.5 text-xs font-medium tracking-wide text-ink-700 shadow-card backdrop-blur transition-colors hover:border-ink-900/25 hover:text-ink-900 disabled:opacity-45'
 
 export function BaseMap({
   className,
@@ -164,32 +169,34 @@ export function BaseMap({
   }
 
   return (
-    <div className={cn(!/\b(absolute|fixed)\b/.test(className ?? '') && 'relative', 'overflow-hidden', className)}>
+    <div
+      className={cn(
+        !/\b(absolute|fixed)\b/.test(className ?? '') && 'relative',
+        'overflow-hidden',
+        baseKind === 'dark' && 'th-map-dark',
+        className,
+      )}
+    >
       <div ref={ref} className="absolute inset-0" />
       <MapCtx.Provider value={map}>{map && children}</MapCtx.Provider>
       {(kindSwitcher || locate) && (
-        <div className="absolute top-3 right-3 z-10 flex flex-col gap-2">
+        <div className="absolute top-3 right-3 z-10 flex flex-col items-end gap-2">
           {kindSwitcher && (
             <button
               type="button"
               onClick={() =>
                 setKind((k) => (k === 'normal' ? 'satellite' : k === 'satellite' ? 'dark' : 'normal'))
               }
-              className="glass flex h-9 items-center gap-1.5 rounded-full px-3 text-xs font-medium text-ink-700 shadow-card"
+              className={mapChipClass}
               title="切换底图"
             >
-              <Layers className="size-4" />
-              {baseKind === 'normal' ? '标准' : baseKind === 'satellite' ? '卫星' : '夜间'}
+              <Layers className="size-3.5" strokeWidth={1.6} />
+              {baseKind === 'satellite' ? '卫星' : baseKind === 'dark' ? '夜间' : '标准'}
             </button>
           )}
           {locate && (
-            <button
-              type="button"
-              onClick={doLocate}
-              className="glass flex size-9 items-center justify-center self-end rounded-full text-ink-700 shadow-card"
-              title="定位到当前位置"
-            >
-              <LocateFixed className="size-4" />
+            <button type="button" onClick={doLocate} className={cn(mapChipClass, 'w-8 px-0')} title="定位到当前位置" aria-label="定位到当前位置">
+              <LocateFixed className="size-4" strokeWidth={1.6} />
             </button>
           )}
         </div>

@@ -97,9 +97,10 @@ func runHealthcheck() int {
 	return 0
 }
 
-// shutdownTimeout is how long in-flight requests (an AI plan takes up to
-// TRIPHUB_AI_TIMEOUT) may run after SIGTERM. It must stay below the compose
-// stop_grace_period (45s), after which Docker kills the process.
+// shutdownTimeout is how long in-flight requests may run after SIGTERM (an
+// AI plan may take up to TRIPHUB_AI_TIMEOUT and is cut off after this). It
+// must stay below the compose stop_grace_period (45s), after which Docker
+// kills the process.
 const shutdownTimeout = 40 * time.Second
 
 func run() error {
@@ -119,7 +120,8 @@ func run() error {
 	defer stop()
 
 	slog.Info("starting triphub", "version", version.Version, "addr", cfg.Addr, "data_dir", cfg.DataDir,
-		"amap", cfg.AmapKey != "", "ai", cfg.AIEnabled())
+		"amap", cfg.AmapKey != "", "tianditu", cfg.TiandituKey != "", "ai", cfg.AIEnabled(), "ai_model", cfg.AIModel,
+		"ai_thinking", cfg.AIThinking, "ai_timeout", cfg.AITimeout)
 
 	gdb, err := db.Open(ctx, cfg.DBDSN, 60*time.Second)
 	if err != nil {
@@ -136,8 +138,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	svc := service.New(gdb, cfg, atlas, amap.New(cfg.AmapKey), ai.New(cfg.AIBaseURL, cfg.AIAPIKey, cfg.AIModel, cfg.AITimeout),
-		media.NewStore(cfg.UploadDir(), 2), settings, loc)
+	aic := ai.NewClient(ai.Config{BaseURL: cfg.AIBaseURL, APIKey: cfg.AIAPIKey, Model: cfg.AIModel, Timeout: cfg.AITimeout,
+		Thinking: cfg.AIThinking, ExtraBody: cfg.AIExtraBody})
+	svc := service.New(gdb, cfg, atlas, amap.New(cfg.AmapKey), aic, media.NewStore(cfg.UploadDir(), 2), settings, loc)
 	switch res, err := svc.SeedAdmin(ctx, cfg.AdminUsername, cfg.AdminPassword); {
 	case err != nil:
 		return fmt.Errorf("seed admin: %w", err)

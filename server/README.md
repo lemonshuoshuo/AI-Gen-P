@@ -47,17 +47,20 @@ The binary embeds CA roots and zoneinfo, so it runs in a `FROM scratch` image.
 | `TRIPHUB_DATA_DIR` | `./data` | Uploads (`uploads/YYYY/MM/…`) and the generated `jwt_secret` |
 | `TRIPHUB_JWT_SECRET` | *(generated)* | HMAC secret; generated once and stored at `DATA_DIR/jwt_secret` if empty. If set, it must be at least 32 characters (startup fails otherwise), e.g. `openssl rand -hex 32` |
 | `TRIPHUB_ADMIN_USERNAME` / `TRIPHUB_ADMIN_PASSWORD` | – | Create this admin if missing; the password must meet the password policy (8–64 characters, not a placeholder such as the one in `.env.example`), otherwise startup fails. Never changes an existing account's password; an existing normal user is promoted only if the password matches its current one (otherwise a warning is logged). Forgot it? Use `reset-password` |
-| `TRIPHUB_AMAP_KEY` | – | 高德 Web 服务 key: POI search, reverse geocoding, nearby search, route planning (leg distances and times of a planned route). Without it search falls back to offline province/city search and legs are estimated from straight-line distances |
+| `TRIPHUB_AMAP_KEY` | – | 高德 key of the **「Web服务」** platform: POI search (keyword search + input tips, merged), reverse geocoding (AOIs / POIs for map picks and auto names), nearby search, route planning (leg distances and times of a planned route). Without it (or while it fails) search falls back to Tianditu or offline province/city search and legs are estimated from straight-line distances; failures are reported as `amap_error` and in `GET /api/v1/admin/diagnostics` |
+| `TRIPHUB_TIANDITU_KEY` | – | Optional 天地图 key of type 「服务端」: free fallback for place search (`/v2/search`) and reverse geocoding (`/geocoder`) when AMap is not configured, fails or finds nothing. Coordinates (CGCS2000 ≈ WGS-84) are converted to GCJ-02 |
 | `TRIPHUB_CORS_ORIGINS` | – | Comma-separated allowed origins (`*` for any), e.g. `http://localhost:5173`. Empty = same-origin only |
 | `TRIPHUB_TRUSTED_PROXIES` | loopback + private ranges | Comma-separated IPs / CIDRs whose `X-Forwarded-For` / `X-Real-IP` is trusted for the client IP (rate limits, logs). `none` = trust nobody (use it when clients reach the app through a port forwarder such as rootless Docker, frp, or docker-proxy for IPv6) |
 | `TRIPHUB_MAX_UPLOAD_MB` | `20` | Max size of one uploaded image |
 | `TRIPHUB_SITE_NAME` | `TripHub` | Initial site name (admin settings override it) |
 | `TRIPHUB_TILES_NORMAL` / `TRIPHUB_TILES_SATELLITE` / `TRIPHUB_TILES_SATELLITE_LABEL` | 高德 raster tiles | Comma-separated tile URL templates returned by `GET /site` |
 | `TRIPHUB_TILES_ATTRIBUTION` | `© 高德地图` | Basemap copyright / 审图号 shown in the map corner (`GET /site` `map.attribution`, HTML allowed); set it when using other tiles |
-| `TRIPHUB_AI_BASE_URL` | – | OpenAI-compatible endpoint, e.g. `https://api.deepseek.com/v1`, `http://localhost:11434/v1` (Ollama) |
+| `TRIPHUB_AI_BASE_URL` | – | OpenAI-compatible endpoint, e.g. `https://api.deepseek.com`, `http://localhost:11434/v1` (Ollama). With or without `/v1`, trailing slashes, or the full `…/chat/completions` URL |
 | `TRIPHUB_AI_API_KEY` | – | API key (optional for local models) |
-| `TRIPHUB_AI_MODEL` | – | Model name, e.g. `deepseek-chat`, `qwen2.5:7b`. AI is enabled when base URL and model are set |
-| `TRIPHUB_AI_TIMEOUT` | `30s` | AI request timeout (Go duration or seconds) |
+| `TRIPHUB_AI_MODEL` | – | Model name, e.g. `deepseek-flash`, `qwen-plus`, `qwen2.5:7b`. AI is enabled when base URL and model are set |
+| `TRIPHUB_AI_TIMEOUT` | `120s` | Timeout of an AI plan (Go duration or seconds); recommendation reranking waits at most 20 s and falls back to rules |
+| `TRIPHUB_AI_THINKING` | `off` | Reasoning mode: `off` sends `"thinking":{"type":"disabled"}` to DeepSeek hosts and `"enable_thinking":false` to DashScope / Qwen hosts (nothing to others); `on` / `low` / `high` / `max` enable DeepSeek thinking (with `reasoning_effort` for the last three) |
+| `TRIPHUB_AI_EXTRA_BODY` | – | JSON object merged into every chat request body (provider-specific options), overriding the thinking fields. A 400 / 422 that names an optional field (thinking, response_format, extra fields) is retried once without them |
 | `GOMEMLIMIT` | unlimited (compose: `800MiB`) | Go runtime soft memory limit, e.g. `1500MiB` (units `MiB` / `GiB`), so the server leaves memory to Postgres on small hosts |
 
 ## Layout
@@ -69,8 +72,12 @@ internal/model       GORM models
 internal/db          Postgres connection + AutoMigrate + extra indexes
 internal/auth        bcrypt, JWT access tokens, rotating refresh tokens, rate limiter
 internal/geo         WGS84⇄GCJ02, haversine, Douglas-Peucker, offline TopoJSON atlas lookup/search
-internal/amap        高德 Web API client (search, around, detail, regeo, direction) with cache + circuit breaker
-internal/ai          OpenAI-compatible chat client + robust JSON extraction
+internal/amap        高德 Web API client (search + input tips, around, detail, regeo with AOIs/POIs, direction) with cache,
+                     circuit breaker and Chinese error explanations
+internal/tianditu    天地图 client (place search V2.0, reverse geocoding): optional fallback, same caching / breaker style
+internal/lru         small LRU cache with TTL used by the map clients
+internal/ai          OpenAI-compatible chat client: thinking switch per provider, streaming (SSE), retries without
+                     unknown optional fields, Chinese error messages, robust JSON extraction
 internal/media       image processing/storage, thumbnails, EXIF
 internal/service     business logic: permissions, exp/levels, notifications, stats, places, footprints,
                      recommendations, AI itinerary, route legs
