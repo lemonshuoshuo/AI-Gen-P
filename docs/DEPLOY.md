@@ -313,6 +313,16 @@ docker compose up -d --build       # 在服务器上编译前端和后端，自�
   - **防火墙 / 安全组**：`firewall-cmd --reload` 或改过 iptables 后要重启 Docker，否则容器出站的 NAT 规则会丢失；确认安全组放行出站 443；`daemon.json` 中不要设置 `"iptables": false`。
   - **MTU**：TCP 能连上但 TLS 握手超时，而宿主机上 `curl` 正常，多半是云服务器 / VPN 网卡的 MTU 小于 1500。用 `ip link` 查看网卡 MTU（如 1450），在 `docker-compose.yml` 末尾加上 `networks: {default: {driver_opts: {com.docker.network.driver.mtu: "1450"}}}`，然后 `docker compose down && docker compose up -d`。
   - **服务器时间不对**：TLS 证书校验失败（证书已过期或尚未生效）时用 `timedatectl` 检查时间。
+  - **HTTPS 被劫持检查**：诊断显示「TLS 证书不受信任（unknown authority）」，通常是公司 / 机房的防火墙或安全网关对 HTTPS 做了解密检查。镜像内置的是公共根证书，不认识这类网关的证书。向网络管理员要到网关的 CA 证书（PEM 格式，与公共根证书合并成一个文件），放在部署目录如 `ca.pem`，新建 `docker-compose.override.yml`：
+    ```yaml
+    services:
+      app:
+        volumes:
+          - ./ca.pem:/etc/ssl/ca.pem:ro
+        environment:
+          SSL_CERT_FILE: /etc/ssl/ca.pem
+    ```
+    然后 `docker compose up -d`。
   - **DeepSeek 余额不足**：诊断显示「AI 账户余额不足」（HTTP 402）时到 DeepSeek 开放平台充值。
 - **修改数据库密码**：`DB_PASSWORD` 只在第一次启动（`data/postgres` 为空）时用来初始化数据库，之后直接改 `.env` 会导致 app 日志出现 `password authentication failed`。正确做法：先执行 `docker compose exec db psql -U triphub -d triphub -c "ALTER USER triphub PASSWORD '新密码'"`，再把 `.env` 的 `DB_PASSWORD` 改成同一个值，然后 `docker compose up -d`。（首次部署、还没有任何数据时，也可以 `docker compose down && rm -rf data/postgres` 后重新启动。）
 - **HTTPS 没生效**：Caddy 要等 app 显示 `(healthy)` 后才启动，先用 `docker compose ps` 确认 app 正常；再执行 `docker compose logs caddy` 查看原因（常见：`.env` 未设置 `DOMAIN`、域名未解析到本机、80/443 端口被占用或安全组未放行、国内服务器域名未备案）。

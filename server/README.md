@@ -33,7 +33,7 @@ To ship the web UI inside the binary, build `web/` and copy its output into `int
 before `go build` (without it `/` shows a “前端尚未构建” notice page; the API works regardless).
 
 ```bash
-go build -trimpath -ldflags "-s -w -X triphub/internal/version.Version=v1.1.0" -o triphub ./cmd/triphub
+go build -trimpath -ldflags "-s -w -X triphub/internal/version.Version=v1.2.0" -o triphub ./cmd/triphub
 ```
 
 The binary embeds CA roots and zoneinfo, so it runs in a `FROM scratch` image.
