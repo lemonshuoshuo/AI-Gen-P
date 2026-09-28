@@ -1,38 +1,139 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/fraunces/wght.css';
+@import '@fontsource-variable/fraunces/wght-italic.css';
+@import './styles/serif-sc.css';
 
+/*
+ * TripHub 视觉系统 · 「旅行手账」
+ * 纸张底色 + 墨色文字 + 朱砂一点红；标题用宋体（思源宋体），数字与西文用 Fraunces；
+ * 细线代替投影，小圆角，低饱和的矿物色表示分类与评价。
+ */
 @theme {
-  --font-sans: 'Inter', system-ui, -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'HarmonyOS Sans SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', 'Segoe UI', sans-serif;
+  /* 标题：西文 Fraunces + 中文思源宋体 */
+  --font-display: 'Fraunces Variable', 'Noto Serif SC', 'Songti SC', 'STSong', serif;
+  /* 数字、英文小标题 */
+  --font-num: 'Fraunces Variable', Georgia, 'Noto Serif SC', serif;
 
-  --color-brand-50: #fff1f1;
-  --color-brand-100: #ffe0e0;
-  --color-brand-200: #ffc6c7;
-  --color-brand-300: #ff9ea0;
-  --color-brand-400: #ff7275;
-  --color-brand-500: #ff5a5f;
-  --color-brand-600: #ec3a40;
-  --color-brand-700: #c72a30;
-  --color-brand-800: #a4272c;
-  --color-brand-900: #88262a;
+  /* 朱砂 */
+  --color-brand-50: #fbf0eb;
+  --color-brand-100: #f5ddd3;
+  --color-brand-200: #ebbba8;
+  --color-brand-300: #de947b;
+  --color-brand-400: #cf6b4e;
+  --color-brand-500: #bd462b;
+  --color-brand-600: #a53a22;
+  --color-brand-700: #88301d;
+  --color-brand-800: #6c2718;
+  --color-brand-900: #531f14;
 
-  --color-sunset-400: #ff9a44;
-  --color-violet-brand: #7c5cff;
+  /* 墨与纸（暖灰） */
+  --color-ink-900: #1b1a17;
+  --color-ink-800: #292723;
+  --color-ink-700: #3a3731;
+  --color-ink-600: #4b4740;
+  --color-ink-500: #615c53;
+  /* 次要文字：纸色底上对比度 ≥ 4.5 */
+  --color-ink-400: #736d62;
+  --color-ink-300: #b9b1a2;
+  --color-ink-200: #ddd6c8;
+  --color-ink-100: #ece7dd;
+  --color-ink-50: #f4f1ea;
 
-  --color-ink-900: #1c1b22;
-  --color-ink-700: #3d3b48;
-  --color-ink-600: #55525f;
-  --color-ink-500: #6b6878;
-  /* 次要文字（时间、提示、未选中的标签）：白底 4.8:1、ink-50 底 4.6:1，满足 WCAG AA，户外强光下也看得清 */
-  --color-ink-400: #737080;
-  --color-ink-300: #c9c6d3;
-  --color-ink-200: #e6e4ec;
-  --color-ink-100: #f3f2f7;
-  --color-ink-50: #faf9fc;
+  --color-paper: #f4f1ea;
+  --color-white: #fffdf9;
+  --color-line: #ddd6c8;
+  --color-gold: #c9a868;
+  --color-night: #0c1314;
+  --color-sunset-400: #cf6b4e;
+  --color-violet-brand: #6b5b8a;
 
-  --shadow-card: 0 1px 2px rgb(28 27 34 / 0.04), 0 4px 16px rgb(28 27 34 / 0.06);
-  --shadow-float: 0 8px 32px rgb(28 27 34 / 0.16);
+  /* 把常用的亮色系换成低饱和的矿物色，页面里的状态色随之统一 */
+  --color-emerald-50: #eef4f1;
+  --color-emerald-100: #d9e8e1;
+  --color-emerald-200: #b5d2c5;
+  --color-emerald-300: #8bb6a3;
+  --color-emerald-400: #5f977f;
+  --color-emerald-500: #3e7a68;
+  --color-emerald-600: #336656;
+  --color-emerald-700: #2a5447;
+  --color-emerald-800: #22443a;
+  --color-emerald-900: #1b372f;
 
-  --animate-fade-in: fade-in 0.25s ease-out;
-  --animate-slide-up: slide-up 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --color-amber-50: #f9f3e7;
+  --color-amber-100: #f1e3c6;
+  --color-amber-200: #e5cb95;
+  --color-amber-300: #d6b066;
+  --color-amber-400: #c79a45;
+  --color-amber-500: #b7832f;
+  --color-amber-600: #9a6c25;
+  --color-amber-700: #7d561e;
+  --color-amber-800: #634419;
+  --color-amber-900: #4f3615;
+
+  --color-sky-50: #edf2f3;
+  --color-sky-100: #d8e3e6;
+  --color-sky-200: #b3c8cd;
+  --color-sky-300: #88a8b0;
+  --color-sky-400: #5d8591;
+  --color-sky-500: #3f6975;
+  --color-sky-600: #325662;
+  --color-sky-700: #294651;
+  --color-sky-800: #213942;
+  --color-sky-900: #1a2e35;
+
+  --color-violet-50: #f1eff5;
+  --color-violet-100: #e0dcea;
+  --color-violet-200: #c3bbd6;
+  --color-violet-300: #a397bf;
+  --color-violet-400: #8574a6;
+  --color-violet-500: #6b5b8a;
+  --color-violet-600: #594b74;
+  --color-violet-700: #493e5f;
+  --color-violet-800: #3a324c;
+  --color-violet-900: #2e283c;
+
+  --color-pink-50: #f7eef0;
+  --color-pink-100: #eed8de;
+  --color-pink-200: #dfb3be;
+  --color-pink-300: #cb8a9b;
+  --color-pink-400: #b56478;
+  --color-pink-500: #9d4a5f;
+  --color-pink-600: #843d50;
+  --color-pink-700: #6b3242;
+  --color-pink-800: #552835;
+  --color-pink-900: #43202a;
+
+  --color-red-50: #fbf0eb;
+  --color-red-100: #f5ddd3;
+  --color-red-200: #ebbba8;
+  --color-red-300: #de947b;
+  --color-red-400: #cf6b4e;
+  --color-red-500: #bd462b;
+  --color-red-600: #a53a22;
+  --color-red-700: #88301d;
+  --color-red-800: #6c2718;
+  --color-red-900: #531f14;
+
+  --color-orange-500: #c0662e;
+  --color-orange-600: #a3551f;
+  --color-indigo-500: #3d4e7a;
+
+  --radius-sm: 0.1875rem;
+  --radius-md: 0.3125rem;
+  --radius-lg: 0.4375rem;
+  --radius-xl: 0.5625rem;
+  --radius-2xl: 0.75rem;
+  --radius-3xl: 1rem;
+
+  --font-weight-extrabold: 600;
+
+  /* 细线代替投影 */
+  --shadow-card: 0 0 0 1px rgb(27 26 23 / 0.08), 0 1px 2px rgb(27 26 23 / 0.03);
+  --shadow-float: 0 0 0 1px rgb(27 26 23 / 0.07), 0 18px 48px -12px rgb(27 26 23 / 0.28);
+
+  --animate-fade-in: fade-in 0.3s ease-out;
+  --animate-slide-up: slide-up 0.45s cubic-bezier(0.16, 1, 0.3, 1);
   --animate-pulse-ring: pulse-ring 1.8s ease-out infinite;
 
   @keyframes fade-in {
@@ -40,7 +141,7 @@
     to { opacity: 1; }
   }
   @keyframes slide-up {
-    from { opacity: 0; transform: translateY(16px); }
+    from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: translateY(0); }
   }
   @keyframes pulse-ring {
@@ -55,7 +156,34 @@
     text-size-adjust: 100%;
   }
   body {
-    @apply bg-ink-50 text-ink-900 font-sans antialiased;
+    @apply bg-paper text-ink-900 font-sans antialiased;
+    font-feature-settings: 'palt' 1;
+  }
+  /* 纸张肌理：极淡的噪点，让大面积底色不死板 */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.35;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.35 0 0 0 0 0.3 0 0 0 0 0.22 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-synthesis-weight: none;
+    letter-spacing: 0.01em;
+  }
+  ::selection {
+    background: var(--color-brand-100);
+    color: var(--color-ink-900);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ink-900);
+    outline-offset: 2px;
   }
   button {
     cursor: pointer;
@@ -65,29 +193,55 @@
   }
 }
 
+/* 旧名称保留，外观改为纯色：朱砂作为唯一强调色 */
 @utility bg-brand-gradient {
-  background-image: linear-gradient(135deg, #ff5a5f 0%, #ff9a44 100%);
+  background-color: var(--color-brand-500);
 }
 @utility text-brand-gradient {
-  background-image: linear-gradient(135deg, #ff5a5f 0%, #ff9a44 100%);
-  background-clip: text;
-  color: transparent;
+  color: var(--color-brand-500);
 }
+/* 「我们」：胭脂到黛紫的深色调 */
 @utility bg-love-gradient {
-  background-image: linear-gradient(135deg, #ff6b9d 0%, #c56cf0 100%);
+  background-image: linear-gradient(120deg, #7e3246 0%, #4f3d62 100%);
 }
 @utility bg-night {
-  background-image: radial-gradient(ellipse at top, #1d2240 0%, #0b0d1a 70%);
+  background-color: var(--color-night);
+  background-image:
+    radial-gradient(120% 80% at 50% -10%, rgb(201 168 104 / 0.12) 0%, transparent 60%),
+    radial-gradient(90% 60% at 50% 110%, rgb(63 105 117 / 0.25) 0%, transparent 70%);
 }
 @utility glass {
-  background: rgb(255 255 255 / 0.72);
-  backdrop-filter: blur(16px) saturate(1.4);
-  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  background: rgb(251 249 244 / 0.86);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
 }
 @utility glass-dark {
-  background: rgb(14 16 32 / 0.62);
-  backdrop-filter: blur(16px) saturate(1.3);
-  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  background: rgb(12 19 20 / 0.7);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+}
+@utility font-display {
+  font-family: var(--font-display);
+  font-synthesis-weight: none;
+}
+@utility font-num {
+  font-family: var(--font-num);
+  font-variant-numeric: lining-nums tabular-nums;
+  font-feature-settings: 'lnum' 1;
+}
+/* 小标题：西文大写、加宽字距，如「ITINERARY · 行程」 */
+@utility eyebrow {
+  font-family: var(--font-num);
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-ink-400);
+}
+/* 细分割线 */
+@utility hairline {
+  border-color: var(--color-line);
 }
 @utility scrollbar-none {
   scrollbar-width: none;
@@ -97,7 +251,7 @@
 }
 /* 下拉框右侧箭头（Select 设置了 appearance-none，去掉了系统箭头） */
 @utility select-chevron {
-  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239895a5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='m6 9 6 6 6-6'/%3e%3c/svg%3e");
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23736d62' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='m6 9 6 6 6-6'/%3e%3c/svg%3e");
   background-repeat: no-repeat;
   background-position: right 0.625rem center;
   background-size: 1rem;
@@ -106,19 +260,21 @@
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* Markdown 正文 */
+/* Markdown 正文：杂志排版 */
 .prose-trip {
-  line-height: 1.8;
+  line-height: 1.9;
   word-break: break-word;
+  color: var(--color-ink-700);
 }
-.prose-trip p { margin: 0.6em 0; }
-.prose-trip h1, .prose-trip h2, .prose-trip h3 { font-weight: 700; margin: 1em 0 0.4em; }
-.prose-trip h1 { font-size: 1.4em; }
-.prose-trip h2 { font-size: 1.2em; }
-.prose-trip h3 { font-size: 1.05em; }
+.prose-trip p { margin: 0.8em 0; }
+.prose-trip h1, .prose-trip h2, .prose-trip h3 { font-family: var(--font-display); font-weight: 600; color: var(--color-ink-900); margin: 1.4em 0 0.5em; }
+.prose-trip h1 { font-size: 1.45em; }
+.prose-trip h2 { font-size: 1.25em; }
+.prose-trip h3 { font-size: 1.08em; }
 .prose-trip ul { list-style: disc; padding-left: 1.4em; }
 .prose-trip ol { list-style: decimal; padding-left: 1.4em; }
-.prose-trip blockquote { border-left: 3px solid var(--color-brand-300); padding-left: 0.8em; color: var(--color-ink-500); }
-.prose-trip a { color: var(--color-brand-600); text-decoration: underline; }
-.prose-trip img { border-radius: 12px; max-width: 100%; }
-.prose-trip code { background: var(--color-ink-100); padding: 0.1em 0.35em; border-radius: 4px; }
+.prose-trip blockquote { border-left: 2px solid var(--color-brand-500); padding: 0.2em 0 0.2em 1em; font-family: var(--font-display); color: var(--color-ink-600); }
+.prose-trip a { color: var(--color-brand-600); text-decoration: underline; text-underline-offset: 3px; }
+.prose-trip img { border-radius: 6px; max-width: 100%; }
+.prose-trip code { background: var(--color-ink-100); padding: 0.1em 0.35em; border-radius: 3px; }
+.prose-trip hr { border: 0; border-top: 1px solid var(--color-line); margin: 2em 0; }

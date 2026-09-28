@@ -1,5 +1,9 @@
-import { http } from './client'
+import { ApiError, http, postStream } from './client'
 import type {
+  AdminDiagnostics,
+  AIPlanProgress,
+  GeoPickResult,
+  GeoSource,
   AdminSettings,
   AdminStats,
   AdminUser,
@@ -251,11 +255,18 @@ export const api = {
 
   geo: {
     search: (q: { keyword: string; city?: string; lng?: number; lat?: number }, signal?: AbortSignal) =>
-      http.get<{ source: 'amap' | 'local'; items: GeoSearchItem[] }>('/geo/search', q, signal),
+      http.get<{ source: GeoSource; items: GeoSearchItem[]; amap_error?: string }>('/geo/search', q, signal),
+    /** 地图选点：返回点击处的景区 / 店铺等候选，以及地址 */
+    pick: (q: { lng: number; lat: number; coord_type?: CoordType }, signal?: AbortSignal) =>
+      http.get<GeoPickResult>('/geo/pick', q, signal),
     regeo: (q: { lng: number; lat: number; coord_type?: CoordType }) => http.get<Regeo>('/geo/regeo', q),
     /** 周边地点（GCJ-02 坐标）；服务器未配置高德 Key 时 source 为 none */
     around: (q: { lng: number; lat: number; radius?: number; keyword?: string }, signal?: AbortSignal) =>
-      http.get<{ source: 'amap' | 'none'; items: (GeoSearchItem & { distance_m: number })[] }>('/geo/around', q, signal),
+      http.get<{ source: 'amap' | 'none'; items: (GeoSearchItem & { distance_m: number })[]; amap_error?: string }>(
+        '/geo/around',
+        q,
+        signal,
+      ),
   },
 
   partner: {
@@ -285,10 +296,38 @@ export const api = {
   ai: {
     plan: (b: { destination: string; days: number; preferences?: string; start_date?: string }) =>
       http.post<AIPlanResult>('/ai/plan', b),
+    /** 流式 AI 规划：边生成边回报进度（生成一份多日行程可能要几十秒） */
+    planStream: async (
+      b: { destination: string; days: number; preferences?: string; start_date?: string },
+      onProgress: (p: AIPlanProgress) => void,
+      signal?: AbortSignal,
+    ): Promise<AIPlanResult> => {
+      let result: AIPlanResult | null = null
+      let failed: string | null = null
+      await postStream(
+        '/ai/plan/stream',
+        b,
+        (e) => {
+          try {
+            if (e.event === 'progress') onProgress(JSON.parse(e.data) as AIPlanProgress)
+            else if (e.event === 'result') result = JSON.parse(e.data) as AIPlanResult
+            else if (e.event === 'error') failed = (JSON.parse(e.data) as { message?: string }).message ?? 'AI 规划失败'
+          } catch {
+            /* 忽略无法解析的事件 */
+          }
+        },
+        signal,
+      )
+      if (failed) throw new ApiError(500, 'ai', failed)
+      if (!result) throw new ApiError(500, 'ai', 'AI 没有返回结果，请重试')
+      return result
+    },
   },
 
   admin: {
     stats: () => http.get<AdminStats>('/admin/stats'),
+    /** 实时检测高德 / AI / 天地图配置是否可用 */
+    diagnostics: () => http.get<AdminDiagnostics>('/admin/diagnostics'),
     users: (q: PageQuery & { q?: string; role?: string; status?: string }) =>
       http.get<Paged<AdminUser>>('/admin/users', q),
     updateUser: (id: number, b: { role?: string; status?: string; exp?: number }) =>

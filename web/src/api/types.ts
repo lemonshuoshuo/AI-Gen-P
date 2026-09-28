@@ -227,6 +227,9 @@ export interface FootprintPoint {
   trip_id: number
   trip_title: string
   date: string | null
+  waypoint_id?: number
+  /** 该打卡点第一张照片的缩略图（放大到城市级时显示），没有照片为空字符串 */
+  photo_thumb_url?: string
 }
 
 export interface Footprints {
@@ -342,6 +345,30 @@ export interface GeoSearchItem {
   place?: PlaceStats | null
 }
 
+/** 地图选点：点击位置附近的候选地点（景区范围 aoi > 附近 POI > 社区地点 > 该坐标本身） */
+export interface GeoPickCandidate {
+  kind: 'aoi' | 'poi' | 'place' | 'address'
+  name: string
+  address: string
+  category: Category | ''
+  amap_id: string
+  place_id: number | null
+  lng: number
+  lat: number
+  distance_m: number
+  place?: PlaceStats | null
+}
+
+export interface GeoPickResult {
+  address: { province: string; city: string; district: string; street: string; address: string }
+  candidates: GeoPickCandidate[]
+  source: 'amap' | 'tianditu' | 'local'
+  /** 高德调用失败的原因（Key 类型不对、额度用完等），给用户和管理员看 */
+  amap_error?: string
+}
+
+export type GeoSource = 'amap' | 'tianditu' | 'local'
+
 export interface Regeo {
   province: string
   province_code: string
@@ -419,10 +446,22 @@ export interface AIPlanItem {
   place_id: number | null
 }
 
+export interface AIPlanProgress {
+  stage: 'thinking' | 'writing' | 'locating'
+  chars: number
+  message: string
+}
+
 export interface AIPlanResult {
   title: string
   summary: string
   items: AIPlanItem[]
+}
+
+export interface AdminDiagnostics {
+  amap: { configured: boolean; ok: boolean; message: string; infocode?: string }
+  ai: { configured: boolean; ok: boolean; model: string; base_url: string; thinking: string; latency_ms: number; message: string }
+  tianditu: { configured: boolean; ok: boolean; message: string }
 }
 
 export interface AdminStats {

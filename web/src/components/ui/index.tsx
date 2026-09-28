@@ -9,23 +9,25 @@ import { cn } from '@/lib/cn'
 import { categoryOf, levelColor, verdicts } from '@/lib/meta'
 
 /* ---------------- Button ---------------- */
-type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'love' | 'dark'
+type Variant = 'primary' | 'accent' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'love' | 'dark'
 type Size = 'xs' | 'sm' | 'md' | 'lg'
 
+// 主按钮是墨色；朱砂只用于少数需要强调的动作（accent）
 const variantCls: Record<Variant, string> = {
-  primary: 'bg-brand-gradient text-white shadow-sm shadow-brand-500/30 hover:brightness-105 active:brightness-95',
+  primary: 'bg-ink-900 text-paper hover:bg-ink-700 active:bg-ink-800',
+  accent: 'bg-brand-500 text-white hover:bg-brand-600 active:bg-brand-700',
   secondary: 'bg-ink-100 text-ink-900 hover:bg-ink-200',
-  outline: 'border border-ink-200 bg-white text-ink-900 hover:bg-ink-50',
-  ghost: 'text-ink-700 hover:bg-ink-100',
-  danger: 'bg-red-500 text-white hover:bg-red-600',
-  love: 'bg-love-gradient text-white shadow-sm shadow-pink-500/30 hover:brightness-105',
-  dark: 'bg-ink-900 text-white hover:bg-ink-700',
+  outline: 'border border-ink-900/15 bg-transparent text-ink-900 hover:border-ink-900/40 hover:bg-white',
+  ghost: 'text-ink-700 hover:bg-ink-900/5',
+  danger: 'bg-brand-600 text-white hover:bg-brand-700',
+  love: 'bg-love-gradient text-white hover:brightness-110',
+  dark: 'bg-ink-900 text-paper hover:bg-ink-700',
 }
 const sizeCls: Record<Size, string> = {
-  xs: 'h-7 px-2.5 text-xs gap-1 rounded-lg',
-  sm: 'h-8 px-3 text-sm gap-1.5 rounded-lg',
-  md: 'h-10 px-4 text-sm gap-2 rounded-xl',
-  lg: 'h-12 px-6 text-base gap-2 rounded-2xl',
+  xs: 'h-7 px-2.5 text-xs gap-1 rounded-md',
+  sm: 'h-8 px-3 text-[13px] gap-1.5 rounded-md',
+  md: 'h-10 px-4 text-sm gap-2 rounded-lg',
+  lg: 'h-12 px-6 text-[15px] gap-2 rounded-lg',
 }
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -47,7 +49,7 @@ export function buttonClass({
   className,
 }: { variant?: Variant; size?: Size; block?: boolean; className?: string } = {}) {
   return cn(
-    'inline-flex shrink-0 items-center justify-center font-medium whitespace-nowrap transition select-none disabled:opacity-50',
+    'inline-flex shrink-0 items-center justify-center font-medium tracking-wide whitespace-nowrap transition-colors duration-200 select-none disabled:opacity-45',
     variantCls[variant],
     sizeCls[size],
     block && 'w-full',
@@ -85,7 +87,7 @@ export function IconButton({
       aria-label={label}
       title={label}
       className={cn(
-        'inline-flex size-9 shrink-0 items-center justify-center rounded-full text-ink-700 transition hover:bg-ink-100 disabled:opacity-40',
+        'inline-flex size-9 shrink-0 items-center justify-center rounded-full text-ink-700 transition hover:bg-ink-900/5 disabled:opacity-40',
         className,
       )}
       {...rest}
@@ -97,7 +99,7 @@ export function IconButton({
 
 /* ---------------- Form ---------------- */
 const fieldBase =
-  'w-full rounded-xl border border-ink-200 bg-white px-3.5 text-sm text-ink-900 placeholder:text-ink-400 outline-none transition focus:border-brand-400 focus:ring-4 focus:ring-brand-100 disabled:bg-ink-50'
+  'w-full rounded-lg border border-ink-200 bg-white px-3.5 text-sm text-ink-900 placeholder:text-ink-300 outline-none transition focus:border-ink-900 focus:ring-2 focus:ring-ink-900/5 disabled:bg-ink-50'
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(
   { className, ...rest },
@@ -133,7 +135,7 @@ export function Field({
 }) {
   return (
     <label className={cn('block', className)}>
-      {label && <span className="mb-1.5 block text-sm font-medium text-ink-700">{label}</span>}
+      {label && <span className="mb-1.5 block text-[13px] font-medium tracking-wide text-ink-600">{label}</span>}
       {children}
       {hint && <span className="mt-1 block text-xs text-ink-400">{hint}</span>}
     </label>
@@ -160,7 +162,7 @@ export function Switch({
       <span
         className={cn(
           'relative inline-block h-6 w-10 rounded-full transition',
-          checked ? 'bg-brand-500' : 'bg-ink-200',
+          checked ? 'bg-ink-900' : 'bg-ink-200',
         )}
       >
         <span
@@ -190,16 +192,16 @@ export function Segmented<T extends string>({
   size?: 'sm' | 'md'
 }) {
   return (
-    <div className={cn('inline-flex rounded-xl bg-ink-100 p-1', className)}>
+    <div className={cn('inline-flex rounded-lg border border-ink-200 bg-white/60 p-0.5', className)}>
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
           className={cn(
-            'rounded-lg font-medium whitespace-nowrap transition',
-            size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3.5 py-1.5 text-sm',
-            value === o.value ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-900',
+            'rounded-md font-medium tracking-wide whitespace-nowrap transition-colors',
+            size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3.5 py-1.5 text-[13px]',
+            value === o.value ? 'bg-ink-900 text-paper' : 'text-ink-500 hover:text-ink-900',
           )}
         >
           {o.label}
@@ -221,20 +223,20 @@ export function TabBar<T extends string>({
   className?: string
 }) {
   return (
-    <div className={cn('scrollbar-none flex gap-5 overflow-x-auto border-b border-ink-200', className)}>
+    <div className={cn('scrollbar-none flex gap-6 overflow-x-auto border-b border-ink-200', className)}>
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
           className={cn(
-            'relative shrink-0 pb-2.5 text-sm font-medium transition',
-            value === o.value ? 'text-ink-900' : 'text-ink-400 hover:text-ink-700',
+            'relative shrink-0 pb-3 text-[15px] transition-colors',
+            value === o.value ? 'font-display text-ink-900' : 'text-ink-400 hover:text-ink-700',
           )}
         >
           {o.label}
           {value === o.value && (
-            <span className="bg-brand-gradient absolute right-1/4 bottom-0 left-1/4 h-0.5 rounded-full" />
+            <span className="absolute right-0 -bottom-px left-0 h-[1.5px] bg-ink-900" />
           )}
         </button>
       ))}
@@ -243,7 +245,7 @@ export function TabBar<T extends string>({
 }
 
 /* ---------------- Avatar & user ---------------- */
-const avatarColors = ['#ff5a5f', '#ff9a44', '#10b981', '#0ea5e9', '#8b5cf6', '#ec4899', '#f59e0b']
+const avatarColors = ['#bd462b', '#3e7a68', '#3f6975', '#6b5b8a', '#9d4a5f', '#b7832f', '#4b4740']
 
 export function Avatar({
   user,
@@ -258,7 +260,7 @@ export function Avatar({
 }) {
   const name = user?.nickname || user?.username || '?'
   const style = { width: size, height: size, fontSize: size * 0.42 }
-  const ringCls = ring && 'ring-2 ring-white'
+  const ringCls = ring && 'ring-2 ring-paper'
   if (user?.avatar_url)
     return (
       <img
@@ -273,7 +275,7 @@ export function Avatar({
   return (
     <span
       style={{ ...style, background: color }}
-      className={cn('inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white', ringCls, className)}
+      className={cn('font-display inline-flex shrink-0 items-center justify-center rounded-full text-white', ringCls, className)}
     >
       {name.slice(0, 1).toUpperCase()}
     </span>
@@ -283,10 +285,10 @@ export function Avatar({
 export function LevelBadge({ level, className }: { level: number; className?: string }) {
   return (
     <span
-      className={cn('inline-flex h-4 items-center rounded px-1 text-[10px] leading-none font-bold text-white', className)}
-      style={{ background: levelColor(level) }}
+      className={cn('font-num inline-flex h-4 items-center rounded-sm border px-1 text-[10px] leading-none font-semibold italic', className)}
+      style={{ color: levelColor(level), borderColor: levelColor(level) + '66' }}
     >
-      Lv{level}
+      Lv.{level}
     </span>
   )
 }
@@ -297,7 +299,7 @@ export function UserName({ user, className, link = true }: { user: UserBrief; cl
       <span className="truncate font-medium">{user.nickname || user.username}</span>
       <LevelBadge level={user.level} />
       {user.role === 'admin' && (
-        <span className="inline-flex h-4 items-center rounded bg-ink-900 px-1 text-[10px] leading-none font-bold text-white">
+        <span className="inline-flex h-4 items-center rounded-sm bg-ink-900 px-1 text-[10px] leading-none text-paper">
           管理员
         </span>
       )}
@@ -317,8 +319,11 @@ export function VerdictBadge({ verdict, className }: { verdict: Verdict; classNa
   if (!verdict) return null
   const v = verdicts[verdict]
   return (
-    <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1', v.cls, className)}>
-      <span>{v.emoji}</span>
+    <span
+      className={cn('inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs font-medium tracking-wide', className)}
+      style={{ color: v.color, background: v.color + '14', boxShadow: `inset 0 0 0 1px ${v.color}33` }}
+    >
+      <span className="text-[10px] leading-none">{v.mark}</span>
       {v.label}
     </span>
   )
@@ -328,11 +333,8 @@ export function CategoryChip({ category, className }: { category: Category | str
   const c = categoryOf(category)
   const Icon = c.icon
   return (
-    <span
-      className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium', className)}
-      style={{ background: c.color + '18', color: c.color }}
-    >
-      <Icon className="size-3" />
+    <span className={cn('inline-flex items-center gap-1 text-xs tracking-wide text-ink-500', className)}>
+      <Icon className="size-3" style={{ color: c.color }} strokeWidth={1.75} />
       {c.label}
     </span>
   )
@@ -355,7 +357,8 @@ export function Stars({
         const star = (
           <Star
             style={{ width: size, height: size }}
-            className={cn(filled ? 'fill-amber-400 text-amber-400' : half ? 'fill-amber-200 text-amber-400' : 'text-ink-300')}
+            className={cn(filled ? 'fill-amber-500 text-amber-500' : half ? 'fill-amber-200 text-amber-500' : 'text-ink-300')}
+            strokeWidth={1.5}
           />
         )
         return onChange ? (
@@ -372,7 +375,7 @@ export function Stars({
 
 export function Tag({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <span className={cn('inline-flex items-center rounded-full bg-ink-100 px-2 py-0.5 text-xs text-ink-700', className)}>
+    <span className={cn('inline-flex items-center rounded-sm border border-ink-200 px-1.5 py-0.5 text-xs tracking-wide text-ink-600', className)}>
       {children}
     </span>
   )
@@ -380,7 +383,7 @@ export function Tag({ children, className }: { children: ReactNode; className?: 
 
 /* ---------------- States ---------------- */
 export function Spinner({ className }: { className?: string }) {
-  return <Loader2 className={cn('size-5 animate-spin text-brand-500', className)} />
+  return <Loader2 className={cn('size-5 animate-spin text-ink-400', className)} strokeWidth={1.5} />
 }
 
 export function PageLoader({ label = '加载中…' }: { label?: string }) {
@@ -407,9 +410,9 @@ export function Empty({
 }) {
   return (
     <div className={cn('flex flex-col items-center justify-center px-6 py-14 text-center', className)}>
-      {icon && <div className="mb-3 text-ink-300">{icon}</div>}
-      <p className="font-medium text-ink-700">{title}</p>
-      {desc && <p className="mt-1 max-w-sm text-sm text-ink-400">{desc}</p>}
+      {icon && <div className="mb-4 text-ink-300 [&_svg]:stroke-[1.25]">{icon}</div>}
+      <p className="font-display text-lg text-ink-800">{title}</p>
+      {desc && <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-ink-400">{desc}</p>}
       {action && <div className="mt-5">{action}</div>}
     </div>
   )
@@ -506,7 +509,7 @@ export function Modal({
   if (!open) return null
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center sm:p-4">
-      <div className="animate-fade-in absolute inset-0 bg-ink-900/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="animate-fade-in absolute inset-0 bg-ink-900/45 backdrop-blur-[3px]" onClick={onClose} />
       <div
         ref={panelRef}
         role="dialog"
@@ -534,14 +537,14 @@ export function Modal({
           }
         }}
         className={cn(
-          'animate-slide-up relative flex max-h-[90dvh] w-full flex-col rounded-t-3xl bg-white shadow-float outline-none sm:rounded-3xl',
+          'animate-slide-up relative flex max-h-[90dvh] w-full flex-col rounded-t-2xl bg-white shadow-float outline-none sm:rounded-2xl',
           wide ? 'sm:max-w-3xl' : 'sm:max-w-lg',
           className,
         )}
       >
         {title !== undefined && (
           <div className="flex items-center justify-between gap-3 px-5 pt-4 pb-2">
-            <h3 id={titleId} className="text-base font-semibold">
+            <h3 id={titleId} className="text-lg">
               {title}
             </h3>
             <IconButton label="关闭" onClick={onClose} className="-mr-2">
@@ -634,7 +637,7 @@ export function Menu({
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div
             className={cn(
-              'animate-fade-in absolute z-50 mt-2 min-w-44 overflow-hidden rounded-2xl bg-white py-1.5 shadow-float ring-1 ring-ink-100',
+              'animate-fade-in absolute z-50 mt-2 min-w-44 overflow-hidden rounded-xl bg-white py-1.5 shadow-float',
               align === 'right' ? 'right-0' : 'left-0',
               className,
             )}
@@ -661,8 +664,8 @@ export function MenuItem({
   href?: string
 }) {
   const cls = cn(
-    'flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition hover:bg-ink-50',
-    danger ? 'text-red-600' : 'text-ink-700',
+    'flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-ink-50 [&_svg]:stroke-[1.6]',
+    danger ? 'text-brand-600' : 'text-ink-700',
   )
   if (href)
     return (
@@ -683,11 +686,11 @@ export function MenuItem({
 export function Stat({ label, value, unit, className }: { label: string; value: ReactNode; unit?: string; className?: string }) {
   return (
     <div className={cn('min-w-0', className)}>
-      <div className="flex items-baseline gap-0.5">
-        <span className="text-xl font-bold tabular-nums">{value}</span>
+      <div className="flex items-baseline gap-1">
+        <span className="font-num text-[1.65rem] leading-none font-medium tracking-tight">{value}</span>
         {unit && <span className="text-xs text-ink-400">{unit}</span>}
       </div>
-      <div className="text-xs text-ink-400">{label}</div>
+      <div className="mt-1.5 text-xs tracking-wide text-ink-400">{label}</div>
     </div>
   )
 }

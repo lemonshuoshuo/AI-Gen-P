@@ -279,6 +279,63 @@ export const http = {
     request<T>('POST', path, { form, onProgress }),
 }
 
+export interface SSEEvent {
+  event: string
+  data: string
+}
+
+/**
+ * POST 并逐条读取 text/event-stream（浏览器的 EventSource 不支持 POST 和登录头）。
+ * 401 时先换新 token 再重试一次，与普通请求一致。
+ */
+export async function postStream(
+  path: string,
+  body: unknown,
+  onEvent: (e: SSEEvent) => void,
+  signal?: AbortSignal,
+  retry = true,
+): Promise<void> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'text/event-stream' }
+  const sentAccess = tokens?.access
+  if (sentAccess) headers.Authorization = `Bearer ${sentAccess}`
+  let res: Response
+  try {
+    res = await fetch(API_BASE + path, { method: 'POST', headers, body: JSON.stringify(body), signal })
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw e
+    throw new ApiError(0, 'network', '网络连接失败，请检查网络')
+  }
+  if (res.status === 401 && retry && sentAccess) {
+    if ((tokens?.access && tokens.access !== sentAccess) || (await refreshTokens())) {
+      return postStream(path, body, onEvent, signal, false)
+    }
+  }
+  if (!res.ok) throw await parseError(res)
+  if (!res.body) throw new ApiError(0, 'network', '当前浏览器不支持流式读取')
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+  let buf = ''
+  const flush = (block: string) => {
+    let event = 'message'
+    const data: string[] = []
+    for (const line of block.split(/\r?\n/)) {
+      if (!line || line.startsWith(':')) continue // 心跳注释
+      if (line.startsWith('event:')) event = line.slice(6).trim()
+      else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''))
+    }
+    if (data.length) onEvent({ event, data: data.join('\n') })
+  }
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buf += value
+    for (let m = buf.match(/\r?\n\r?\n/); m && m.index !== undefined; m = buf.match(/\r?\n\r?\n/)) {
+      flush(buf.slice(0, m.index))
+      buf = buf.slice(m.index + m[0].length)
+    }
+  }
+  if (buf.trim()) flush(buf)
+}
+
 export function errorMessage(e: unknown): string {
   if (e instanceof ApiError) return e.message
   if (e instanceof Error) return e.message
