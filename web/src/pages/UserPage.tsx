@@ -112,7 +112,7 @@ export default function UserPage() {
         </div>
         <DoubleRule />
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-5 gap-y-5 pt-7 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-end md:gap-x-8 md:pt-9">
-          <Avatar user={user} size={96} className="hidden ring-1 ring-ink-900/10 ring-offset-4 ring-offset-paper md:block" />
+          <Avatar user={user} size={96} className="hidden ring-1 ring-ink-900/10 ring-offset-4 ring-offset-paper md:inline-flex" />
           <Avatar user={user} size={64} className="ring-1 ring-ink-900/10 ring-offset-2 ring-offset-paper md:hidden" />
           <div className="min-w-0">
             <h1 className="text-[28px] leading-tight break-words md:text-[42px]">{user.nickname || user.username}</h1>

@@ -73,14 +73,9 @@ export default function SearchPage() {
           <p id="suggest-title" className="eyebrow">
             Try · 不妨试试
           </p>
-          <ul className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-2">
-            {suggestions.map((w, i) => (
-              <li key={w} className="flex items-baseline gap-2">
-                {i > 0 && (
-                  <span aria-hidden className="text-ink-300">
-                    /
-                  </span>
-                )}
+          <ul className="mt-3 flex flex-wrap items-baseline gap-y-2">
+            {suggestions.map((w) => (
+              <li key={w} className="flex items-baseline after:mx-3 after:text-ink-300 after:content-['/'] last:after:content-none">
                 <Link
                   to={`/search?q=${encodeURIComponent(w)}`}
                   className="font-display text-[22px] text-ink-700 underline decoration-transparent underline-offset-[6px] transition-colors hover:text-ink-900 hover:decoration-ink-900 md:text-[26px]"

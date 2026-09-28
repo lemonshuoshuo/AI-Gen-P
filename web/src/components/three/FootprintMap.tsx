@@ -1,5 +1,5 @@
 // 自适应足迹地图：默认镜头框住全部足迹；全国 → 省级 → 城市 / 街巷三档按缩放自动切换（见 LitProvinces 的 STAGE_ZOOM）
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { LngLatBounds, Marker, type ExpressionSpecification, type Map as MLMap, type MapMouseEvent } from 'maplibre-gl'
 import type { Feature, LineString, Point } from 'geojson'
@@ -7,18 +7,17 @@ import { ArrowRight, Maximize2, Scan, X } from 'lucide-react'
 import type { FootprintPoint, Footprints } from '@/api/types'
 import { BaseMap, useMap } from '@/components/map/BaseMap'
 import { fc, markerHtml, removeLayers, upsertSource } from '@/components/map/layers'
-import { AUTO_DAY_ZOOM } from '@/components/map/style'
+import { setAutoDayZoom } from '@/components/map/style'
 import { VerdictBadge } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { fmtDate } from '@/lib/format'
 import { CHINA_CENTER } from '@/lib/geo'
 import { categoryOf } from '@/lib/meta'
-import { LitPrefectures, LitProvinces, ensureSlot, litPalettes, stageOf, type LitPalette, type LitTheme, type Stage } from './LitProvinces'
+import { LitPrefectures, LitProvinces, dayWindow, ensureSlot, litPalettes, stageOf, zoomShift, type LitPalette, type LitTheme, type Stage } from './LitProvinces'
 
 type LngLat = [number, number]
 const P = 'fp'
 const SLOT = 'fp-slot'
-const [D0, D1] = AUTO_DAY_ZOOM
 const Z = ['zoom'] as unknown as number
 const pinned = ['boolean', ['feature-state', 'pinned'], false] as ExpressionSpecification
 
@@ -69,9 +68,9 @@ function footprintCamera(map: MLMap, pts: LngLat[]) {
   return { center: [c.lng, c.lat] as LngLat, zoom }
 }
 
-function viewFor(map: MLMap, pts: LngLat[]) {
+function viewFor(map: MLMap, pts: LngLat[], shift: number) {
   const cam = footprintCamera(map, pts)
-  const stage = stageOf(cam.zoom)
+  const stage = stageOf(cam.zoom, shift)
   // 倾斜后画面下半部分会放大，略微退后一点，避免边缘的点被裁掉
   return { ...cam, zoom: cam.zoom - (stage === 'city' ? 0.25 : 0.1), pitch: PITCH[stage], bearing: stage === 'country' ? -6 : 0 }
 }
@@ -97,12 +96,14 @@ function curve(a: LngLat, b: LngLat, n = 32): LngLat[] {
 function FootprintOverlay({
   data,
   pal,
+  shift,
   onStage,
   onPick,
   onFocus,
 }: {
   data: Footprints
   pal: LitPalette
+  shift: number
   onStage: (s: Stage) => void
   onPick: (i: number | null) => void
   onFocus: (pts: LngLat[], maxZoom: number) => void
@@ -113,6 +114,8 @@ function FootprintOverlay({
 
   useEffect(() => {
     if (!map) return
+    const z = (v: number) => v + shift
+    const [D0, D1] = dayWindow(shift)
     ensureSlot(map, SLOT)
     // 光源偏暖、从西南方向打来，立体省份的顶面更亮、侧面更深
     map.setLight({ anchor: 'map', position: [1.3, 200, 38], color: '#fff4e2', intensity: 0.42 })
@@ -163,7 +166,7 @@ function FootprintOverlay({
         'line-color': pal.line,
         'line-width': 1.2,
         'line-dasharray': [1.5, 2.5],
-        'line-opacity': ['interpolate', ['linear'], Z, 3, 0.7, 5.2, 0.55, 6.2, 0],
+        'line-opacity': ['interpolate', ['linear'], Z, z(3), 0.7, z(5.2), 0.55, z(6.2), 0],
       },
     })
     // 旅程路线：省级为细金线，城市级为纸色描边 + 朱砂实线
@@ -186,7 +189,7 @@ function FootprintOverlay({
       paint: {
         'line-color': ['interpolate', ['linear'], Z, D0, pal.routeNight, D1, pal.routeDay] as ExpressionSpecification,
         'line-width': ['interpolate', ['linear'], Z, 5, 0.8, 8, 1.4, 10, 2.6, 14, 3.4],
-        'line-opacity': ['interpolate', ['linear'], Z, 5.2, 0, 6.2, 0.6, D0, 0.75, D1, 0.95],
+        'line-opacity': ['interpolate', ['linear'], Z, z(5.2), 0, z(6.2), 0.6, D0, 0.75, D1, 0.95],
       },
     })
     // 足迹点：夜色下为金色小光点，纸色下为带纸色描边的分类色圆点（城市级时大部分被照片 / 印章标记盖住）
@@ -198,7 +201,7 @@ function FootprintOverlay({
         'circle-color': pal.column,
         'circle-radius': ['interpolate', ['linear'], Z, 6, 5, 8.5, 9],
         'circle-blur': 1,
-        'circle-opacity': ['interpolate', ['linear'], Z, 5.4, 0, 6.4, 0.35, D0, 0.3, D1, 0],
+        'circle-opacity': ['interpolate', ['linear'], Z, z(5.4), 0, z(6.4), 0.35, D0, 0.3, D1, 0],
       },
     })
     add({
@@ -209,10 +212,10 @@ function FootprintOverlay({
         'circle-color': ['interpolate', ['linear'], Z, D0, pal.column, D1, ['get', 'color']] as ExpressionSpecification,
         'circle-radius': ['interpolate', ['linear'], Z, 6, 1.6, 8.5, 3, 13, 4.5],
         'circle-stroke-color': ['interpolate', ['linear'], Z, D0, 'rgba(12,19,20,0.5)', D1, '#fffdf9'] as ExpressionSpecification,
-        'circle-stroke-width': ['interpolate', ['linear'], Z, 6, 0, 8.5, 1.5],
+        'circle-stroke-width': ['interpolate', ['linear'], Z, z(6), 0, z(8.5), 1.5],
         // 已经画成 DOM 标记的点（feature-state pinned）不再重复显示圆点
-        'circle-opacity': ['interpolate', ['linear'], Z, 5.4, 0, 6.3, ['case', pinned, 0, 0.95]],
-        'circle-stroke-opacity': ['interpolate', ['linear'], Z, 5.4, 0, 6.3, ['case', pinned, 0, 1]],
+        'circle-opacity': ['interpolate', ['linear'], Z, z(5.4), 0, z(6.3), ['case', pinned, 0, 0.95]],
+        'circle-stroke-opacity': ['interpolate', ['linear'], Z, z(5.4), 0, z(6.3), ['case', pinned, 0, 1]],
       },
     })
     // 透明的大圆，方便手指点中
@@ -220,7 +223,7 @@ function FootprintOverlay({
       id: `${P}-pts-hit`,
       type: 'circle',
       source: `${P}-pts`,
-      minzoom: 6,
+      minzoom: z(6),
       paint: { 'circle-radius': 14, 'circle-color': '#000', 'circle-opacity': 0 },
     })
     return () => {
@@ -230,22 +233,32 @@ function FootprintOverlay({
         `${P}-arcs`,
       ])
     }
-  }, [map, data, pal])
+  }, [map, data, pal, shift])
 
   // 缩放档位、自动俯仰、点击
   useEffect(() => {
     if (!map) return
-    let stage = stageOf(map.getZoom())
+    let stage = stageOf(map.getZoom(), shift)
     let pitched = stage
     let userPitched = false
     const onZoom = () => {
-      const s = stageOf(map.getZoom())
+      const s = stageOf(map.getZoom(), shift)
       if (s !== stage) {
         stage = s
         cb.current.onStage(s)
       }
     }
+    const [D0, D1] = dayWindow(shift)
     const onZoomEnd = () => {
+      // 停在夜色与纸色的过渡带里时画面发灰：轻轻吸附到较近的一侧
+      const z = map.getZoom()
+      if (z > D0 && z < D1) {
+        const target = z - D0 < D1 - z ? D0 - 0.02 : D1 + 0.02
+        const s = stageOf(target, shift)
+        if (!userPitched) pitched = s
+        map.easeTo({ zoom: target, ...(userPitched ? {} : { pitch: PITCH[s] }), duration: 450 })
+        return
+      }
       if (userPitched || stage === pitched) return
       pitched = stage
       map.easeTo({ pitch: PITCH[stage], duration: 700 })
@@ -264,9 +277,8 @@ function FootprintOverlay({
       const pt = hit.find((f) => f.layer.id === `${P}-pts-hit`)
       if (pt && stage !== 'country') return cb.current.onPick(Number(pt.properties.i))
       cb.current.onPick(null)
-      // 点省份 / 城市：飞到这里的足迹
-      const z = map.getZoom()
-      const region = hit.find((f) => (f.layer.id === `${P}-pref-fill` && z >= 5.2) || (f.layer.id === `${P}-ext` && z < 5.8))
+      // 全国视图点省份、省级视图点城市：飞到这里的足迹
+      const region = hit.find((f) => (f.layer.id === `${P}-pref-fill` && stage === 'region') || (f.layer.id === `${P}-ext` && stage === 'country'))
       if (!region) return
       const code = String(region.properties.id ?? '')
       const isProv = region.layer.id === `${P}-ext`
@@ -279,8 +291,12 @@ function FootprintOverlay({
     let hovering = false
     const onMove = (e: MapMouseEvent) => {
       const f = map.queryRenderedFeatures(e.point, { layers: layers() })
-      const z = map.getZoom()
-      const h = f.some((x) => (x.layer.id === `${P}-pts-hit` && z >= 6) || (x.layer.id === `${P}-pref-fill` && z >= 5.2 && z < 10) || (x.layer.id === `${P}-ext` && z < 5.8))
+      const h = f.some(
+        (x) =>
+          (x.layer.id === `${P}-pts-hit` && stage !== 'country') ||
+          (x.layer.id === `${P}-pref-fill` && stage === 'region') ||
+          (x.layer.id === `${P}-ext` && stage === 'country'),
+      )
       if (h !== hovering) {
         hovering = h
         map.getCanvas().style.cursor = h ? 'pointer' : ''
@@ -298,7 +314,7 @@ function FootprintOverlay({
       map.off('click', onClick)
       map.off('mousemove', onMove)
     }
-  }, [map, data])
+  }, [map, data, shift])
   return null
 }
 
@@ -597,6 +613,12 @@ export function FootprintMap({
   const [stage, setStage] = useState<Stage>('country')
   const [picked, setPicked] = useState<number | null>(null)
   const mapRef = useRef<MLMap | null>(null)
+  // 按容器宽度平移各档阈值（在创建地图前量好，之后不变：旋转屏幕等只影响阈值的精确位置）
+  const boxRef = useRef<HTMLDivElement>(null)
+  const [shift, setShift] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    setShift(zoomShift(boxRef.current?.clientWidth ?? 1000))
+  }, [])
   const counts = useMemo(() => Object.fromEntries(data.provinces.map((p) => [p.code, p.count])), [data.provinces])
   const pts = useMemo(() => data.points.map((p) => [p.lng, p.lat] as LngLat), [data.points])
   // 每段旅程内的序号（印章上的数字）
@@ -612,14 +634,15 @@ export function FootprintMap({
 
   const fly = (to: { center: LngLat; zoom: number; pitch: number; bearing: number }) =>
     mapRef.current?.flyTo({ ...to, duration: 1400, essential: true })
-  const fitAll = () => mapRef.current && fly(viewFor(mapRef.current, pts))
+  const sh = shift ?? 0
+  const fitAll = () => mapRef.current && fly(viewFor(mapRef.current, pts, sh))
   const showChina = () => mapRef.current && fly({ center: CHINA_CENTER, zoom: chinaZoom(mapRef.current), pitch: PITCH.country, bearing: -6 })
   const focus = (p: LngLat[], maxZoom: number) => {
     const m = mapRef.current
     if (!m) return
-    const v = viewFor(m, p)
+    const v = viewFor(m, p, sh)
     const zoom = Math.min(maxZoom, v.zoom)
-    fly({ ...v, zoom, pitch: PITCH[stageOf(zoom)] })
+    fly({ ...v, zoom, pitch: PITCH[stageOf(zoom, sh)] })
   }
 
   const chip = cn(
@@ -632,26 +655,32 @@ export function FootprintMap({
   const sel = picked != null ? data.points[picked] : null
 
   return (
-    <div className={cn('relative overflow-hidden rounded-xl transition-colors duration-700', night ? 'bg-night' : 'bg-paper shadow-card', className)}>
-      <BaseMap
-        className={cn('absolute inset-0', night && 'th-map-dark')}
-        kind="auto"
-        center={CHINA_CENTER}
-        zoom={3.2}
-        options={{ ...mapGestureOptions, minZoom: 2, maxPitch: 70 }}
-        onReady={(m) => {
-          mapRef.current = m
-          const v = viewFor(m, pts)
-          m.jumpTo(v)
-          setStage(stageOf(v.zoom))
-        }}
-      >
-        <LitProvinces counts={counts} theme={theme} cities={data.cities} idPrefix={P} beforeId={SLOT} />
-        <LitPrefectures cities={data.cities} theme={theme} idPrefix={P} beforeId={SLOT} />
-        <FootprintOverlay data={data} pal={pal} onStage={setStage} onPick={setPicked} onFocus={focus} />
-        {stage === 'region' && <CityLabels cities={data.cities} color={pal.line} />}
-        {stage === 'city' && <FootprintPins points={data.points} labels={labels} selected={picked} onPick={setPicked} accent={pal.accent} />}
-      </BaseMap>
+    <div
+      ref={boxRef}
+      className={cn('relative overflow-hidden rounded-xl transition-colors duration-700', night ? 'bg-night' : 'bg-paper shadow-card', className)}
+    >
+      {shift != null && (
+        <BaseMap
+          className={cn('absolute inset-0', night && 'th-map-dark')}
+          kind="auto"
+          center={CHINA_CENTER}
+          zoom={3.2}
+          options={{ ...mapGestureOptions, minZoom: 2, maxPitch: 70 }}
+          onReady={(m) => {
+            mapRef.current = m
+            setAutoDayZoom(m, dayWindow(shift))
+            const v = viewFor(m, pts, shift)
+            m.jumpTo(v)
+            setStage(stageOf(v.zoom, shift))
+          }}
+        >
+          <LitProvinces counts={counts} theme={theme} cities={data.cities} idPrefix={P} beforeId={SLOT} shift={shift} />
+          <LitPrefectures cities={data.cities} theme={theme} idPrefix={P} beforeId={SLOT} shift={shift} />
+          <FootprintOverlay data={data} pal={pal} shift={shift} onStage={setStage} onPick={setPicked} onFocus={focus} />
+          {stage === 'region' && <CityLabels cities={data.cities} color={pal.line} />}
+          {stage === 'city' && <FootprintPins points={data.points} labels={labels} selected={picked} onPick={setPicked} accent={pal.accent} />}
+        </BaseMap>
+      )}
 
       <div className="absolute top-3 right-3 z-10 flex gap-2">
         <button type="button" onClick={showChina} className={chip} title="看全国">

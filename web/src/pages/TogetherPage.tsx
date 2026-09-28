@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarHeart, Copy, Heart, HeartCrack, PenLine, Plus, Send } from 'lucide-react'
+import { CalendarHeart, Copy, Heart, HeartCrack, PenLine, Plus, Send, Settings2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type PartnerInfo } from '@/api'
 import { FootprintStats } from '@/components/three/FootprintStats'
@@ -72,10 +72,15 @@ function Invites({ info, refresh }: { info: PartnerInfo; refresh: () => void }) 
   }
   return (
     <div className="mx-auto max-w-lg space-y-5">
-      <div className="bg-love-gradient relative overflow-hidden rounded-3xl p-6 text-white">
-        <Heart className="absolute -right-6 -bottom-6 size-40 fill-white/10 text-white/10" />
-        <h1 className="text-2xl font-extrabold">我们一起走过的地方</h1>
-        <p className="mt-2 text-sm text-white/80">
+      <div className="bg-love-gradient relative overflow-hidden rounded-2xl px-6 pt-6 pb-7 text-white">
+        <div className="flex items-center gap-3">
+          <span className="flex size-9 items-center justify-center rounded-full ring-1 ring-white/35">
+            <Heart className="size-4" strokeWidth={1.5} />
+          </span>
+          <p className="eyebrow !text-white/60">Together · 我们</p>
+        </div>
+        <h1 className="mt-4 text-[26px] leading-tight">我们一起走过的地方</h1>
+        <p className="mt-2 text-sm leading-relaxed text-white/75">
           和 TA 绑定情侣空间：一起的旅程会汇成共同的足迹地图，点亮你们一起去过的城市，还能 3D 回放你们的每一段路。
         </p>
       </div>
@@ -89,7 +94,9 @@ function Invites({ info, refresh }: { info: PartnerInfo; refresh: () => void }) 
               <div className="text-xs text-ink-400">{fromNow(inv.created_at)} 邀请你绑定情侣空间</div>
             </div>
           </div>
-          {inv.message && <p className="mt-3 rounded-xl bg-pink-50 p-3 text-sm text-pink-900">“{inv.message}”</p>}
+          {inv.message && (
+            <p className="font-display mt-3 border-l-2 border-pink-300 py-0.5 pl-3 text-[15px] leading-relaxed text-ink-700">“{inv.message}”</p>
+          )}
           <div className="mt-3 flex justify-end gap-2">
             <Button
               variant="ghost"
@@ -103,10 +110,10 @@ function Invites({ info, refresh }: { info: PartnerInfo; refresh: () => void }) 
             <Button
               variant="love"
               size="sm"
-              icon={<Heart className="size-4" />}
+              icon={<Heart className="size-4" strokeWidth={1.75} />}
               disabled={!!busy}
               loading={busy === `accept-${inv.id}`}
-              onClick={() => act(`accept-${inv.id}`, () => api.partner.accept(inv.id), '绑定成功 💕')}
+              onClick={() => act(`accept-${inv.id}`, () => api.partner.accept(inv.id), '绑定成功')}
             >
               接受
             </Button>
@@ -115,15 +122,18 @@ function Invites({ info, refresh }: { info: PartnerInfo; refresh: () => void }) 
       ))}
 
       {linked && (
-        <p className="rounded-2xl bg-pink-50 px-4 py-3 text-sm text-pink-900">
+        <p className="rounded-lg border border-pink-200 bg-pink-50/60 px-4 py-3 text-sm leading-relaxed text-pink-800">
           {linkedInvited
             ? `@${linked} 已经邀请你了，点上面的「接受」就绑定啦`
             : `@${linked} 邀请你绑定情侣空间，点「发送邀请」，TA 确认后就绑定啦`}
         </p>
       )}
 
-      <Card className="space-y-3 p-4">
-        <h3 className="font-semibold">邀请 TA</h3>
+      <Card className="space-y-3 p-5">
+        <div>
+          <p className="eyebrow">Invite · 邀请</p>
+          <h3 className="mt-1 text-[17px]">邀请 TA</h3>
+        </div>
         <Field label="对方的用户名">
           <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="输入 TA 的用户名，或把下方邀请链接发给 TA" />
         </Field>
@@ -135,7 +145,7 @@ function Invites({ info, refresh }: { info: PartnerInfo; refresh: () => void }) 
           variant="love"
           loading={busy === 'send'}
           disabled={!username.trim() || !!busy}
-          icon={<Send className="size-4" />}
+          icon={<Send className="size-4" strokeWidth={1.75} />}
           onClick={async () => {
             // 只在发送成功后清空：用户名打错（用户不存在）时保留输入，改一下就能重发
             if (await act('send', () => api.partner.invite(username.trim(), message.trim() || undefined), '邀请已发送，等 TA 接受吧')) {
@@ -152,14 +162,14 @@ function Invites({ info, refresh }: { info: PartnerInfo; refresh: () => void }) 
         >
           发送邀请
         </Button>
-        <div className="space-y-2 border-t border-ink-100 pt-3">
+        <div className="space-y-2 border-t border-ink-200 pt-4">
           <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-            <h4 className="text-sm font-semibold">把邀请链接发给 TA</h4>
+            <h4 className="font-display text-[15px] text-ink-900">把邀请链接发给 TA</h4>
             <span className="text-xs text-ink-400">我的用户名 @{me.username}</span>
           </div>
           <div className="flex gap-2">
             <Input readOnly value={inviteUrl} onFocus={(e) => e.target.select()} aria-label="邀请链接" />
-            <Button variant="outline" icon={<Copy className="size-4" />} onClick={copyInvite}>
+            <Button variant="outline" icon={<Copy className="size-4" strokeWidth={1.75} />} onClick={copyInvite}>
               复制邀请链接
             </Button>
           </div>
@@ -170,8 +180,8 @@ function Invites({ info, refresh }: { info: PartnerInfo; refresh: () => void }) 
       {info.invites.outgoing.map((inv) => (
         <Card key={inv.id} className="flex items-center gap-3 p-4">
           <Avatar user={inv.to} size={36} />
-          <div className="min-w-0 flex-1 text-sm">
-            已邀请 <b>{inv.to.nickname || inv.to.username}</b>，等待对方接受
+          <div className="min-w-0 flex-1 text-sm text-ink-600">
+            已邀请 <span className="font-display text-ink-900">{inv.to.nickname || inv.to.username}</span>，等待对方接受
           </div>
           <Button
             variant="ghost"
@@ -233,7 +243,7 @@ function EditSpace({ info, onClose, onSaved }: { info: PartnerInfo; onClose: () 
         <Field label="在一起的日子" hint="用来计算「在一起 N 天」">
           <Input type="date" value={since} max={today} onChange={(e) => setSince(e.target.value)} />
         </Field>
-        <div className="space-y-1 rounded-xl bg-ink-50 p-3">
+        <div className="space-y-1 rounded-lg border border-ink-200 p-3">
           <Switch checked={pub} onChange={setPub} label="在个人主页公开情侣关系" />
           <p className="pl-12 text-xs leading-relaxed text-ink-400">
             开启后，你们的个人主页会显示对方；关闭时只有你们自己能看到（双方共享此设置）
@@ -278,7 +288,7 @@ function UnbindDialog({ onClose, onUnbind }: { onClose: () => void; onUnbind: (r
       }
     >
       <p className="text-sm leading-relaxed text-ink-500">解除后共同足迹页面将不再显示，一起的旅程不会被删除。</p>
-      <div className="mt-4 space-y-1 rounded-xl bg-ink-50 p-3">
+      <div className="mt-4 space-y-1 rounded-lg border border-ink-200 p-3">
         <Switch checked={removeShared} onChange={setRemoveShared} label="同时结束共同作者关系" />
         <p className="pl-12 text-xs leading-relaxed text-ink-400">
           开启后，你们将不再是对方所创建旅程的共同作者（包括待接受的邀请）；不开启时仍可以一起编辑这些旅程，之后也可以在旅程「成员」中移除。
@@ -359,30 +369,32 @@ export default function TogetherPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6">
-      {/* 卡片本身不裁剪：「设置」菜单要能超出卡片；只裁剪装饰的大爱心 */}
-      <div className="bg-love-gradient relative rounded-3xl p-6 text-white">
-        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl">
-          <Heart className="absolute -right-8 -bottom-10 size-52 fill-white/10 text-white/10" />
-        </div>
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
+      {/* 卡片本身不裁剪：「设置」菜单要能超出卡片 */}
+      <div className="bg-love-gradient relative rounded-2xl px-5 py-6 text-white sm:px-8 sm:py-8">
         {/* 手机上头像和「设置」一行，标题单独一行（否则标题被挤成一两个字一行） */}
-        <div className="relative flex flex-wrap items-center gap-x-5 gap-y-3">
+        <div className="relative flex flex-wrap items-center gap-x-6 gap-y-4">
           <div className="flex items-center">
-            <Avatar user={me} size={64} ring />
-            <Heart className="-mx-2 z-10 size-8 animate-pulse fill-white text-white drop-shadow" />
-            <Avatar user={partner} size={64} ring />
+            <Avatar user={me} size={56} ring />
+            <span className="font-num z-10 -mx-1.5 flex size-8 items-center justify-center rounded-full bg-[#5d3653] text-[17px] text-white/90 italic ring-1 ring-white/30">
+              &amp;
+            </span>
+            <Avatar user={partner} size={56} ring />
           </div>
           <div className="order-last w-full min-w-0 sm:order-none sm:w-auto sm:flex-1">
-            <h1 className="text-2xl font-extrabold">{info.title || '我们一起走过的地方'}</h1>
-            <p className="mt-1 text-sm text-white/85">
-              {me.nickname || me.username} & {partner.nickname || partner.username}
-              {days != null && days > 0 && (
-                <>
-                  {' · '}在一起 <b className="text-lg">{days}</b> 天
-                </>
-              )}
+            <p className="eyebrow !text-white/55">Together · 我们</p>
+            <h1 className="mt-1.5 text-[26px] leading-tight sm:text-[32px]">{info.title || '我们一起走过的地方'}</h1>
+            <p className="mt-1.5 text-sm text-white/75">
+              {me.nickname || me.username} &amp; {partner.nickname || partner.username}
             </p>
           </div>
+          {days != null && days > 0 && (
+            <div className="order-last flex items-baseline gap-1.5 sm:order-none sm:border-l sm:border-white/20 sm:pl-6">
+              <span className="text-xs text-white/60">在一起</span>
+              <span className="font-num text-[2.25rem] leading-none font-medium tracking-tight">{days}</span>
+              <span className="text-xs text-white/60">天</span>
+            </div>
+          )}
           <div className="ml-auto">
             <Menu
               trigger={(t, open) => (
@@ -390,8 +402,9 @@ export default function TogetherPage() {
                   type="button"
                   onClick={t}
                   aria-expanded={open}
-                  className="rounded-full bg-white/20 px-3 py-1.5 text-sm backdrop-blur hover:bg-white/30"
+                  className="flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] text-white/85 ring-1 ring-white/25 transition-colors hover:bg-white/10 hover:text-white"
                 >
+                  <Settings2 className="size-3.5" strokeWidth={1.6} />
                   设置
                 </button>
               )}
@@ -410,28 +423,32 @@ export default function TogetherPage() {
           </div>
         </div>
         {!info.since && (
-          <button type="button" onClick={() => setEditing(true)} className="relative mt-4 flex items-center gap-1.5 text-sm text-white/90 underline">
-            <CalendarHeart className="size-4" />
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="relative mt-5 flex items-center gap-1.5 text-[13px] text-white/80 underline decoration-white/30 underline-offset-4 hover:text-white"
+          >
+            <CalendarHeart className="size-4" strokeWidth={1.5} />
             设置在一起的纪念日
           </button>
         )}
       </div>
 
       {fpQ.isLoading ? (
-        <div className="mt-5 h-[46vh] animate-pulse rounded-3xl bg-ink-100 sm:h-[62vh]" />
+        <div className="mt-6 h-[52vh] min-h-80 animate-pulse rounded-xl bg-ink-100 sm:h-[62vh]" />
       ) : fpQ.isLoadingError ? (
         <LoadError className="py-8" title="足迹加载失败" error={fpQ.error} onRetry={() => fpQ.refetch()} />
       ) : fpQ.data && (
         <>
-          <FootprintStats data={fpQ.data} className="mt-5" />
-          <div className="mt-5">
+          <FootprintStats data={fpQ.data} className="mt-6" />
+          <div className="mt-6">
             {fpQ.data.stats.waypoints === 0 ? (
               <Empty
-                icon={<Heart className="size-12 text-pink-300" />}
+                icon={<Heart className="size-11 text-pink-300" />}
                 title="还没有一起的足迹"
                 desc="创建旅程时打开「和 TA 一起」，你们的打卡就会出现在这里"
                 action={
-                  <Button variant="love" icon={<Plus className="size-4" />} onClick={() => nav('/trips/new')}>
+                  <Button variant="love" icon={<Plus className="size-4" strokeWidth={1.75} />} onClick={() => nav('/trips/new')}>
                     规划一次一起的旅行
                   </Button>
                 }
@@ -445,10 +462,13 @@ export default function TogetherPage() {
         </>
       )}
 
-      <div className="mt-8 mb-3 flex items-center justify-between">
-        <h2 className="text-lg font-bold">一起的旅程</h2>
+      <div className="mt-12 mb-4 flex items-end justify-between gap-3">
+        <div>
+          <p className="eyebrow">Trips · 旅程</p>
+          <h2 className="mt-1.5 text-[22px]">一起的旅程</h2>
+        </div>
         <Link to="/trips/new" className={buttonClass({ size: 'sm', variant: 'love' })}>
-          <Plus className="size-4" />
+          <Plus className="size-3.5" strokeWidth={1.75} />
           新旅程
         </Link>
       </div>

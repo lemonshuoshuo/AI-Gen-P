@@ -36,7 +36,7 @@ export default function LegalPage() {
       </div>
       <div className="border-t-2 border-ink-900 pt-8">
         {/* 正文以一级标题开头：去掉第一个元素的上边距（.prose-trip 的样式不在 Tailwind 层里，需要 !） */}
-        <div className="prose-trip text-[15px] [&>:first-child]:!mt-0 [&>h1:first-child]:text-[30px] [&>h1:first-child]:leading-tight md:[&>h1:first-child]:text-[36px]">
+        <div className="prose-trip text-[15px] [&>:first-child]:!mt-0 [&>h1:first-child]:!mb-6 [&>h1:first-child]:!text-[28px] [&>h1:first-child]:!leading-tight md:[&>h1:first-child]:!text-[36px]">
           <Markdown fallback={<Spinner />}>{q.data?.content ?? ''}</Markdown>
         </div>
       </div>

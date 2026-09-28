@@ -1,7 +1,24 @@
 {$DOMAIN} {
-	encode zstd gzip
+	# 只压缩静态资源和普通 JSON；AI 规划的流式进度（text/event-stream）不能压缩，否则会被攒成一包才下发
+	encode {
+		zstd
+		gzip
+		match {
+			header Content-Type text/html*
+			header Content-Type text/css*
+			header Content-Type text/plain*
+			header Content-Type text/javascript*
+			header Content-Type application/javascript*
+			header Content-Type application/json*
+			header Content-Type application/manifest+json*
+			header Content-Type image/svg+xml*
+		}
+	}
 	# 上传大小由 TripHub 按 .env 的 MAX_UPLOAD_MB 限制（超限返回 JSON 提示），这里不再重复限制
 	# HSTS：浏览器记住本站只用 HTTPS 访问，防止在公共 Wi-Fi 下被降级成明文 HTTP
 	header Strict-Transport-Security "max-age=31536000"
-	reverse_proxy app:8080
+	reverse_proxy app:8080 {
+		# 流式响应立即转发，不做缓冲
+		flush_interval -1
+	}
 }

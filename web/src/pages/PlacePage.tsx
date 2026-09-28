@@ -192,6 +192,7 @@ export default function PlacePage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 pt-6 pb-16 md:px-6 md:pt-10">
+      <div className="flex items-center justify-between gap-4">
       <nav aria-label="位置" className="eyebrow flex flex-wrap items-center gap-2">
         <Link to="/places" className="transition-colors hover:text-ink-900">
           Places · 打卡地
@@ -207,6 +208,15 @@ export default function PlacePage() {
           </>
         )}
       </nav>
+        <button
+          type="button"
+          onClick={() => requireAuth(() => setReport({ type: 'place', id: place.id }))}
+          className="inline-flex shrink-0 items-center gap-1 text-xs text-ink-400 transition-colors hover:text-brand-600"
+        >
+          <Flag className="size-3.5" strokeWidth={1.5} />
+          举报
+        </button>
+      </div>
 
       <div className="mt-5 grid gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,400px)] md:gap-12">
         <div className="min-w-0">
@@ -255,16 +265,6 @@ export default function PlacePage() {
             </Button>
             <Button variant="outline" icon={<Share2 className="size-4" strokeWidth={1.75} />} onClick={() => setShareOpen(true)}>
               分享
-            </Button>
-            <Button
-              variant="ghost"
-              aria-label="举报"
-              title="举报"
-              className="px-2.5 sm:px-4"
-              icon={<Flag className="size-4" strokeWidth={1.75} />}
-              onClick={() => requireAuth(() => setReport({ type: 'place', id: place.id }))}
-            >
-              <span className="hidden sm:inline">举报</span>
             </Button>
           </div>
         </div>

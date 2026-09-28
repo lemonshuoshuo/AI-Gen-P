@@ -459,9 +459,9 @@ export interface AIPlanResult {
 }
 
 export interface AdminDiagnostics {
-  amap: { configured: boolean; ok: boolean; message: string; infocode?: string }
-  ai: { configured: boolean; ok: boolean; model: string; base_url: string; thinking: string; latency_ms: number; message: string }
-  tianditu: { configured: boolean; ok: boolean; message: string }
+  amap: { configured: boolean; ok: boolean; message: string; infocode?: string; latency_ms: number }
+  ai: { configured: boolean; ok: boolean; model: string; base_url: string; thinking: string; timeout_s: number; latency_ms: number; message: string }
+  tianditu: { configured: boolean; ok: boolean; message: string; latency_ms: number }
 }
 
 export interface AdminStats {

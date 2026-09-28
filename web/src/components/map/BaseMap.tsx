@@ -42,7 +42,7 @@ async function addAtlasFallback(map: MLMap, kind: () => BaseKind) {
   try {
     const atlas = await loadAtlas()
     if (!map.getStyle() || map.getSource('th-atlas')) return
-    const paint = atlasPaint(kind())
+    const paint = atlasPaint(kind(), map)
     map.addSource('th-atlas', { type: 'geojson', data: atlas.provinces })
     map.addLayer(
       {

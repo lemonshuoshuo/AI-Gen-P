@@ -5,7 +5,7 @@ import type { TripCard as Trip } from '@/api/types'
 import { Postmark, cityShort, mineralOf, pad2 } from '@/components/editorial'
 import { Avatar } from '@/components/ui'
 import { cn } from '@/lib/cn'
-import { dateRange, dayjs, fmtCount } from '@/lib/format'
+import { dateRange, dayjs, fmtCount, fmtDate } from '@/lib/format'
 import { phases, tripStatuses } from '@/lib/meta'
 
 // 纸张噪点：矿物色块上叠一层，像印刷品而不是屏幕纯色
@@ -186,8 +186,8 @@ export function TripCard({ trip, showAuthor = true }: { trip: Trip; showAuthor?:
               <span className="min-w-0 truncate">{trip.author.nickname || trip.author.username}</span>
             </>
           ) : (
-            <span className="font-num min-w-0 truncate text-ink-400">
-              {trip.start_date ? dateRange(trip.start_date, trip.end_date) : `${trip.visited_count || trip.waypoint_count} 个打卡点`}
+            <span className="font-num min-w-0 truncate text-ink-400" title={trip.start_date ? dateRange(trip.start_date, trip.end_date) : undefined}>
+              {trip.start_date ? fmtDate(trip.start_date) : `${trip.visited_count || trip.waypoint_count} 个打卡点`}
             </span>
           )}
           <span className="font-num ml-auto flex shrink-0 items-center gap-2.5 whitespace-nowrap text-ink-400">
@@ -196,19 +196,19 @@ export function TripCard({ trip, showAuthor = true }: { trip: Trip; showAuthor?:
               {fmtCount(trip.like_count)}
             </span>
             {trip.comment_count > 0 && (
-              <span className={cn('items-center gap-1', showAuthor ? 'hidden @[14rem]:inline-flex' : 'inline-flex')} title="评论">
+              <span className={cn('items-center gap-1', showAuthor ? 'hidden @[14rem]:inline-flex' : 'hidden @[13rem]:inline-flex')} title="评论">
                 <MessageCircle className="size-3.5" strokeWidth={1.5} />
                 {fmtCount(trip.comment_count)}
               </span>
             )}
             {trip.fork_count > 0 && (
-              <span className={cn('items-center gap-1', showAuthor ? 'hidden @[16rem]:inline-flex' : 'hidden @[13rem]:inline-flex')} title="引用">
+              <span className={cn('items-center gap-1', showAuthor ? 'hidden @[16rem]:inline-flex' : 'hidden @[17rem]:inline-flex')} title="引用">
                 <GitFork className="size-3.5" strokeWidth={1.5} />
                 {fmtCount(trip.fork_count)}
               </span>
             )}
             {!showAuthor && (
-              <span className="inline-flex items-center gap-1" title="浏览">
+              <span className="hidden items-center gap-1 @[15rem]:inline-flex" title="浏览">
                 <Eye className="size-3.5" strokeWidth={1.5} />
                 {fmtCount(trip.view_count)}
               </span>
