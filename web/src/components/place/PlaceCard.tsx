@@ -41,7 +41,7 @@ function PlaceThumb({ place, className }: { place: Place; className?: string }) 
   const c = categoryOf(place.category)
   const Icon = c.icon
   return (
-    <div className={cn('relative shrink-0 overflow-hidden rounded-md bg-white', className)}>
+    <div className={cn('relative shrink-0 overflow-hidden rounded-md bg-surface', className)}>
       {place.cover_url ? (
         <img src={place.cover_thumb_url || place.cover_url} alt="" loading="lazy" decoding="async" className="size-full object-cover" />
       ) : (
@@ -55,7 +55,7 @@ function PlaceThumb({ place, className }: { place: Place; className?: string }) 
 }
 
 /**
- * 打卡地列表行（杂志目录式：Fraunces 序号 + 宋体地名 + 细线分隔，放在 divide-y 的列表里）。
+ * 打卡地列表行（杂志目录式：Cormorant 序号 + 宋体地名 + 细线分隔，放在 divide-y 的列表里）。
  * compact：首页侧栏的排行；avoid：避雷榜，右侧显示踩雷人数
  */
 export function PlaceRow({

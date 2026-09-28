@@ -739,7 +739,7 @@ export default function ReplayPage() {
               <button
                 type="button"
                 onClick={restart}
-                className="flex h-10 items-center gap-1.5 rounded-lg bg-paper px-4 text-sm font-medium text-ink-900 transition-colors hover:bg-white"
+                className="flex h-10 items-center gap-1.5 rounded-lg bg-paper px-4 text-sm font-medium text-ink-900 transition-colors hover:bg-surface"
               >
                 <RotateCcw className="size-4" strokeWidth={1.75} />
                 再看一次
@@ -783,7 +783,7 @@ export default function ReplayPage() {
           <button
             type="button"
             onClick={togglePlay}
-            className="flex size-11 shrink-0 items-center justify-center rounded-full bg-paper text-ink-900 transition-colors hover:bg-white"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full bg-paper text-ink-900 transition-colors hover:bg-surface"
             aria-label={playing && !done ? '暂停' : '播放'}
           >
             {playing && !done ? <Pause className="size-[18px]" strokeWidth={1.75} /> : <Play className="ml-0.5 size-[18px]" strokeWidth={1.75} />}

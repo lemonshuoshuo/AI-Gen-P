@@ -16,7 +16,7 @@ function splitUnit(s: string): [string, string | undefined] {
   return m ? [m[1], m[2]] : [s, undefined]
 }
 
-/** 大号 Fraunces 数字 + 小标签；多个之间用细线分隔（由外层网格负责） */
+/** 大号 Cormorant 数字 + 小标签；多个之间用细线分隔（由外层网格负责） */
 function Figure({ label, value, unit, sub }: { label: string; value: string; unit?: string; sub?: ReactNode }) {
   return (
     <div className="min-w-0 py-5 pr-4 pl-4 max-sm:[&:nth-child(odd)]:pl-0 sm:[&:nth-child(3n+1)]:pl-0">
@@ -140,7 +140,7 @@ export function Overview() {
       <Link
         to="/admin/diagnostics"
         className={cn(
-          'group mt-10 flex flex-col gap-3 rounded-xl border border-ink-200 bg-white/60 px-5 py-4 transition-colors hover:border-ink-900/30 hover:bg-white',
+          'group mt-10 flex flex-col gap-3 rounded-xl border border-ink-200 bg-white/60 px-5 py-4 transition-colors hover:border-ink-900/30 hover:bg-surface',
           'sm:flex-row sm:items-center sm:gap-6',
         )}
       >

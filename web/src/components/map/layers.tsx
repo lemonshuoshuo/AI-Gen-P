@@ -84,7 +84,7 @@ export function RouteLines({
         type: 'line',
         source: `${P}-actual`,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': dark ? '#0c1314' : '#fffdf9', 'line-width': 6.5, 'line-opacity': 0.85 },
+        paint: { 'line-color': dark ? '#0b1112' : '#0b0b0a', 'line-width': 6.5, 'line-opacity': 0.85 },
       })
       map.addLayer({
         id: `${P}-actual`,
@@ -116,35 +116,36 @@ export function RouteLines({
 }
 
 /* ---------------- 打卡点标记 ---------------- */
-const INK = '#1b1a17'
-const PAPER = '#fffdf9'
-const VERMILION = '#bd462b'
+// 深色底图上反过来：已到达为象牙白实心，计划中为黑底虚线
+const INK = '#f2eee6'
+const PAPER = '#0b0b0a'
+const VERMILION = '#cf6041'
 
 /**
  * 印章式标记：已到达为墨色实心，计划中为虚线空心，跳过为淡灰；右下角小圆点是分类色，
- * 踩雷在右上角加朱砂记号。数字用 Fraunces。
+ * 踩雷在右上角加朱砂记号。数字用 Cormorant。
  */
 export function markerHtml(w: Pick<Waypoint, 'category' | 'planned' | 'status' | 'verdict'>, label: string, selected: boolean) {
   const cat = categoryOf(w.category).color
   const todo = w.planned && w.status === 'todo'
   const skipped = w.status === 'skipped'
   const size = selected ? 32 : 26
-  const bg = skipped ? '#ece7dd' : todo ? PAPER : selected ? VERMILION : INK
-  const fg = skipped ? '#b9b1a2' : todo ? (selected ? VERMILION : INK) : PAPER
-  const border = skipped ? '1.5px solid #cdc3b1' : todo ? `1.5px dashed ${selected ? VERMILION : INK}` : `1.5px solid ${PAPER}`
+  const bg = skipped ? '#2a2926' : todo ? PAPER : selected ? VERMILION : INK
+  const fg = skipped ? '#6b665e' : todo ? (selected ? VERMILION : INK) : PAPER
+  const border = skipped ? '1.5px solid #4f4c46' : todo ? `1.5px dashed ${selected ? VERMILION : INK}` : `1.5px solid ${PAPER}`
   // anchor: 'bottom' 已经把元素底边（针尖）放在坐标上，内层不能再上移，否则标记会浮在路线顶点上方
   return `
     <div style="position:relative;display:flex;flex-direction:column;align-items:center">
       <div style="
         position:relative;min-width:${size}px;height:${size}px;padding:0 6px;border-radius:999px;
         display:flex;align-items:center;justify-content:center;
-        font:500 ${selected ? 15 : 13}px/1 'Fraunces Variable',Georgia,serif;font-variant-numeric:lining-nums;
+        font:500 ${selected ? 15 : 13}px/1 'Cormorant Garamond Variable',Georgia,serif;font-variant-numeric:lining-nums;
         color:${fg};background:${bg};border:${border};
-        box-shadow:0 1px 2px rgba(27,26,23,.18),0 4px 10px -2px rgba(27,26,23,.28);transition:all .15s">${label}
+        box-shadow:0 1px 2px rgba(0,0,0,.4),0 6px 14px -4px rgba(0,0,0,.6);transition:all .15s">${label}
         ${skipped ? '' : `<span style="position:absolute;right:-2px;bottom:-2px;width:8px;height:8px;border-radius:999px;background:${cat};box-shadow:0 0 0 1.5px ${PAPER}"></span>`}
       </div>
       ${w.verdict === 'avoid' ? `<div style="position:absolute;top:-5px;right:-6px;width:14px;height:14px;border-radius:999px;background:${VERMILION};color:${PAPER};font:600 9px/14px system-ui,sans-serif;text-align:center;box-shadow:0 0 0 1.5px ${PAPER}">✕</div>` : ''}
-      <div style="width:1.5px;height:7px;background:${skipped ? '#cdc3b1' : INK};opacity:.7"></div>
+      <div style="width:1.5px;height:7px;background:${skipped ? '#4f4c46' : INK};opacity:.7"></div>
     </div>`
 }
 
@@ -221,7 +222,7 @@ export function UserDot({ position, accuracy }: { position: LngLat | null; accur
       const el = document.createElement('div')
       el.innerHTML = `<div style="position:relative;width:18px;height:18px">
         <span class="animate-pulse-ring" style="position:absolute;inset:0;border-radius:999px;background:rgba(63,105,117,.4)"></span>
-        <span style="position:absolute;inset:2px;border-radius:999px;background:#3f6975;border:3px solid #fffdf9;box-shadow:0 1px 6px rgba(27,26,23,.3)"></span>
+        <span style="position:absolute;inset:2px;border-radius:999px;background:#7aa1ab;border:3px solid #0b0b0a;box-shadow:0 0 0 1px rgba(242,238,230,.5),0 1px 6px rgba(0,0,0,.5)"></span>
       </div>`
       el.title = accuracy ? `精度约 ${Math.round(accuracy)} 米` : '当前位置'
       marker.current = new Marker({ element: el }).setLngLat(position).addTo(map)

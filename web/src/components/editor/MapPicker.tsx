@@ -41,7 +41,7 @@ const PIN_HTML = `<div style="position:relative;width:36px;height:36px;pointer-e
   <span style="position:absolute;left:15.5px;top:15.5px;width:5px;height:5px;border-radius:999px;background:${V}"></span>
 </div>`
 
-const HOVER_HTML = `<div style="width:14px;height:14px;border-radius:999px;background:#1b1a17;border:2.5px solid #fffdf9;box-shadow:0 1px 5px rgba(27,26,23,.4);pointer-events:none"></div>`
+const HOVER_HTML = `<div style="width:14px;height:14px;border-radius:999px;background:#f2eee6;border:2.5px solid #0b0b0a;box-shadow:0 1px 5px rgba(0,0,0,.5);pointer-events:none"></div>`
 
 const PANEL_W = 344
 
@@ -161,7 +161,7 @@ export function MapPicker({
         type: 'line',
         source: 'th-pick-link',
         layout: { 'line-cap': 'round' },
-        paint: { 'line-color': '#1b1a17', 'line-width': 1.25, 'line-dasharray': [1.5, 2], 'line-opacity': 0.65 },
+        paint: { 'line-color': '#f2eee6', 'line-width': 1.25, 'line-dasharray': [1.5, 2], 'line-opacity': 0.65 },
       })
     if (target) {
       if (!hoverPin.current) {
@@ -217,7 +217,7 @@ export function MapPicker({
       aria-modal="false"
       aria-labelledby={titleId}
       className={cn(
-        'flex flex-col bg-white shadow-float',
+        'flex flex-col bg-surface shadow-float',
         desktop
           ? 'animate-fade-in absolute top-[3.75rem] left-3 z-20 max-h-[calc(100%-5rem)] w-[344px] max-w-[calc(100%-1.5rem)] rounded-xl'
           : 'animate-slide-up fixed inset-x-0 bottom-0 z-40 max-h-[52dvh] rounded-t-2xl pb-[env(safe-area-inset-bottom)]',

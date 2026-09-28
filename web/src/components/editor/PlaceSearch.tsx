@@ -166,7 +166,7 @@ export function PlaceSearch({
             }}
             placeholder={placeholder}
             aria-label="搜索地点"
-            className="h-11 w-full rounded-lg border border-ink-200 bg-white pr-9 pl-9 text-sm text-ink-900 outline-none transition placeholder:text-ink-300 focus:border-ink-900 focus:ring-2 focus:ring-ink-900/5"
+            className="h-11 w-full rounded-lg border border-ink-200 bg-surface pr-9 pl-9 text-sm text-ink-900 outline-none transition placeholder:text-ink-300 focus:border-ink-900 focus:ring-2 focus:ring-ink-900/5"
           />
           {loading ? (
             <Loader2 className="absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin text-ink-400" strokeWidth={1.75} />
@@ -205,7 +205,7 @@ export function PlaceSearch({
               'overflow-y-auto',
               sheet
                 ? 'pb-safe mt-3 min-h-0 flex-1 overscroll-contain'
-                : 'animate-fade-in absolute inset-x-0 z-40 mt-1.5 max-h-96 rounded-xl bg-white py-1 shadow-float',
+                : 'animate-fade-in absolute inset-x-0 z-40 mt-1.5 max-h-96 rounded-xl bg-surface py-1 shadow-float',
             )}
           >
             {community.length > 0 && (

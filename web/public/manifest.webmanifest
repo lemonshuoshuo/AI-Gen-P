@@ -4,8 +4,8 @@
   "description": "规划路线、按图出行、打卡避雷、点亮走过的地方",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f4f1ea",
-  "theme_color": "#1b1a17",
+  "background_color": "#0b0b0a",
+  "theme_color": "#0b0b0a",
   "lang": "zh-CN",
   "icons": [
     { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },

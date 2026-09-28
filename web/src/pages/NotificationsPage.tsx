@@ -111,14 +111,14 @@ function NoticeAvatar({ n }: { n: Notification }) {
   // 系统 / 精选通知没有发起人：细线圆框 + 图标
   if (!n.actor)
     return (
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-full border border-ink-200 bg-white text-ink-600">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-full border border-ink-200 bg-surface text-ink-600">
         <Icon className="size-[18px]" strokeWidth={1.5} />
       </span>
     )
   return (
     <span className="relative size-10 shrink-0">
       <Avatar user={n.actor} size={40} />
-      <span className="absolute -right-1 -bottom-1 flex size-5 items-center justify-center rounded-full border border-ink-200 bg-white text-ink-600 ring-2 ring-paper">
+      <span className="absolute -right-1 -bottom-1 flex size-5 items-center justify-center rounded-full border border-ink-200 bg-surface text-ink-600 ring-2 ring-paper">
         <Icon className="size-2.5" strokeWidth={2} />
       </span>
     </span>

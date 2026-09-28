@@ -146,7 +146,7 @@ export function Note({
   )
 }
 
-/* ---------------- 邮戳：双圈 + 环形小字 + 中间大号 Fraunces 数字 ---------------- */
+/* ---------------- 邮戳：双圈 + 环形小字 + 中间大号 Cormorant 数字 ---------------- */
 export function Postmark({
   value,
   unit,
@@ -239,7 +239,7 @@ export const minerals = [
   { name: '藕荷', bg: '#594b74', fg: '#f4f1ea', stamp: '#f4f1ea' },
   { name: '胭脂', bg: '#6b3242', fg: '#f4f1ea', stamp: '#f4f1ea' },
   { name: '石青', bg: '#3d4e7a', fg: '#f4f1ea', stamp: '#f4f1ea' },
-  { name: '宣纸', bg: '#e6dfd1', fg: '#1b1a17', stamp: '#bd462b' },
+  { name: '墨', bg: '#1d1c19', fg: '#f2eee6', stamp: '#cf6041' },
 ] as const
 export type Mineral = (typeof minerals)[number]
 export const mineralOf = (id: number) => minerals[Math.abs(id) % minerals.length]
@@ -277,7 +277,7 @@ export function MoreButton({
         type="button"
         onClick={onClick}
         disabled={loading}
-        className="inline-flex h-9 items-center gap-2 rounded-lg border border-ink-900/15 px-5 text-[13px] tracking-wider text-ink-700 transition-colors hover:border-ink-900/40 hover:bg-white disabled:opacity-50"
+        className="inline-flex h-9 items-center gap-2 rounded-lg border border-ink-900/15 px-5 text-[13px] tracking-wider text-ink-700 transition-colors hover:border-ink-900/40 hover:bg-surface disabled:opacity-50"
       >
         {loading ? '加载中…' : children}
       </button>

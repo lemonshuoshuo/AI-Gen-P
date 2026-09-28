@@ -23,7 +23,7 @@ const sections: { path: string; label: string }[] = [
 
 const toOf = (path: string) => (path ? `/admin/${path}` : '/admin')
 
-/** 待处理数量：朱砂色的小号 Fraunces 数字，不用色块 */
+/** 待处理数量：朱砂色的小号 Cormorant 数字，不用色块 */
 function Count({ n, label }: { n: number; label: string }) {
   return (
     <span className="font-num text-xs leading-none text-brand-600">

@@ -2,8 +2,8 @@ import type { ExpressionSpecification, Map as MLMap, StyleSpecification } from '
 import type { SiteConfig } from '@/api/types'
 
 /**
- * normal：纸色标准底图；satellite：卫星；dark：夜间（黛青）；
- * auto：随缩放变化——全国 / 省级为夜色（点亮中国的 3D 场景），放大到城市级时渐变为纸色底图（2.5D 足迹、照片）
+ * normal：石墨色标准底图（与站点的深色界面一致）；satellite：卫星；dark：夜间（黛青，3D 场景）；
+ * auto：随缩放变化——全国 / 省级为夜色（点亮中国的 3D 场景），放大到城市级时渐变为石墨色底图（2.5D 足迹、照片）
  */
 export type BaseKind = 'normal' | 'satellite' | 'dark' | 'auto'
 
@@ -27,17 +27,18 @@ const darkPaint = {
   'raster-contrast': 0.1,
   'raster-opacity': 0.9,
 }
-// 标准：降饱和、略透出暖色底，像一张旧纸地图，让路线和标记成为主角
+// 标准：亮度反转后几乎去色，得到暖石墨色的地图，道路与水系是细细的浅灰，让路线和标记成为主角
 const normalPaint = {
-  'raster-brightness-min': 0.03,
-  'raster-brightness-max': 0.99,
-  'raster-hue-rotate': 0,
-  'raster-saturation': -0.58,
-  'raster-contrast': -0.04,
-  'raster-opacity': 0.86,
+  'raster-brightness-min': 0.9,
+  'raster-brightness-max': 0.07,
+  'raster-hue-rotate': 180,
+  'raster-saturation': -0.9,
+  'raster-contrast': 0.08,
+  'raster-opacity': 0.94,
 }
 
-export const MAP_BG = { light: '#e8dfcf', dark: '#0c1314' }
+/** light 为标准底图（石墨）的底色，dark 为夜间底色 */
+export const MAP_BG = { light: '#121210', dark: '#0b1112' }
 
 /** auto 底图从夜色过渡到纸色的缩放区间（足迹地图进入城市级 2.5D 视图时完成过渡） */
 export const AUTO_DAY_ZOOM: [number, number] = [8.2, 8.65]
@@ -61,9 +62,9 @@ function bgFor(kind: BaseKind, win: Win = AUTO_DAY_ZOOM): Paint {
 /** 瓦片加载失败时的兜底省界轮廓配色 */
 export function atlasPaint(kind: BaseKind, map?: MLMap): { fill: Paint; line: Paint } {
   const win = winOf(map)
-  if (kind === 'dark') return { fill: '#131d1f', line: '#2c3d40' }
-  if (kind === 'auto') return { fill: dayNight('#131d1f', '#faf7f0', win), line: dayNight('#2c3d40', '#cdc3b1', win) }
-  return { fill: '#faf7f0', line: '#cdc3b1' }
+  if (kind === 'dark') return { fill: '#111a1b', line: '#2a3a3d' }
+  if (kind === 'auto') return { fill: dayNight('#111a1b', '#191917', win), line: dayNight('#2a3a3d', '#3a3833', win) }
+  return { fill: '#191917', line: '#3a3833' }
 }
 
 /** 主栅格图层（th-normal）的配色；auto 时它是夜色层，放大后淡出，下方的 th-normal-day 淡入 */
@@ -125,14 +126,14 @@ export function buildStyle(
 }
 
 const skyDark = {
-  'sky-color': '#0c1314',
-  'horizon-color': '#1d2c2e',
-  'fog-color': '#0c1314',
+  'sky-color': '#0b1112',
+  'horizon-color': '#1a2729',
+  'fog-color': '#0b1112',
 }
 const skyLight = {
-  'sky-color': '#dce3df',
-  'horizon-color': '#efe9dd',
-  'fog-color': '#f4f1ea',
+  'sky-color': '#0b0b0a',
+  'horizon-color': '#22211e',
+  'fog-color': '#121210',
 }
 
 function skyFor(kind: BaseKind, win: Win = AUTO_DAY_ZOOM) {

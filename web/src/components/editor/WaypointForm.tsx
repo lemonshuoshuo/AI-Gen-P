@@ -118,7 +118,7 @@ export function WaypointForm({
                     onClick={() => set('verdict', on ? '' : v)}
                     className={cn(
                       'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm tracking-wide transition-colors',
-                      on ? 'font-medium' : 'border-ink-200 bg-white text-ink-500 hover:border-ink-400 hover:text-ink-900',
+                      on ? 'font-medium' : 'border-ink-200 bg-surface text-ink-500 hover:border-ink-400 hover:text-ink-900',
                     )}
                     style={on ? { color: c, borderColor: c + '80', background: c + '12' } : undefined}
                   >

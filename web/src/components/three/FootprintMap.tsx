@@ -180,7 +180,7 @@ function FootprintOverlay({
       source: `${P}-trips`,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': '#fffdf9',
+        'line-color': '#0b0b0a',
         'line-width': ['interpolate', ['linear'], Z, D0, 1, 12, 7],
         'line-opacity': ['interpolate', ['linear'], Z, D0, 0, D1, 0.9],
       },
@@ -215,7 +215,7 @@ function FootprintOverlay({
       paint: {
         'circle-color': ['interpolate', ['linear'], Z, D0, pal.column, D1, ['get', 'color']] as ExpressionSpecification,
         'circle-radius': ['interpolate', ['linear'], Z, 6, 1.6, 8.5, 3, 13, 4.5],
-        'circle-stroke-color': ['interpolate', ['linear'], Z, D0, 'rgba(12,19,20,0.5)', D1, '#fffdf9'] as ExpressionSpecification,
+        'circle-stroke-color': ['interpolate', ['linear'], Z, D0, 'rgba(12,19,20,0.5)', D1, '#0b0b0a'] as ExpressionSpecification,
         'circle-stroke-width': ['interpolate', ['linear'], Z, z(6), 0, z(8.5), 1.5],
         // 已经画成 DOM 标记的点（feature-state pinned）不再重复显示圆点
         'circle-opacity': ['interpolate', ['linear'], Z, z(5.4), 0, z(6.3), ['case', pinned, 0, 0.95]],
@@ -370,12 +370,12 @@ function declutter(map: MLMap, order: number[], pos: (i: number) => LngLat, size
   return out
 }
 
-const PAPER = '#fffdf9'
-const INK = '#1b1a17'
+const PAPER = '#0b0b0a'
+const INK = '#f2eee6'
 
 function badgeHtml(n: number) {
   return n > 0
-    ? `<span style="position:absolute;top:-7px;right:-9px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:${INK};color:${PAPER};font:500 11px/18px 'Fraunces Variable',Georgia,serif;font-variant-numeric:lining-nums;text-align:center;box-shadow:0 0 0 1.5px ${PAPER}">+${n}</span>`
+    ? `<span style="position:absolute;top:-7px;right:-9px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:${INK};color:${PAPER};font:500 11px/18px 'Cormorant Garamond Variable',Georgia,serif;font-variant-numeric:lining-nums;text-align:center;box-shadow:0 0 0 1.5px ${PAPER}">+${n}</span>`
     : ''
 }
 
@@ -536,7 +536,7 @@ function CityLabels({ cities, color }: { cities: Footprints['cities']; color: st
         const el = document.createElement('div')
         el.style.pointerEvents = 'none'
         const name = c.name.length > 2 ? c.name.replace(/(市|地区)$/, '') : c.name
-        el.innerHTML = `<div style="margin-top:6px;white-space:nowrap;font:600 12px/1 'Noto Serif SC','Songti SC',serif;letter-spacing:.06em;color:#f4f1ea;text-shadow:0 1px 3px rgba(12,19,20,.9),0 0 8px rgba(12,19,20,.7)">${name}<span style="margin-left:4px;font:500 11px/1 'Fraunces Variable',Georgia,serif;font-variant-numeric:lining-nums;color:${color}">${c.count}</span></div>`
+        el.innerHTML = `<div style="margin-top:6px;white-space:nowrap;font:400 12px/1 'Noto Serif SC','Songti SC',serif;letter-spacing:.06em;color:#f4f1ea;text-shadow:0 1px 3px rgba(12,19,20,.9),0 0 8px rgba(12,19,20,.7)">${name}<span style="margin-left:4px;font:500 11px/1 'Cormorant Garamond Variable',Georgia,serif;font-variant-numeric:lining-nums;color:${color}">${c.count}</span></div>`
         all.set(c.code, new Marker({ element: el, anchor: 'top' }).setLngLat([c.lng, c.lat]).addTo(map))
       }
     }
@@ -557,7 +557,7 @@ function PointCard({ p, label, onClose, dark }: { p: FootprintPoint; label: stri
     <div
       className={cn(
         'animate-slide-up absolute inset-x-3 bottom-3 z-20 overflow-hidden rounded-xl sm:right-auto sm:w-[22rem]',
-        dark ? 'glass-dark text-paper ring-1 ring-white/12' : 'bg-white text-ink-900 shadow-float',
+        dark ? 'glass-dark text-paper ring-1 ring-white/12' : 'bg-surface text-ink-900 shadow-float',
       )}
     >
       <div className="flex gap-3 p-3">

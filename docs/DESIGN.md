@@ -1,59 +1,68 @@
-# TripHub 视觉规范 ·「旅行手账」
+# TripHub 视觉规范 ·「夜航」
 
-目标：像一本精心排版的旅行杂志 / 手账，而不是模板化的应用。克制、留白、细线、真实的纸与墨。
+参考气质：exemplarfromsweden.com 一类的高端品牌站——近黑底色、超大号高反差衬线字、极小的无衬线标签、整幅的电影感照片、极细的分隔线、大量留白，几乎不用颜色。
 所有设计令牌在 `web/src/index.css`，公共组件在 `web/src/components/ui/index.tsx`，页面只组合，不另起一套。
 
-## 1. 色彩
+## 1. 色彩（深色唯一主题）
 
-| 角色 | 令牌 / 类名 | 用法 |
+墨色与各色阶已整体反转：`50` 是最深的底色，`900` 是最亮的文字。原来的类名照常用即可。
+
+| 角色 | 类名 | 说明 |
 |---|---|---|
-| 纸（页面底色） | `bg-paper` / `bg-ink-50` `#f4f1ea` | 页面背景；自带极淡纸张噪点 |
-| 卡片 / 浮层 | `bg-white`（已调成暖白 `#fffdf9`） | 卡片、弹窗、输入框 |
-| 墨（文字） | `text-ink-900` 正文标题；`text-ink-500/600` 次要；`text-ink-400` 注释 | 不要用纯黑 / 纯灰 |
-| 细线 | `border-ink-200`、`shadow-card`（1px 细线阴影） | 代替投影做分隔 |
-| 朱砂（唯一强调色） | `brand-500` `#bd462b` | 少量：当前状态、强调数字、印章、实际路线。一屏里不要超过 2–3 处 |
-| 矿物色（状态 / 分类） | `emerald`=玉青 推荐 · `amber`=赭黄 一般 · `red`=朱砂 踩雷 · `sky`=黛青 计划 · `violet`=藕紫 · `pink`=胭脂 | 已在主题里全部改成低饱和版本，照常使用 Tailwind 类名即可 |
-| 夜（3D 场景） | `bg-night`、`bg-night` 上用 `text-gold`/`#c9a868` | 3D 回放、足迹地球、点亮中国 |
-| 情侣空间 | `bg-love-gradient`（胭脂→黛紫的深色调） | 仅「我们」相关 |
+| 页面底色 | `bg-paper`（= `bg-ink-50` `#0b0b0a`） | 近黑暖色，自带极淡胶片颗粒 |
+| 输入框 / 菜单 / 弹窗 | `bg-surface` `#121211`、`bg-surface-2` `#181816` | 只给「可交互的浮层和输入」用。**内容不要装进有底色的卡片**，用留白和细线组织 |
+| 正文 / 标题 | `text-ink-900` 象牙白；正文段落 `text-ink-700`；元信息 `text-ink-500`；注释 `text-ink-400` | 不用纯白（照片上的文字除外，用 `text-white`） |
+| 细线 | `border-ink-200`（`#2a2926`）、`divide-ink-200` | 分隔一切 |
+| 朱砂 | `brand-*`（500 `#cf6041`） | 只用于：进行中 / 当前状态的小圆点、踩雷、每页最多一个 `accent` 按钮 |
+| 矿物色 | `emerald`=推荐、`amber`=一般、`red`=踩雷、`sky`=计划路线… | 只以**小圆点、细线、文字**出现；`bg-*-50/100` 是深色底纹，可做极小面积的标签底 |
+| 照片 | 真实照片是主角 | 没有照片时用「近黑 + 超大宋体地名 + 细线邮戳」，不用彩色色块 |
 
-禁止：新增亮色渐变、霓虹色、`#ff5a5f` 一类旧品牌色、彩色大面积色块做装饰。
+禁止：亮色大色块、渐变装饰、彩色卡片背景、阴影堆叠、白色底的卡片 / 标签（`bg-white/xx` 只允许作为照片上的极淡遮罩）。
 
 ## 2. 字体
 
-- 标题（h1/h2/h3 已全局设置）：`font-display` = Fraunces（西文）+ 思源宋体（中文），字重 600。不要再加 `font-bold/extrabold`。
-- 数字（里程、天数、计数、日期、序号）：`font-num`（Fraunces，等宽数字）。大数字 1.5–3rem，搭配小号单位与标签。
-- 小标题 / 标签：`eyebrow` 工具类（西文大写、宽字距、11px）。常见写法：`<p className="eyebrow">Itinerary · 行程</p>`，西文在前、中文在后，用 `·` 分隔。
-- 正文：系统黑体，14–15px，行高 1.7 以上；长文用 `prose-trip`。
-- 字号层级：页面 H1 28–40px（移动 26–30px）；区块 H2 20–24px；卡片标题 16–17px `font-display`。
+- 展示标题：`font-display` = Cormorant Garamond（西文）+ 思源宋体 400（中文）。只加载了 400 的中文字重，**不要用 font-bold / font-semibold 做标题**。
+  - 超大：`text-display-xl`（首页主标题、旅程封面标题，最大约 120px）
+  - 大：`text-display-lg`（页面 H1，约 36–76px）
+  - 中：`text-display-md`（区块标题，约 28–46px）
+  - 卡片标题：`font-display text-xl`～`text-2xl`
+- 数字：`font-num`（Cormorant 等高数字），**用细字重、大字号**：`font-light text-5xl`～`text-7xl`，单位与标签是 11–12px 的无衬线灰字。
+- 标签：`eyebrow`（Manrope 11px，大写，字距 0.16em，灰）。写法：`<p className="eyebrow">Itinerary · 行程</p>`。
+- 说明文字对（照片说明、元信息）：第一行 `text-[13px] text-ink-900`，第二行 `caption`（13px 灰）。
+- 正文：Manrope + 系统中文黑体，14–15px，行高 1.8；长文 `prose-trip`。
+- 字号对比要大：标题与正文的字号差距越大越显高级。一屏里只有一个视觉焦点。
 
-## 3. 形与线
+## 3. 版式
 
-- 圆角小：按钮 / 输入 `rounded-lg`（7px），卡片 `rounded-xl`/`rounded-2xl`（9–12px），图片 6–10px。不要 `rounded-3xl` 大圆角和胶囊卡片。
-- 分隔用细线：`border-t border-ink-200`，或列表项之间 `divide-y divide-ink-200`。优先用「排版 + 细线」的列表，而不是一张张卡片。
-- 投影只用 `shadow-card`（本质是 1px 细线）和 `shadow-float`（浮层）。
-- 图标：lucide，`strokeWidth={1.5}`–`1.75`，尺寸 16–20px。不要用 emoji（包括 💕 ⭐ 📍 ⚠️ 🎉 📢），用文字、细线图标或排版符号（◎ ○ ✕ · →）代替。
+- 宽度：外层 `mx-auto max-w-[90rem] px-4 md:px-8`（与顶栏对齐）；阅读正文 `max-w-2xl`。
+- 纵向节奏：桌面区块之间 `py-20`～`py-32`，移动 `py-12`～`py-16`。留白是高级感的来源，宁多勿少。
+- 区块头（Exemplar 的样式）：一条 `border-t border-ink-200`，下面一行小字——左侧 `eyebrow` 标签 + 灰色计数 / 说明，右侧「全部 →」；再往下才是超大标题或内容。
+- 网格：不对称网格（如 5/7、4/8 分栏），图片与文字错落；列表用「细线 + 排版」而不是卡片。
+- 圆角：图片 `rounded-none` 或 `rounded-sm`；按钮是胶囊（组件已设置）；输入框 `rounded-md`；弹窗 `rounded-xl`。
+- 移动端：左右 16px，展示字号自动缩放；不要横向滚动。
 
-## 4. 组件用法
+## 4. 图片
 
-- 按钮：`primary` = 墨色（主要动作）；`accent` = 朱砂（每页最多一个最重要的动作，如「出发」「生成行程」）；`outline` = 细线描边（次要）；`ghost`；`love` 仅情侣空间。
-- 标签：`Tag`（细线小方标签）、`VerdictBadge`（◎推荐 / ○一般 / ✕踩雷，矿物色）、`CategoryChip`（细线图标 + 文字，无底色）。
-- 统计：`Stat`（大号 Fraunces 数字 + 小标签），多个统计之间用竖细线分隔，而不是一个个小卡片。
-- 空状态 `Empty`、加载 `PageLoader`、错误 `LoadError` 已是新风格。
+- 整幅出血（full-bleed）或占满栅格列，比例 4:5、3:2、16:9；`object-cover`。
+- 照片上的文字：底部 `bg-gradient-to-t from-black/70 via-black/20 to-transparent` 的极淡遮罩 + `text-white`。
+- 悬停：只让图片在 700ms 内缓慢放大到 1.03（`transition-transform duration-700 ease-out group-hover:scale-[1.03]`），文字不动。
+- 说明文字放在图片下方，两行式（亮 + 灰）。
 
-## 5. 版式
+## 5. 组件
 
-- 页面头部：`eyebrow` + 宋体 H1 + 一句灰色副标题，左对齐，下方留白 24–40px；需要时右侧放操作。
-- 内容宽度 `max-w-6xl`，阅读类正文 `max-w-2xl`；移动端左右 16px。
-- 旅程封面：真实照片优先（全出血、细边框）；没有照片时用「矿物色纯色块 + 宋体城市名 + 邮戳式小印章（天数 / 里程）」，不要渐变。
-- 行程：像旅行指南的目录：`DAY 01` 用 `eyebrow`/`font-num`，序号用印章式圆标，地点名宋体，备注正文灰色，项目间细线。
-- 数字优先：天数、里程、城市数这类信息用大号 Fraunces 数字做视觉重点。
+- 按钮：`primary` 象牙白实心胶囊；`outline` 细线胶囊；`ghost` 纯文字；`accent` 朱砂（每页最多一个）；`love` 仅情侣空间。
+- 链接式操作：`text-[13px] text-ink-900 underline decoration-ink-300 underline-offset-4 hover:decoration-ink-900` 或「文字 + →」。
+- 标签：`Tag`（细线胶囊）、`VerdictBadge`（◎推荐 / ○一般 / ✕踩雷）、`CategoryChip`（小图标 + 文字）。
+- 统计：大号细字 Cormorant 数字 + 小标签，多个统计之间用竖细线分隔。
+- 图标：lucide，`strokeWidth={1.25}`～`1.5`，16–20px。不用 emoji。
 
-## 6. 地图
+## 6. 地图与 3D
 
-- 标准底图已降饱和并透出暖色纸底（`components/map/style.ts`），夜间底图为黛青。
-- 实际路线朱砂实线（夜间为金色），计划路线黛青虚线，GPS 轨迹赭黄；打卡点为印章式圆标（`markerHtml`，已完成墨色实心、计划虚线空心、分类色小圆点、踩雷朱砂 ✕）。
-- 3D：夜色底 + 金 / 朱砂光柱与轨迹，文字卡片用 `glass-dark` + 细线。
+- 标准底图是暖石墨色（`components/map/style.ts`），夜间底图偏黛青，卫星照旧。
+- 路线：实际路线朱砂实线（夜间金色），计划路线黛青虚线，GPS 轨迹赭黄；标记为反转的印章（已到达象牙白实心，计划中黑底虚线）。
+- 地图外框：无底色，最多一圈 `ring-1 ring-ink-200`，圆角 `rounded-sm`；地图上的控件用 `glass` + 细线胶囊。
 
 ## 7. 动效
 
-- 进入：`animate-fade-in`、`animate-slide-up`（0.3–0.45s，缓出）；hover 只改颜色 / 细线，不做放大弹跳。
+- 进入：`animate-fade-in`、`animate-slide-up`（0.5–0.7s，expo 缓出），可按元素错开 60–80ms。
+- 悬停：颜色、细线、图片缓慢放大；不做弹跳。

@@ -12,22 +12,22 @@ import { categoryOf, levelColor, verdicts } from '@/lib/meta'
 type Variant = 'primary' | 'accent' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'love' | 'dark'
 type Size = 'xs' | 'sm' | 'md' | 'lg'
 
-// 主按钮是墨色；朱砂只用于少数需要强调的动作（accent）
+// 主按钮是象牙白实心胶囊；次要按钮是细线胶囊；朱砂只用于每页最重要的一个动作（accent）
 const variantCls: Record<Variant, string> = {
   primary: 'bg-ink-900 text-paper hover:bg-ink-700 active:bg-ink-800',
-  accent: 'bg-brand-500 text-white hover:bg-brand-600 active:bg-brand-700',
+  accent: 'bg-brand-400 text-white hover:bg-brand-500 active:bg-brand-300',
   secondary: 'bg-ink-100 text-ink-900 hover:bg-ink-200',
-  outline: 'border border-ink-900/15 bg-transparent text-ink-900 hover:border-ink-900/40 hover:bg-white',
-  ghost: 'text-ink-700 hover:bg-ink-900/5',
-  danger: 'bg-brand-600 text-white hover:bg-brand-700',
-  love: 'bg-love-gradient text-white hover:brightness-110',
+  outline: 'border border-ink-900/20 bg-transparent text-ink-900 hover:border-ink-900/60',
+  ghost: 'text-ink-700 hover:bg-ink-900/[0.06] hover:text-ink-900',
+  danger: 'bg-brand-400 text-white hover:bg-brand-500',
+  love: 'bg-love-gradient text-white ring-1 ring-pink-400/40 ring-inset hover:ring-pink-500/70',
   dark: 'bg-ink-900 text-paper hover:bg-ink-700',
 }
 const sizeCls: Record<Size, string> = {
-  xs: 'h-7 px-2.5 text-xs gap-1 rounded-md',
-  sm: 'h-8 px-3 text-[13px] gap-1.5 rounded-md',
-  md: 'h-10 px-4 text-sm gap-2 rounded-lg',
-  lg: 'h-12 px-6 text-[15px] gap-2 rounded-lg',
+  xs: 'h-7 px-3 text-xs gap-1 rounded-full',
+  sm: 'h-8 px-3.5 text-[13px] gap-1.5 rounded-full',
+  md: 'h-10 px-5 text-[13.5px] gap-2 rounded-full',
+  lg: 'h-12 px-7 text-[14.5px] gap-2 rounded-full',
 }
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -49,7 +49,7 @@ export function buttonClass({
   className,
 }: { variant?: Variant; size?: Size; block?: boolean; className?: string } = {}) {
   return cn(
-    'inline-flex shrink-0 items-center justify-center font-medium tracking-wide whitespace-nowrap transition-colors duration-200 select-none disabled:opacity-45',
+    'inline-flex shrink-0 items-center justify-center font-medium tracking-[0.02em] whitespace-nowrap transition-colors duration-300 select-none disabled:opacity-40',
     variantCls[variant],
     sizeCls[size],
     block && 'w-full',
@@ -87,7 +87,7 @@ export function IconButton({
       aria-label={label}
       title={label}
       className={cn(
-        'inline-flex size-9 shrink-0 items-center justify-center rounded-full text-ink-700 transition hover:bg-ink-900/5 disabled:opacity-40',
+        'inline-flex size-9 shrink-0 items-center justify-center rounded-full text-ink-700 transition hover:bg-ink-900/[0.07] hover:text-ink-900 disabled:opacity-40',
         className,
       )}
       {...rest}
@@ -99,7 +99,7 @@ export function IconButton({
 
 /* ---------------- Form ---------------- */
 const fieldBase =
-  'w-full rounded-lg border border-ink-200 bg-white px-3.5 text-sm text-ink-900 placeholder:text-ink-300 outline-none transition focus:border-ink-900 focus:ring-2 focus:ring-ink-900/5 disabled:bg-ink-50'
+  'w-full rounded-md border border-ink-200 bg-surface px-3.5 text-sm text-ink-900 placeholder:text-ink-400 outline-none transition-colors hover:border-ink-300 focus:border-ink-600 disabled:opacity-60'
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(
   { className, ...rest },
@@ -135,7 +135,7 @@ export function Field({
 }) {
   return (
     <label className={cn('block', className)}>
-      {label && <span className="mb-1.5 block text-[13px] font-medium tracking-wide text-ink-600">{label}</span>}
+      {label && <span className="mb-2 block text-xs font-medium tracking-[0.06em] text-ink-500">{label}</span>}
       {children}
       {hint && <span className="mt-1 block text-xs text-ink-400">{hint}</span>}
     </label>
@@ -161,14 +161,14 @@ export function Switch({
     >
       <span
         className={cn(
-          'relative inline-block h-6 w-10 rounded-full transition',
-          checked ? 'bg-ink-900' : 'bg-ink-200',
+          'relative inline-block h-6 w-10 rounded-full border transition',
+          checked ? 'border-ink-900 bg-ink-900' : 'border-ink-300 bg-transparent',
         )}
       >
         <span
           className={cn(
-            'absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition',
-            checked && 'translate-x-4',
+            'absolute top-[3px] left-[3px] size-4 rounded-full transition',
+            checked ? 'translate-x-4 bg-ink-50' : 'bg-ink-500',
           )}
         />
       </span>
@@ -192,15 +192,15 @@ export function Segmented<T extends string>({
   size?: 'sm' | 'md'
 }) {
   return (
-    <div className={cn('inline-flex rounded-lg border border-ink-200 bg-white/60 p-0.5', className)}>
+    <div className={cn('inline-flex rounded-full border border-ink-200 p-0.5', className)}>
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
           className={cn(
-            'rounded-md font-medium tracking-wide whitespace-nowrap transition-colors',
-            size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3.5 py-1.5 text-[13px]',
+            'rounded-full font-medium tracking-[0.02em] whitespace-nowrap transition-colors duration-300',
+            size === 'sm' ? 'px-3 py-1 text-xs' : 'px-4 py-1.5 text-[13px]',
             value === o.value ? 'bg-ink-900 text-paper' : 'text-ink-500 hover:text-ink-900',
           )}
         >
@@ -223,20 +223,20 @@ export function TabBar<T extends string>({
   className?: string
 }) {
   return (
-    <div className={cn('scrollbar-none flex gap-6 overflow-x-auto border-b border-ink-200', className)}>
+    <div className={cn('scrollbar-none flex gap-7 overflow-x-auto border-b border-ink-200', className)}>
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
           className={cn(
-            'relative shrink-0 pb-3 text-[15px] transition-colors',
-            value === o.value ? 'font-display text-ink-900' : 'text-ink-400 hover:text-ink-700',
+            'relative shrink-0 pb-3 text-sm tracking-[0.02em] transition-colors duration-300',
+            value === o.value ? 'text-ink-900' : 'text-ink-400 hover:text-ink-700',
           )}
         >
           {o.label}
           {value === o.value && (
-            <span className="absolute right-0 -bottom-px left-0 h-[1.5px] bg-ink-900" />
+            <span className="absolute right-0 -bottom-px left-0 h-px bg-ink-900" />
           )}
         </button>
       ))}
@@ -245,7 +245,7 @@ export function TabBar<T extends string>({
 }
 
 /* ---------------- Avatar & user ---------------- */
-const avatarColors = ['#bd462b', '#3e7a68', '#3f6975', '#6b5b8a', '#9d4a5f', '#b7832f', '#4b4740']
+const avatarColors = ['#6e3324', '#28493d', '#27434b', '#3c3551', '#512a36', '#584220', '#34322d']
 
 export function Avatar({
   user,
@@ -275,7 +275,7 @@ export function Avatar({
   return (
     <span
       style={{ ...style, background: color }}
-      className={cn('font-display inline-flex shrink-0 items-center justify-center rounded-full text-white', ringCls, className)}
+      className={cn('font-display inline-flex shrink-0 items-center justify-center rounded-full text-ink-900', ringCls, className)}
     >
       {name.slice(0, 1).toUpperCase()}
     </span>
@@ -285,7 +285,7 @@ export function Avatar({
 export function LevelBadge({ level, className }: { level: number; className?: string }) {
   return (
     <span
-      className={cn('font-num inline-flex h-4 items-center rounded-sm border px-1 text-[10px] leading-none font-semibold italic', className)}
+      className={cn('font-num inline-flex h-4 items-center rounded-sm border px-1 text-[11px] leading-none font-medium italic', className)}
       style={{ color: levelColor(level), borderColor: levelColor(level) + '66' }}
     >
       Lv.{level}
@@ -299,7 +299,7 @@ export function UserName({ user, className, link = true }: { user: UserBrief; cl
       <span className="truncate font-medium">{user.nickname || user.username}</span>
       <LevelBadge level={user.level} />
       {user.role === 'admin' && (
-        <span className="inline-flex h-4 items-center rounded-sm bg-ink-900 px-1 text-[10px] leading-none text-paper">
+        <span className="inline-flex h-4 items-center rounded-sm border border-ink-300 px-1 text-[10px] leading-none text-ink-600">
           管理员
         </span>
       )}
@@ -320,8 +320,8 @@ export function VerdictBadge({ verdict, className }: { verdict: Verdict; classNa
   const v = verdicts[verdict]
   return (
     <span
-      className={cn('inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs font-medium tracking-wide', className)}
-      style={{ color: v.color, background: v.color + '14', boxShadow: `inset 0 0 0 1px ${v.color}33` }}
+      className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium tracking-wide', className)}
+      style={{ color: v.color, background: v.color + '14', boxShadow: `inset 0 0 0 1px ${v.color}40` }}
     >
       <span className="text-[10px] leading-none">{v.mark}</span>
       {v.label}
@@ -375,7 +375,7 @@ export function Stars({
 
 export function Tag({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <span className={cn('inline-flex items-center rounded-sm border border-ink-200 px-1.5 py-0.5 text-xs tracking-wide text-ink-600', className)}>
+    <span className={cn('inline-flex items-center rounded-full border border-ink-200 px-2 py-0.5 text-xs tracking-wide text-ink-600', className)}>
       {children}
     </span>
   )
@@ -409,11 +409,11 @@ export function Empty({
   className?: string
 }) {
   return (
-    <div className={cn('flex flex-col items-center justify-center px-6 py-14 text-center', className)}>
-      {icon && <div className="mb-4 text-ink-300 [&_svg]:stroke-[1.25]">{icon}</div>}
-      <p className="font-display text-lg text-ink-800">{title}</p>
-      {desc && <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-ink-400">{desc}</p>}
-      {action && <div className="mt-5">{action}</div>}
+    <div className={cn('flex flex-col items-center justify-center px-6 py-16 text-center', className)}>
+      {icon && <div className="mb-5 text-ink-300 [&_svg]:stroke-[1.1]">{icon}</div>}
+      <p className="font-display text-2xl text-ink-900">{title}</p>
+      {desc && <p className="mt-2 max-w-sm text-sm leading-relaxed text-ink-500">{desc}</p>}
+      {action && <div className="mt-7">{action}</div>}
     </div>
   )
 }
@@ -458,7 +458,7 @@ export function LoadError({
 }
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cn('rounded-2xl bg-white shadow-card', className)}>{children}</div>
+  return <div className={cn('rounded-xl bg-surface shadow-card', className)}>{children}</div>
 }
 
 /* ---------------- Modal / Sheet ---------------- */
@@ -509,7 +509,7 @@ export function Modal({
   if (!open) return null
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center sm:p-4">
-      <div className="animate-fade-in absolute inset-0 bg-ink-900/45 backdrop-blur-[3px]" onClick={onClose} />
+      <div className="animate-fade-in absolute inset-0 bg-black/70 backdrop-blur-[2px]" onClick={onClose} />
       <div
         ref={panelRef}
         role="dialog"
@@ -537,14 +537,14 @@ export function Modal({
           }
         }}
         className={cn(
-          'animate-slide-up relative flex max-h-[90dvh] w-full flex-col rounded-t-2xl bg-white shadow-float outline-none sm:rounded-2xl',
+          'animate-slide-up relative flex max-h-[90dvh] w-full flex-col rounded-t-xl bg-surface shadow-float outline-none sm:rounded-xl',
           wide ? 'sm:max-w-3xl' : 'sm:max-w-lg',
           className,
         )}
       >
         {title !== undefined && (
-          <div className="flex items-center justify-between gap-3 px-5 pt-4 pb-2">
-            <h3 id={titleId} className="text-lg">
+          <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-3">
+            <h3 id={titleId} className="text-2xl">
               {title}
             </h3>
             <IconButton label="关闭" onClick={onClose} className="-mr-2">
@@ -553,11 +553,11 @@ export function Modal({
           </div>
         )}
         {/* 没有底栏的底部面板要避开 iPhone 底部横条 */}
-        <div className={cn('flex-1 overflow-y-auto px-5', footer ? 'pb-5' : 'pb-[max(1.25rem,env(safe-area-inset-bottom))]')}>
+        <div className={cn('flex-1 overflow-y-auto px-6', footer ? 'pb-6' : 'pb-[max(1.5rem,env(safe-area-inset-bottom))]')}>
           {children}
         </div>
         {footer && (
-          <div className="flex justify-end gap-2 border-t border-ink-100 px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="flex justify-end gap-2 border-t border-ink-200 px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
             {footer}
           </div>
         )}
@@ -637,7 +637,7 @@ export function Menu({
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div
             className={cn(
-              'animate-fade-in absolute z-50 mt-2 min-w-44 overflow-hidden rounded-xl bg-white py-1.5 shadow-float',
+              'animate-fade-in absolute z-50 mt-2 min-w-48 overflow-hidden rounded-lg bg-surface-2 py-1.5 shadow-float',
               align === 'right' ? 'right-0' : 'left-0',
               className,
             )}
@@ -664,7 +664,7 @@ export function MenuItem({
   href?: string
 }) {
   const cls = cn(
-    'flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-ink-50 [&_svg]:stroke-[1.6]',
+    'flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-[13.5px] transition-colors hover:bg-ink-100 hover:text-ink-900 [&_svg]:stroke-[1.5]',
     danger ? 'text-brand-600' : 'text-ink-700',
   )
   if (href)
@@ -687,10 +687,10 @@ export function Stat({ label, value, unit, className }: { label: string; value: 
   return (
     <div className={cn('min-w-0', className)}>
       <div className="flex items-baseline gap-1">
-        <span className="font-num text-[1.65rem] leading-none font-medium tracking-tight">{value}</span>
-        {unit && <span className="text-xs text-ink-400">{unit}</span>}
+        <span className="font-num text-[2.1rem] leading-none font-light">{value}</span>
+        {unit && <span className="text-xs text-ink-500">{unit}</span>}
       </div>
-      <div className="mt-1.5 text-xs tracking-wide text-ink-400">{label}</div>
+      <div className="mt-2 text-xs tracking-[0.06em] text-ink-500">{label}</div>
     </div>
   )
 }

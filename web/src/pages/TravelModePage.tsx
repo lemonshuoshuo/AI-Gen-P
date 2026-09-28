@@ -738,11 +738,11 @@ export default function TravelModePage() {
       </div>
 
       {/* 底部面板 */}
-      <div className="pb-safe relative z-20 max-h-[62dvh] overflow-y-auto rounded-t-xl border-t border-ink-200 bg-white shadow-float">
+      <div className="pb-safe relative z-20 max-h-[62dvh] overflow-y-auto rounded-t-xl border-t border-ink-200 bg-surface shadow-float">
         <button
           type="button"
           onClick={() => setSheetOpen((v) => !v)}
-          className="sticky top-0 z-10 flex w-full justify-center bg-white pt-2.5 pb-2"
+          className="sticky top-0 z-10 flex w-full justify-center bg-surface pt-2.5 pb-2"
           aria-label={sheetOpen ? '收起' : '展开'}
           aria-expanded={sheetOpen}
         >

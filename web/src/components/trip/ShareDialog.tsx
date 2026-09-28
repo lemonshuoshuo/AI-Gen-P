@@ -53,8 +53,8 @@ function ShareBody({ url, title, text, children }: { url: string; title: string;
           )}
         </div>
         <div className="relative flex min-w-0 flex-1 flex-col justify-between border-l border-dashed border-ink-300 py-3.5 pr-4 pl-4">
-          <span aria-hidden className="absolute -top-2 -left-2 size-4 rounded-full border border-ink-200 bg-white" />
-          <span aria-hidden className="absolute -bottom-2 -left-2 size-4 rounded-full border border-ink-200 bg-white" />
+          <span aria-hidden className="absolute -top-2 -left-2 size-4 rounded-full border border-ink-200 bg-surface" />
+          <span aria-hidden className="absolute -bottom-2 -left-2 size-4 rounded-full border border-ink-200 bg-surface" />
           <div className="min-w-0">
             <p className="eyebrow">Scan · 扫码打开</p>
             <p className="font-display mt-1.5 line-clamp-2 text-[16px] leading-snug text-ink-900">{title}</p>

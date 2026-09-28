@@ -100,7 +100,7 @@ function InviteBanner({ trip, queryKey }: { trip: TripDetail; queryKey: string[]
     },
   })
   return (
-    <div className="mt-6 flex flex-wrap items-center gap-3 border-l-2 border-sky-500 bg-white py-3 pr-3 pl-4 shadow-card">
+    <div className="mt-6 flex flex-wrap items-center gap-3 border-l-2 border-sky-500 bg-surface py-3 pr-3 pl-4 shadow-card">
       <Users className="size-4 shrink-0 text-sky-600" strokeWidth={1.75} />
       <span className="min-w-0 flex-1 text-sm text-ink-700">
         <span className="font-display text-[15px] text-ink-900">{trip.author.nickname || trip.author.username}</span>{' '}
@@ -179,7 +179,7 @@ function ForkDialog({ trip, onClose }: { trip: TripDetail; onClose: () => void }
   )
 }
 
-/** 大号统计：Fraunces 数字 + 小号单位与标签，多个之间用竖细线分隔 */
+/** 大号统计：Cormorant 数字 + 小号单位与标签，多个之间用竖细线分隔 */
 function BigStat({ label, value, unit, sub }: { label: string; value: ReactNode; unit?: string; sub?: ReactNode }) {
   // 「2,363 公里」这类长数字缩小一号，避免单位被挤到下一行
   const long = (typeof value === 'string' || typeof value === 'number') && String(value).length >= 5

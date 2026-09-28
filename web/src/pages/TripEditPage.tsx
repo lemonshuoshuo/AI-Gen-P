@@ -234,8 +234,8 @@ function SortableRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
         'relative transition-colors',
-        (selected || editing) && 'bg-white',
-        isDragging && 'z-10 rounded-lg bg-white shadow-float',
+        (selected || editing) && 'bg-surface',
+        isDragging && 'z-10 rounded-lg bg-surface shadow-float',
       )}
     >
       {selected && <span aria-hidden className="absolute top-2 bottom-2 left-0 w-[2px] rounded-full bg-brand-500" />}

@@ -23,12 +23,12 @@ import { useSite } from '@/hooks/useSite'
 import { cn } from '@/lib/cn'
 import { isAdmin, useAuth } from '@/stores/auth'
 
-/** 印章式标识：朱砂方印「迹」 */
+/** 标识：细线圆框里一个宋体「迹」 */
 export function SealMark({ size = 30, className }: { size?: number; className?: string }) {
   return (
     <span
-      className={cn('font-display inline-flex shrink-0 items-center justify-center rounded-[5px] bg-brand-500 text-white', className)}
-      style={{ width: size, height: size, fontSize: size * 0.58, boxShadow: 'inset 0 0 0 2px rgb(255 253 249 / 0.35)' }}
+      className={cn('font-display inline-flex shrink-0 items-center justify-center rounded-full border border-current/35 text-current', className)}
+      style={{ width: size, height: size, fontSize: size * 0.5 }}
       aria-hidden
     >
       迹
@@ -36,16 +36,12 @@ export function SealMark({ size = 30, className }: { size?: number; className?: 
   )
 }
 
+/** 字标：Cormorant 的「TripHub」+ 细小的「旅迹」 */
 export function Logo({ className, light }: { className?: string; light?: boolean }) {
   return (
-    <Link to="/" className={cn('flex items-center gap-2.5', className)} aria-label="TripHub 首页">
-      <SealMark />
-      <span className={cn('flex items-baseline gap-1.5', light ? 'text-white' : 'text-ink-900')}>
-        <span className="font-num text-[21px] leading-none font-medium tracking-tight italic">TripHub</span>
-        <span className={cn('font-display hidden text-[11px] tracking-[0.3em] sm:inline', light ? 'text-white/60' : 'text-ink-400')}>
-          旅迹
-        </span>
-      </span>
+    <Link to="/" className={cn('flex items-baseline gap-2', light ? 'text-white' : 'text-ink-900', className)} aria-label="TripHub 首页">
+      <span className="font-display text-[25px] leading-none font-normal tracking-[0.005em]">TripHub</span>
+      <span className={cn('hidden text-[10px] tracking-[0.4em] sm:inline', light ? 'text-white/55' : 'text-ink-400')}>旅迹</span>
     </Link>
   )
 }
@@ -84,7 +80,7 @@ function HeaderSearch() {
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder="搜索旅程、城市、打卡地"
-        className="h-8.5 w-full rounded-full border border-ink-200 bg-white/60 pr-3 pl-8.5 text-[13px] outline-none placeholder:text-ink-300 focus:border-ink-900 focus:bg-white"
+        className="h-8.5 w-full rounded-full border border-ink-200 bg-transparent pr-3 pl-8.5 text-[13px] outline-none placeholder:text-ink-400 hover:border-ink-300 focus:border-ink-600"
       />
     </form>
   )
@@ -102,7 +98,7 @@ function UserMenu() {
           onClick={toggle}
           aria-label="账户菜单"
           aria-expanded={open}
-          className="rounded-full ring-ink-900/10 transition hover:ring-4"
+          className="rounded-full ring-ink-900/20 transition hover:ring-2"
         >
           <Avatar user={user} size={32} />
         </button>
@@ -110,8 +106,8 @@ function UserMenu() {
     >
       {(close) => (
         <>
-          <div className="border-b border-ink-100 px-4 pt-2 pb-3">
-            <div className="font-display truncate text-[15px]">{user.nickname || user.username}</div>
+          <div className="border-b border-ink-200 px-4 pt-2 pb-3">
+            <div className="font-display truncate text-lg">{user.nickname || user.username}</div>
             <div className="mt-0.5 text-xs text-ink-400">
               <span className="font-num italic">Lv.{user.level}</span> {user.level_name} · {user.exp} 经验
             </div>
@@ -133,7 +129,7 @@ function UserMenu() {
               管理后台
             </MenuItem>
           )}
-          <div className="my-1 border-t border-ink-100" />
+          <div className="my-1 border-t border-ink-200" />
           <MenuItem
             icon={<LogOut className="size-4" />}
             danger
@@ -156,12 +152,12 @@ function BellLink() {
   return (
     <Link
       to="/notifications"
-      className="relative inline-flex size-9 items-center justify-center rounded-full text-ink-700 hover:bg-ink-900/5"
+      className="relative inline-flex size-9 items-center justify-center rounded-full text-ink-700 transition hover:bg-ink-900/[0.07] hover:text-ink-900"
       aria-label="通知"
     >
-      <Bell className="size-[18px]" strokeWidth={1.6} />
+      <Bell className="size-[18px]" strokeWidth={1.4} />
       {!!unread && (
-        <span className="font-num absolute top-1 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-[10px] font-semibold text-white">
+        <span className="absolute top-1 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-400 px-1 text-[9.5px] font-medium text-white tabular-nums">
           {unread > 99 ? '99+' : unread}
         </span>
       )}
@@ -173,10 +169,10 @@ function Header() {
   const user = useAuth((s) => s.user)
   const nav = useNavigate()
   return (
+    // 三栏：左侧导航、正中字标、右侧操作（窄屏时字标靠左）
     <header className="glass sticky top-0 z-40 border-b border-ink-200">
-      <div className="mx-auto flex h-15 max-w-6xl items-center gap-4 px-4 md:px-6">
-        <Logo />
-        <nav className="ml-6 hidden items-center gap-7 md:flex">
+      <div className="mx-auto grid h-15 max-w-[90rem] grid-cols-[auto_1fr_auto] items-center gap-4 px-4 md:grid-cols-[1fr_auto_1fr] md:px-8">
+        <nav className="hidden items-center gap-7 md:flex">
           {navItems.map((n) => (
             <NavLink
               key={n.to}
@@ -184,9 +180,9 @@ function Header() {
               end={n.end}
               className={({ isActive }) =>
                 cn(
-                  'relative py-1 text-[14px] tracking-wide transition-colors',
+                  'relative py-1 text-[13px] tracking-[0.04em] transition-colors duration-300',
                   isActive
-                    ? 'text-ink-900 after:absolute after:inset-x-0 after:-bottom-[19px] after:h-[1.5px] after:bg-ink-900'
+                    ? 'text-ink-900 after:absolute after:inset-x-0 after:-bottom-[21px] after:h-px after:bg-ink-900'
                     : 'text-ink-500 hover:text-ink-900',
                 )
               }
@@ -195,10 +191,11 @@ function Header() {
             </NavLink>
           ))}
         </nav>
-        <div className="flex-1" />
+        <Logo className="md:justify-self-center" />
+        <div className="flex items-center justify-end gap-1.5 md:gap-2">
         <HeaderSearch />
-        <Link to="/search" className="inline-flex size-9 items-center justify-center rounded-full hover:bg-ink-900/5 lg:hidden" aria-label="搜索">
-          <Search className="size-[18px] text-ink-700" strokeWidth={1.6} />
+        <Link to="/search" className="inline-flex size-9 items-center justify-center rounded-full transition hover:bg-ink-900/[0.07] lg:hidden" aria-label="搜索">
+          <Search className="size-[18px] text-ink-700" strokeWidth={1.4} />
         </Link>
         {user ? (
           <>
@@ -220,6 +217,7 @@ function Header() {
             </Button>
           </div>
         )}
+        </div>
       </div>
     </header>
   )
@@ -231,10 +229,10 @@ function TabItem({ to, icon: Icon, label, end }: { to: string; icon: typeof Comp
       to={to}
       end={end}
       className={({ isActive }) =>
-        cn('flex flex-1 flex-col items-center gap-1 pt-2 pb-1.5 text-[10.5px] tracking-wider', isActive ? 'text-ink-900' : 'text-ink-400')
+        cn('flex flex-1 flex-col items-center gap-1 pt-2 pb-1.5 text-[10.5px] tracking-[0.08em]', isActive ? 'text-ink-900' : 'text-ink-400')
       }
     >
-      <Icon className="size-5" strokeWidth={1.5} />
+      <Icon className="size-5" strokeWidth={1.3} />
       {label}
     </NavLink>
   )
@@ -253,7 +251,7 @@ function MobileTabBar() {
             type="button"
             onClick={() => nav(user ? '/trips/new' : '/login')}
             aria-label="新旅程"
-            className="-mt-3 flex size-11 items-center justify-center rounded-full bg-ink-900 text-paper ring-4 ring-paper"
+            className="-mt-3 flex size-11 items-center justify-center rounded-full bg-ink-900 text-paper ring-[5px] ring-paper"
           >
             <Plus className="size-5" strokeWidth={1.75} />
           </button>
@@ -297,18 +295,18 @@ function OngoingTripBar() {
     }
   }
   return (
-    <div className="bg-ink-900 text-paper">
-      <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 text-sm">
+    <div className="border-b border-ink-200 bg-surface text-ink-900">
+      <div className="mx-auto flex max-w-[90rem] items-center gap-2 px-4 text-[13px] md:px-8">
         <Link to={`/trips/${trip.id}/go`} className="flex min-w-0 flex-1 items-center gap-2 py-2">
           <span className="relative flex size-2 shrink-0">
             <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-400 opacity-75" />
             <span className="relative inline-flex size-2 rounded-full bg-brand-400" />
           </span>
-          <span className="eyebrow shrink-0 !text-paper/60">On the road</span>
-          <span className="font-display min-w-0 flex-1 truncate">{trip.title}</span>
-          <span className="shrink-0 text-paper/80">继续旅行 →</span>
+          <span className="eyebrow shrink-0">On the road</span>
+          <span className="font-display min-w-0 flex-1 truncate text-base">{trip.title}</span>
+          <span className="shrink-0 text-ink-600">继续旅行 →</span>
         </Link>
-        <button type="button" onClick={dismiss} className="-mr-2 shrink-0 rounded-full p-1.5 text-white/80 hover:bg-white/15" aria-label="暂时隐藏">
+        <button type="button" onClick={dismiss} className="-mr-2 shrink-0 rounded-full p-1.5 text-ink-500 hover:bg-ink-900/[0.07] hover:text-ink-900" aria-label="暂时隐藏">
           <X className="size-4" />
         </button>
       </div>
@@ -321,9 +319,9 @@ function Announcement() {
   const [hidden, setHidden] = useState(false)
   if (!data?.announcement || hidden) return null
   return (
-    <div className="border-b border-ink-200 bg-white/60">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2 text-sm text-ink-600">
-        <span className="eyebrow shrink-0 !text-brand-500">Notice</span>
+    <div className="border-b border-ink-200 bg-surface">
+      <div className="mx-auto flex max-w-[90rem] items-center gap-3 px-4 py-2 text-[13px] text-ink-600 md:px-8">
+        <span className="eyebrow shrink-0 !text-brand-600">Notice</span>
         <span className="flex-1">{data.announcement}</span>
         <button type="button" className="text-ink-400 hover:text-ink-900" onClick={() => setHidden(true)}>
           知道了

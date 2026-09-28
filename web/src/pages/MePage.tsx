@@ -29,7 +29,7 @@ interface LinkItem {
   extra?: ReactNode
 }
 
-/** 待处理数量：小号 Fraunces 数字 + 文字，朱砂色（情侣空间用胭脂色），不用色块 */
+/** 待处理数量：小号 Cormorant 数字 + 文字，朱砂色（情侣空间用胭脂色），不用色块 */
 function Badge({ children, tone = 'brand' }: { children: ReactNode; tone?: 'brand' | 'love' }) {
   return (
     <span className={cn('inline-flex items-center gap-1.5 text-[13px]', tone === 'love' ? 'text-pink-600' : 'text-brand-600')}>
@@ -189,7 +189,7 @@ export default function MePage() {
         </div>
       </header>
 
-      {/* 数据：大号 Fraunces 数字，竖细线分隔 */}
+      {/* 数据：大号 Cormorant 数字，竖细线分隔 */}
       <div className="mt-8 grid grid-cols-4 divide-x divide-ink-200 border-y border-ink-200">
         {(
           [

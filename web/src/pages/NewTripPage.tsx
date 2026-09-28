@@ -55,7 +55,7 @@ function PlanProgress({ run, onCancel }: { run: Run; onCancel: () => void }) {
   const cur = stages[Math.max(0, idx)]
   const slow = elapsed >= 45 && run.stage !== 'locating'
   return (
-    <div className="animate-fade-in rounded-xl border border-ink-200 bg-white px-5 pt-5 pb-4" aria-live="polite" aria-busy="true">
+    <div className="animate-fade-in rounded-xl border border-ink-200 bg-surface px-5 pt-5 pb-4" aria-live="polite" aria-busy="true">
       <div className="flex items-center justify-between">
         <p className="eyebrow">AI Planning · 生成中</p>
         <ol className="flex items-center gap-3 text-[11px] tracking-wide" aria-label="生成步骤">
@@ -193,7 +193,7 @@ function AIPlanner({
 
   return (
     <div className="space-y-6">
-      <div className="space-y-4 rounded-xl border border-ink-200 bg-white p-5">
+      <div className="space-y-4 rounded-xl border border-ink-200 bg-surface p-5">
         <fieldset disabled={busy} className="space-y-4 disabled:opacity-70">
           <div className="grid grid-cols-[1fr_96px] gap-3">
             <Field label="去哪儿">
@@ -255,7 +255,7 @@ function AIPlanner({
       {run && <PlanProgress run={run} onCancel={cancel} />}
 
       {result && !run && (
-        <section className="animate-slide-up overflow-hidden rounded-xl border border-ink-200 bg-white">
+        <section className="animate-slide-up overflow-hidden rounded-xl border border-ink-200 bg-surface">
           <div className="px-5 pt-5 pb-4">
             <p className="eyebrow">Draft · AI 行程草稿</p>
             <h3 className="mt-2 text-[22px] leading-snug">{result.title}</h3>
@@ -477,7 +477,7 @@ export default function NewTripPage() {
               onClick={() => setMode(m.value)}
               className={cn(
                 'group relative flex items-start gap-4 px-4 py-4 text-left transition-colors sm:block sm:px-5 sm:pt-5 sm:pb-6',
-                on ? 'bg-white' : 'hover:bg-white/60',
+                on ? 'bg-surface' : 'hover:bg-white/60',
               )}
             >
               <span
@@ -513,7 +513,7 @@ export default function NewTripPage() {
 
       <div className="mt-8 space-y-4">
         {mode !== 'ai' && (
-          <div className="space-y-5 rounded-xl border border-ink-200 bg-white p-5">
+          <div className="space-y-5 rounded-xl border border-ink-200 bg-surface p-5">
             <Field label="旅程名称">
               <Input
                 value={f.title}

@@ -134,7 +134,7 @@ export function PhotoImporter({
           type="button"
           disabled={!!preparing}
           onClick={() => input.current?.click()}
-          className={`group flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-ink-300 bg-white/60 text-ink-500 transition-colors hover:border-ink-900 hover:bg-white hover:text-ink-900 ${compact ? 'py-5' : 'py-10'}`}
+          className={`group flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-ink-300 bg-white/60 text-ink-500 transition-colors hover:border-ink-900 hover:bg-surface hover:text-ink-900 ${compact ? 'py-5' : 'py-10'}`}
         >
           <ImagePlus className="size-7 text-ink-400 transition-colors group-hover:text-ink-900" strokeWidth={1.25} />
           <span className="font-display text-[15px] text-ink-900">
@@ -150,7 +150,7 @@ export function PhotoImporter({
           )}
         </button>
       ) : (
-        <div className="rounded-xl border border-ink-200 bg-white p-3.5">
+        <div className="rounded-xl border border-ink-200 bg-surface p-3.5">
           <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-6">
             {items.map((p) => (
               <div key={p.previewUrl} className="relative aspect-square overflow-hidden rounded-md bg-ink-100">

@@ -39,8 +39,8 @@ const INK5 = '#615c53'
 const INK4 = '#736d62'
 const LINE = '#ddd6c8'
 const SANS = '-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif'
-const SERIF = '"Fraunces Variable","Noto Serif SC","Songti SC","STSong",serif'
-const NUM = '"Fraunces Variable",Georgia,"Noto Serif SC",serif'
+const SERIF = '"Cormorant Garamond Variable","Noto Serif SC","Songti SC","STSong",serif'
+const NUM = '"Cormorant Garamond Variable",Georgia,"Noto Serif SC",serif'
 const THEMES = {
   brand: { accent: '#bd462b', tagline: '记录旅程 · 分享路线 · 打卡避雷' },
   love: { accent: '#9d4a5f', tagline: '我们一起走过的地方' },

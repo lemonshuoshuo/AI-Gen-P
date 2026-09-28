@@ -15,7 +15,7 @@ import { formatKm } from '@/lib/geo'
 import { categoryOf } from '@/lib/meta'
 import { bySeq, trackSegments } from '@/lib/trip'
 
-/** 完成度：一圈朱砂细线，中间是大号 Fraunces 百分比 */
+/** 完成度：一圈朱砂细线，中间是大号 Cormorant 百分比 */
 function Ring({ value }: { value: number }) {
   const r = 46
   const c = 2 * Math.PI * r
@@ -342,7 +342,7 @@ export default function ComparePage() {
         </div>
 
         <div className="min-w-0 space-y-10">
-          <figure className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+          <figure className="overflow-hidden rounded-xl border border-ink-200 bg-surface">
             <BaseMap className="h-[52vh] min-h-80" kindSwitcher>
               <RouteLines planned={cmp.planned.path} actual={cmp.actual.path} track={segments} idPrefix="cmp" />
               <WaypointMarkers waypoints={sorted} labels={labels} />

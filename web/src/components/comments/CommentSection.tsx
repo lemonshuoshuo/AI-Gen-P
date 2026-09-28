@@ -147,7 +147,7 @@ export function CommentSection({ tripId, placeId, count, onCountChange, waypoint
         </div>
       </div>
 
-      <div className="mt-5 rounded-lg border border-ink-200 bg-white transition-colors focus-within:border-ink-900">
+      <div className="mt-5 rounded-lg border border-ink-200 bg-surface transition-colors focus-within:border-ink-900">
         {(replyTo || waypointId) && (
           <div className="flex items-center gap-2 border-b border-ink-100 px-3.5 py-2 text-xs text-ink-500">
             {replyTo ? (

@@ -24,7 +24,7 @@ export function WaypointNumber({ w, label, className }: { w: Waypoint; label: st
         skipped
           ? 'border border-ink-300 bg-ink-100 text-ink-400'
           : todo
-            ? 'border-[1.5px] border-dashed border-ink-900 bg-white text-ink-900'
+            ? 'border-[1.5px] border-dashed border-ink-900 bg-surface text-ink-900'
             : 'bg-ink-900 text-paper',
         className,
       )}
@@ -113,7 +113,7 @@ export function WaypointItem({
       onClick={onSelect}
       className={cn(
         'relative -mx-3 flex cursor-pointer gap-3.5 rounded-lg px-3 py-4 transition-colors sm:gap-4',
-        selected ? 'bg-white shadow-card' : 'hover:bg-white/60',
+        selected ? 'bg-surface shadow-card' : 'hover:bg-white/60',
       )}
     >
       {selected && <span aria-hidden className="absolute top-4 bottom-4 left-0 w-[2px] rounded-full bg-brand-500" />}

@@ -5,7 +5,7 @@ import { cn } from '@/lib/cn'
 import { dateRange } from '@/lib/format'
 import { formatKm } from '@/lib/geo'
 
-/** 里程拆成数字 + 单位，数字用大号 Fraunces */
+/** 里程拆成数字 + 单位，数字用大号 Cormorant */
 function km(v: number): [string, string] {
   if (!v) return ['0', '公里']
   if (v < 1) return [String(Math.round(v * 1000)), '米']
