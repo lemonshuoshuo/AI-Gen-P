@@ -6,8 +6,6 @@ import {
   ArrowLeft,
   Camera,
   Check,
-  ChevronDown,
-  ChevronUp,
   CircleStop,
   CloudUpload,
   EyeOff,
@@ -616,7 +614,7 @@ export default function TravelModePage() {
           <ArrowLeft className="size-5" strokeWidth={1.6} />
         </Link>
         <div className="min-w-0 flex-1">
-          <p className="eyebrow !text-[10px] !leading-3">On the road · 旅行中</p>
+          <p className="eyebrow !text-[10px] !leading-3">{trip.phase === 'ongoing' ? 'On the road · 旅行中' : 'Travel mode · 旅行模式'}</p>
           <div className="font-display mt-0.5 truncate text-[16px] leading-snug text-ink-900">{trip.title}</div>
           {/* 窄屏放不下时换行：标题截断，位置公开状态不截断 */}
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 text-xs text-ink-500">
@@ -740,25 +738,31 @@ export default function TravelModePage() {
       </div>
 
       {/* 底部面板 */}
-      <div className="pb-safe relative z-20 max-h-[62dvh] overflow-y-auto rounded-t-3xl bg-white shadow-float">
+      <div className="pb-safe relative z-20 max-h-[62dvh] overflow-y-auto rounded-t-xl border-t border-ink-200 bg-white shadow-float">
         <button
           type="button"
           onClick={() => setSheetOpen((v) => !v)}
-          className="sticky top-0 z-10 flex w-full justify-center bg-white pt-2 pb-1"
-          aria-label="展开或收起"
+          className="sticky top-0 z-10 flex w-full justify-center bg-white pt-2.5 pb-2"
+          aria-label={sheetOpen ? '收起' : '展开'}
+          aria-expanded={sheetOpen}
         >
-          {sheetOpen ? <ChevronDown className="size-5 text-ink-400" /> : <ChevronUp className="size-5 text-ink-400" />}
+          <span className="h-1 w-9 rounded-full bg-ink-200" />
         </button>
 
         <div className="px-4 pb-4">
           {/* 下一站 */}
           {next ? (
-            <div className="rounded-2xl bg-sky-50 p-3">
-              <div className="flex items-center gap-2.5">
+            <div className="rounded-lg border border-ink-200 p-3.5">
+              <div className="flex items-center gap-3">
                 <WaypointNumber w={next} label={String(sorted.indexOf(next) + 1)} />
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs text-sky-700">下一站{nextDist != null && ` · 距离 ${formatDistance(nextDist)}`}</div>
-                  <div className="truncate font-semibold">{next.name}</div>
+                  <p className="eyebrow">
+                    Next · 下一站
+                    {nextDist != null && (
+                      <span className="font-num ml-1.5 tracking-normal text-ink-500 normal-case">{formatDistance(nextDist)}</span>
+                    )}
+                  </p>
+                  <div className="font-display mt-0.5 truncate text-[17px] leading-snug text-ink-900">{next.name}</div>
                 </div>
                 {/* key：手动选的出行方式不带到下一站 */}
                 <NavigateMenu
@@ -769,24 +773,22 @@ export default function TravelModePage() {
                   variant="primary"
                 />
               </div>
-              {sheetOpen && next.note && <p className="mt-2 text-xs leading-relaxed text-sky-900/70">{next.note}</p>}
+              {sheetOpen && next.note && <p className="mt-2.5 border-l-2 border-ink-200 pl-3 text-xs leading-relaxed text-ink-500">{next.note}</p>}
               {sheetOpen && (
-                <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="mt-3 grid grid-cols-2 gap-2.5">
                   <Button
-                    size="lg"
                     block
                     variant="outline"
-                    icon={<Check className="size-4" />}
+                    icon={<Check className="size-4" strokeWidth={1.75} />}
                     disabled={checking || skipping}
                     onClick={() => checkin(next.id)}
                   >
                     已到达
                   </Button>
                   <Button
-                    size="lg"
                     block
                     variant="ghost"
-                    icon={<SkipForward className="size-4" />}
+                    icon={<SkipForward className="size-4" strokeWidth={1.75} />}
                     loading={skipping}
                     disabled={checking}
                     onClick={() => skip(next)}
@@ -798,16 +800,19 @@ export default function TravelModePage() {
             </div>
           ) : (
             plannedTotal > 0 && (
-              <div className="rounded-2xl bg-emerald-50 p-3 text-sm text-emerald-800">🎉 计划的地点都走完了！可以结束旅行，看看计划和实际的对比。</div>
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 px-3.5 py-3 text-sm leading-relaxed text-emerald-800">
+                <span className="font-display text-emerald-900">◎ 计划的地点都走完了。</span>
+                可以结束旅行，看看计划和实际的对比。
+              </div>
             )
           )}
 
           {wxTip && (
-            <div className="mt-3 flex items-start gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+            <div className="mt-3 flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-800">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" strokeWidth={1.75} />
               <span className="min-w-0 flex-1">当前在微信中：无法唤起导航 App，建议点右上角「···」→「在浏览器打开」使用旅行模式</span>
               <button type="button" onClick={() => setWxTip(false)} className="shrink-0 text-amber-600" aria-label="关闭提示">
-                <X className="size-3.5" />
+                <X className="size-3.5" strokeWidth={1.75} />
               </button>
             </div>
           )}
@@ -818,25 +823,25 @@ export default function TravelModePage() {
               type="button"
               disabled={checking}
               onClick={startCheckin}
-              className="bg-brand-gradient col-span-2 flex h-14 items-center justify-center gap-2 rounded-2xl font-bold text-white shadow-lg shadow-brand-500/30 disabled:opacity-60"
+              className="col-span-2 flex h-14 items-center justify-center gap-2 rounded-lg bg-brand-500 text-[15px] font-medium tracking-wide text-white transition-colors hover:bg-brand-600 active:bg-brand-700 disabled:opacity-60"
             >
-              {checking ? <Spinner className="text-white" /> : <MapPinPlus className="size-5" />}
+              {checking ? <Spinner className="text-white" /> : <MapPinPlus className="size-5" strokeWidth={1.6} />}
               我到了，打卡
             </button>
             <button
               type="button"
               onClick={() => recommend()}
-              className="flex h-14 flex-col items-center justify-center gap-0.5 rounded-2xl bg-violet-50 text-xs font-medium text-violet-700"
+              className="flex h-14 flex-col items-center justify-center gap-1 rounded-lg border border-ink-900/15 text-xs tracking-wide text-ink-700 transition-colors hover:border-ink-900/35 hover:text-ink-900"
             >
-              <Sparkles className="size-5" />
+              <Sparkles className="size-[18px]" strokeWidth={1.6} />
               推荐下一站
             </button>
             <button
               type="button"
               onClick={() => photoInput.current?.click()}
-              className="flex h-14 flex-col items-center justify-center gap-0.5 rounded-2xl bg-ink-100 text-xs font-medium text-ink-700"
+              className="flex h-14 flex-col items-center justify-center gap-1 rounded-lg border border-ink-900/15 text-xs tracking-wide text-ink-700 transition-colors hover:border-ink-900/35 hover:text-ink-900"
             >
-              <Camera className="size-5" />
+              <Camera className="size-[18px]" strokeWidth={1.6} />
               拍照
             </button>
           </div>
@@ -856,30 +861,35 @@ export default function TravelModePage() {
           {sheetOpen && (
             <>
               {trip.phase === 'planning' && (
-                <p className="mt-1.5 text-center text-xs text-ink-400">第一次打卡、拍照或记录轨迹时自动开始旅行</p>
+                <p className="mt-2 text-center text-xs text-ink-400">第一次打卡、拍照或记录轨迹时自动开始旅行</p>
               )}
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <Button
-                  variant={geo.recording ? 'danger' : 'outline'}
-                  icon={geo.recording ? <CircleStop className="size-4" /> : <Radio className="size-4" />}
+                  variant="outline"
+                  className={cn(geo.recording && '!border-brand-300 !text-brand-600')}
+                  icon={geo.recording ? <CircleStop className="size-4" strokeWidth={1.75} /> : <Radio className="size-4" strokeWidth={1.75} />}
                   onClick={toggleRecord}
                 >
                   {geo.recording ? '停止记录轨迹' : '记录 GPS 轨迹'}
                 </Button>
-                <Button variant="outline" icon={<ListChecks className="size-4" />} onClick={() => setShowList((v) => !v)}>
-                  {showList ? '收起行程' : `行程清单 (${sorted.length})`}
+                <Button variant="outline" icon={<ListChecks className="size-4" strokeWidth={1.75} />} onClick={() => setShowList((v) => !v)}>
+                  {showList ? '收起行程' : (
+                    <>
+                      行程清单 <span className="font-num text-ink-400">{sorted.length}</span>
+                    </>
+                  )}
                 </Button>
               </div>
-              {geo.recording && <p className="mt-1.5 text-center text-xs text-ink-400">记录时请保持此页面打开（已尝试保持屏幕常亮）</p>}
+              {geo.recording && <p className="mt-2 text-center text-xs text-ink-400">记录时请保持此页面打开（已尝试保持屏幕常亮）</p>}
 
               {/* 推荐结果 */}
               {(recLoading || rec) && (
-                <div className="mt-4">
-                  <h3 className="mb-2 flex items-center gap-1.5 font-bold">
-                    <Sparkles className="size-4 text-violet-500" />
-                    推荐下一站
-                    {rec?.ai_used && <span className="rounded bg-violet-100 px-1.5 text-[10px] text-violet-700">AI</span>}
-                  </h3>
+                <div className="mt-5 border-t border-ink-200 pt-4">
+                  <div className="mb-2 flex items-baseline gap-2">
+                    <p className="eyebrow">Nearby · 推荐</p>
+                    <h3 className="text-[17px]">推荐下一站</h3>
+                    {rec?.ai_used && <span className="rounded-sm border border-violet-300 px-1 text-[10px] tracking-wide text-violet-700">AI</span>}
+                  </div>
                   {recLoading ? (
                     <div className="flex items-center gap-2 py-6 text-sm text-ink-400">
                       <Spinner />
@@ -888,7 +898,9 @@ export default function TravelModePage() {
                   ) : (
                     rec && (
                       <div className="space-y-2">
-                        {rec.ai_text && <p className="rounded-xl bg-violet-50 p-3 text-sm leading-relaxed text-violet-900">{rec.ai_text}</p>}
+                        {rec.ai_text && (
+                          <p className="border-l-2 border-violet-300 py-0.5 pl-3 text-sm leading-relaxed text-ink-700">{rec.ai_text}</p>
+                        )}
                         {rec.warnings.map((w) => (
                           // 新标签页打开：离开旅行模式会中断 GPS 轨迹记录
                           <Link
@@ -896,43 +908,48 @@ export default function TravelModePage() {
                             to={`/places/${w.place_id}`}
                             target="_blank"
                             rel="noreferrer"
-                            className="flex items-start gap-2 rounded-xl bg-red-50 p-3 text-sm text-red-800"
+                            className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50/60 p-3 text-sm leading-relaxed text-red-800"
                           >
-                            <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+                            <TriangleAlert className="mt-0.5 size-4 shrink-0" strokeWidth={1.75} />
                             <span>
-                              <b>避雷：{w.name}</b>（{formatDistance(w.distance_m)}）— {w.reason}
+                              <span className="font-medium">避雷：{w.name}</span>
+                              <span className="font-num text-red-700/80">（{formatDistance(w.distance_m)}）</span>— {w.reason}
                             </span>
                           </Link>
                         ))}
                         {rec.suggestions.length === 0 && <p className="py-4 text-center text-sm text-ink-400">附近暂时没有推荐的地点</p>}
-                        {rec.suggestions.map((s, i) => (
-                          <div key={i} className="flex items-start gap-3 rounded-xl bg-ink-50 p-3">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="font-semibold">{s.name}</span>
-                                <CategoryChip category={s.category} />
-                                <span className={cn('rounded px-1.5 text-[11px]', sourceLabel[s.source].cls)}>{sourceLabel[s.source].label}</span>
+                        <div className="divide-y divide-ink-200">
+                          {rec.suggestions.map((s, i) => (
+                            <div key={i} className="flex items-start gap-3 py-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="font-display text-[15px] text-ink-900">{s.name}</span>
+                                  <CategoryChip category={s.category} />
+                                  <span className={cn('rounded-sm border px-1 text-[11px] tracking-wide', sourceLabel[s.source].cls)}>
+                                    {sourceLabel[s.source].label}
+                                  </span>
+                                </div>
+                                <p className="mt-1 text-xs leading-relaxed text-ink-500">
+                                  <span className="font-num text-ink-700">{formatDistance(s.distance_m)}</span> · {s.reason}
+                                </p>
                               </div>
-                              <p className="mt-1 text-xs text-ink-500">
-                                {formatDistance(s.distance_m)} · {s.reason}
-                              </p>
+                              <div className="flex shrink-0 flex-col gap-1.5">
+                                {s.source !== 'plan' && (
+                                  <Button
+                                    size="xs"
+                                    icon={<Plus className="size-3.5" strokeWidth={1.75} />}
+                                    loading={addingSug === s}
+                                    disabled={!!addingSug}
+                                    onClick={() => addSuggestion(s)}
+                                  >
+                                    加入
+                                  </Button>
+                                )}
+                                <NavigateMenu target={{ lng: s.lng, lat: s.lat, name: s.name, address: s.address }} distanceM={s.distance_m} />
+                              </div>
                             </div>
-                            <div className="flex shrink-0 flex-col gap-1.5">
-                              {s.source !== 'plan' && (
-                                <Button
-                                  size="xs"
-                                  icon={<Plus className="size-3.5" />}
-                                  loading={addingSug === s}
-                                  disabled={!!addingSug}
-                                  onClick={() => addSuggestion(s)}
-                                >
-                                  加入
-                                </Button>
-                              )}
-                              <NavigateMenu target={{ lng: s.lng, lat: s.lat, name: s.name, address: s.address }} distanceM={s.distance_m} />
-                            </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
                     )
                   )}
@@ -941,23 +958,25 @@ export default function TravelModePage() {
 
               {/* 行程清单 */}
               {showList && (
-                <div className="mt-4 space-y-1.5">
-                  {sorted.map((w, i) => (
-                    <button
-                      type="button"
-                      key={w.id}
-                      className={cn(
-                        'flex w-full items-center gap-2.5 rounded-xl p-2 text-left transition hover:bg-ink-50',
-                        w.status === 'skipped' && 'opacity-50',
-                      )}
-                      onClick={() => setStopId(w.id)}
-                    >
-                      <WaypointNumber w={w} label={String(i + 1)} />
-                      <span className={cn('min-w-0 flex-1 truncate text-sm', w.status === 'skipped' && 'line-through')}>{w.name}</span>
-                      {w.status === 'visited' && <Check className="size-4 text-emerald-500" />}
-                      {!w.planned && <span className="text-[11px] text-violet-600">计划外</span>}
-                    </button>
-                  ))}
+                <div className="mt-5 border-t border-ink-200 pt-2">
+                  <div className="divide-y divide-ink-100">
+                    {sorted.map((w, i) => (
+                      <button
+                        type="button"
+                        key={w.id}
+                        className={cn(
+                          'flex w-full items-center gap-3 px-1 py-2.5 text-left transition-colors hover:bg-ink-50',
+                          w.status === 'skipped' && 'opacity-50',
+                        )}
+                        onClick={() => setStopId(w.id)}
+                      >
+                        <WaypointNumber w={w} label={String(i + 1)} />
+                        <span className={cn('min-w-0 flex-1 truncate text-sm text-ink-800', w.status === 'skipped' && 'line-through')}>{w.name}</span>
+                        {w.status === 'visited' && <Check className="size-4 text-emerald-600" strokeWidth={1.75} />}
+                        {!w.planned && <span className="rounded-sm border border-violet-300 px-1 text-[11px] text-violet-700">计划外</span>}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </>
@@ -1010,7 +1029,7 @@ export default function TravelModePage() {
       >
         {review && (
           <>
-            {review.status === 'visited' && <p className="mb-3 text-sm text-ink-500">记下真实体验，帮之后来的人避雷～</p>}
+            {review.status === 'visited' && <p className="mb-3 text-sm text-ink-500">记下真实体验，帮之后来的人避雷</p>}
             <WaypointForm
               w={review}
               phase={trip.phase === 'planning' ? 'ongoing' : trip.phase}

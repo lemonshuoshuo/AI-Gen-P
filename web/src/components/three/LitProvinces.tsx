@@ -20,11 +20,12 @@ export const STAGE_ZOOM = { region: 5.5, city: 8.5 }
 export type Stage = 'country' | 'region' | 'city'
 
 /**
- * 同样的缩放级别，窄屏上看到的范围更小：按地图宽度平移各档阈值，
- * 让「一屏大约是一座城市」时进入城市级（手机上约提前 1.4 级）
+ * 同样的缩放级别，小地图上看到的范围更小：按地图尺寸（宽高的几何平均）平移各档阈值，
+ * 让「一屏大约是一座城市（约 180 公里见方）」时进入城市级（桌面约 -0.3 级，手机约 -1.3 级）
  */
-export function zoomShift(width: number) {
-  return Math.max(-1.5, Math.min(0.3, Math.log2(Math.max(width, 200) / 1000)))
+export function zoomShift(width: number, height = width) {
+  const size = Math.sqrt(Math.max(width, 200) * Math.max(height, 200))
+  return Math.max(-2, Math.min(0.5, Math.log2(size / 980)))
 }
 export const stageOf = (z: number, shift = 0): Stage =>
   z < STAGE_ZOOM.region + shift ? 'country' : z < STAGE_ZOOM.city + shift ? 'region' : 'city'
@@ -230,9 +231,10 @@ export function LitProvinces({
     }, before)
     setOrAdd(map, { id: `${P}-col-s`, type: 'fill-extrusion', source: `${P}-col-s` }, {
       'fill-extrusion-color': pal.column,
-      'fill-extrusion-opacity': ['interpolate', ['linear'], Z, z(5.3), 0, z(6.0), 0.92, z(8.1), 0.92, z(8.8), 0],
+      // 进入纸色过渡带（AUTO_DAY_ZOOM）之前就收起，城市级画面里不留残影
+      'fill-extrusion-opacity': ['interpolate', ['linear'], Z, z(5.3), 0, z(6.0), 0.92, z(7.6), 0.92, z(8.15), 0],
       'fill-extrusion-base': 0,
-      'fill-extrusion-height': ['interpolate', ['linear'], Z, z(5.3), 0, z(6.2), ['get', 'top'], z(8.1), ['get', 'top'], z(9.0), 0],
+      'fill-extrusion-height': ['interpolate', ['linear'], Z, z(5.3), 0, z(6.2), ['get', 'top'], z(7.6), ['get', 'top'], z(8.2), 0],
     }, before)
   }, [map, atlas, cities, pal, provH, P, beforeId, shift])
 

@@ -115,23 +115,23 @@ export function CheckinPicker({
       onClose={onClose}
       title="你在哪？"
       footer={
-        <Button block variant="outline" icon={<MapPin className="size-4" />} onClick={() => onPick(null)}>
+        <Button block variant="outline" icon={<MapPin className="size-4" strokeWidth={1.75} />} onClick={() => onPick(null)}>
           就用当前位置
         </Button>
       }
     >
       {far && (
-        <div className="mb-3 flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
-          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-sm leading-relaxed text-amber-800">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" strokeWidth={1.75} />
           <span>
-            离最近的计划地点「{far.name}」还有 {formatDistance(far.distance)}，确定在这里打卡吗？
+            离最近的计划地点「{far.name}」还有 <span className="font-num">{formatDistance(far.distance)}</span>，确定在这里打卡吗？
           </span>
         </div>
       )}
-      <p className="mb-2 text-xs text-ink-400">选出你所在的店铺或景点，打卡点更准确，也方便后来的人避雷</p>
+      <p className="mb-3 text-xs leading-relaxed text-ink-400">选出你所在的店铺或景点，打卡点更准确，也方便后来的人避雷</p>
       {canSearch && (
         <div className="relative mb-2">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-400" />
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-400" strokeWidth={1.75} />
           <Input value={kw} onChange={(e) => setKw(e.target.value)} placeholder="搜索附近的店名" maxLength={50} className="pr-9 pl-9" />
           {around.isFetching && <Spinner className="absolute top-1/2 right-3 size-4 -translate-y-1/2" />}
         </div>
@@ -143,24 +143,28 @@ export function CheckinPicker({
       ) : rows.length === 0 ? (
         <p className="py-8 text-center text-sm text-ink-400">{hint}</p>
       ) : (
-        <div className="divide-y divide-ink-100">
+        <div className="divide-y divide-ink-200 border-y border-ink-200">
           {rows.map((r) => (
             <button
               key={r.key}
               type="button"
               onClick={() => onPick(r)}
-              className="flex min-h-12 w-full items-center gap-3 py-2.5 text-left hover:bg-ink-50"
+              className="flex min-h-12 w-full items-center gap-3 px-1 py-3 text-left transition-colors hover:bg-ink-50"
             >
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="font-medium text-ink-900">{r.name}</span>
-                  {r.category && <CategoryChip category={r.category} className="!py-0 text-[11px]" />}
-                  {r.community && <span className="rounded bg-emerald-50 px-1.5 text-[11px] text-emerald-700">大家打卡过</span>}
-                  {r.community?.avoid && <span className="rounded bg-red-50 px-1.5 text-[11px] font-medium text-red-600">⚠️ 慎去</span>}
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="font-display text-[15px] text-ink-900">{r.name}</span>
+                  {r.category && <CategoryChip category={r.category} className="text-[11px]" />}
+                  {r.community && (
+                    <span className="rounded-sm border border-emerald-300 px-1 text-[11px] tracking-wide text-emerald-700">大家打卡过</span>
+                  )}
+                  {r.community?.avoid && (
+                    <span className="rounded-sm border border-red-300 px-1 text-[11px] font-medium tracking-wide text-red-600">✕ 慎去</span>
+                  )}
                 </div>
-                {r.address && <p className="mt-0.5 truncate text-xs text-ink-400">{r.address}</p>}
+                {r.address && <p className="mt-1 truncate text-xs text-ink-400">{r.address}</p>}
               </div>
-              <span className="shrink-0 text-xs text-ink-400">{formatDistance(r.distance)}</span>
+              <span className="font-num shrink-0 text-xs text-ink-500">{formatDistance(r.distance)}</span>
             </button>
           ))}
         </div>

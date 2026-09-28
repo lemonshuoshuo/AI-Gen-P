@@ -128,9 +128,9 @@ export function FootprintsView({
           value={mode}
           onChange={setMode}
           options={[
-            { value: 'map', label: <span className="flex items-center gap-1.5"><MapIcon className={icon} strokeWidth={1.6} />足迹地图</span> },
-            { value: 'globe', label: <span className="flex items-center gap-1.5"><Globe2 className={icon} strokeWidth={1.6} />足迹地球</span> },
-            { value: 'list', label: <span className="flex items-center gap-1.5"><List className={icon} strokeWidth={1.6} />城市清单</span> },
+            { value: 'map', label: <span className="flex items-center gap-1.5"><MapIcon className={icon} strokeWidth={1.6} /><span><span className="hidden sm:inline">足迹</span>地图</span></span> },
+            { value: 'globe', label: <span className="flex items-center gap-1.5"><Globe2 className={icon} strokeWidth={1.6} /><span><span className="hidden sm:inline">足迹</span>地球</span></span> },
+            { value: 'list', label: <span className="flex items-center gap-1.5"><List className={icon} strokeWidth={1.6} /><span><span className="hidden sm:inline">城市</span>清单</span></span> },
           ]}
         />
         {replayTo && data.trips.length > 0 && (

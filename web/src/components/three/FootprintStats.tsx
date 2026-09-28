@@ -13,7 +13,18 @@ function km(v: number): [string, string] {
   return [Math.round(v).toLocaleString(), '公里']
 }
 
-export function FootprintStats({ data, className, dark }: { data: Footprints; className?: string; dark?: boolean }) {
+export function FootprintStats({
+  data,
+  className,
+  dark,
+  accent = 'text-brand-500',
+}: {
+  data: Footprints
+  className?: string
+  dark?: boolean
+  /** 强调数字（城市数）的颜色类名 */
+  accent?: string
+}) {
   const s = data.stats
   const [dist, distUnit] = km(s.distance_km)
   const items: { label: string; value: string | number; unit?: string }[] = [
@@ -44,7 +55,7 @@ export function FootprintStats({ data, className, dark }: { data: Footprints; cl
           )}
         >
           <div className="flex items-baseline gap-1">
-            <span className={cn('font-num truncate text-[1.6rem] leading-none font-medium tracking-tight', k === 1 && !dark && 'text-brand-500')}>
+            <span className={cn('font-num truncate text-[1.6rem] leading-none font-medium tracking-tight', k === 1 && !dark && accent)}>
               {i.value}
             </span>
             {i.unit && <span className={cn('shrink-0 text-xs', dark ? 'text-white/45' : 'text-ink-400')}>{i.unit}</span>}

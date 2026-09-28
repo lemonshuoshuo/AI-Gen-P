@@ -440,7 +440,7 @@ export default function TogetherPage() {
         <LoadError className="py-8" title="足迹加载失败" error={fpQ.error} onRetry={() => fpQ.refetch()} />
       ) : fpQ.data && (
         <>
-          <FootprintStats data={fpQ.data} className="mt-6" />
+          <FootprintStats data={fpQ.data} className="mt-6" accent="text-pink-500" />
           <div className="mt-6">
             {fpQ.data.stats.waypoints === 0 ? (
               <Empty

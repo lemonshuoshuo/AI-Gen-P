@@ -70,9 +70,13 @@ function footprintCamera(map: MLMap, pts: LngLat[]) {
 
 function viewFor(map: MLMap, pts: LngLat[], shift: number) {
   const cam = footprintCamera(map, pts)
-  const stage = stageOf(cam.zoom, shift)
   // 倾斜后画面下半部分会放大，略微退后一点，避免边缘的点被裁掉
-  return { ...cam, zoom: cam.zoom - (stage === 'city' ? 0.25 : 0.1), pitch: PITCH[stage], bearing: stage === 'country' ? -6 : 0 }
+  let zoom = cam.zoom - (stageOf(cam.zoom, shift) === 'city' ? 0.25 : 0.1)
+  // 不停在夜色与纸色的过渡带里：离纸色一侧很近时放大一点点（留白足够，点不会出画面），否则退到夜色一侧
+  const [D0, D1] = dayWindow(shift)
+  if (zoom > D0 && zoom < D1) zoom = D1 - zoom <= 0.25 ? D1 + 0.02 : D0 - 0.02
+  const stage = stageOf(zoom, shift)
+  return { ...cam, zoom, pitch: PITCH[stage], bearing: stage === 'country' ? -6 : 0 }
 }
 
 /** 两点之间一条向一侧弯曲的弧线（地面上的「航线」） */
@@ -613,11 +617,12 @@ export function FootprintMap({
   const [stage, setStage] = useState<Stage>('country')
   const [picked, setPicked] = useState<number | null>(null)
   const mapRef = useRef<MLMap | null>(null)
-  // 按容器宽度平移各档阈值（在创建地图前量好，之后不变：旋转屏幕等只影响阈值的精确位置）
+  // 按容器尺寸平移各档阈值（在创建地图前量好，之后不变：旋转屏幕等只影响阈值的精确位置）
   const boxRef = useRef<HTMLDivElement>(null)
   const [shift, setShift] = useState<number | null>(null)
   useLayoutEffect(() => {
-    setShift(zoomShift(boxRef.current?.clientWidth ?? 1000))
+    const el = boxRef.current
+    setShift(zoomShift(el?.clientWidth ?? 1000, el?.clientHeight ?? 600))
   }, [])
   const counts = useMemo(() => Object.fromEntries(data.provinces.map((p) => [p.code, p.count])), [data.provinces])
   const pts = useMemo(() => data.points.map((p) => [p.lng, p.lat] as LngLat), [data.points])
@@ -631,6 +636,8 @@ export function FootprintMap({
     })
   }, [data.points])
   const night = stage !== 'city'
+  // 足迹数据刷新后序号可能对应到别的点：关掉卡片
+  useEffect(() => setPicked(null), [data.points])
 
   const fly = (to: { center: LngLat; zoom: number; pitch: number; bearing: number }) =>
     mapRef.current?.flyTo({ ...to, duration: 1400, essential: true })
