@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -17,13 +18,19 @@ type Error struct {
 	Info       string // AMap info, e.g. "USERKEY_PLAT_NOMATCH", or the error text (never the key)
 	HTTPStatus int    // non-200 HTTP status
 	Network    bool   // cannot reach AMap (or it did not answer in time)
-	Host       string // the API host, for network errors
+	// BadReply: a 200 answer that is not AMap's JSON (a captive portal, a
+	// proxy or WAF page); Info holds a snippet of it.
+	BadReply bool
+	Host     string // the API host, for network errors
 	// Net tells which layer of a network error failed (DNS, proxy,
 	// connect, TLS, no answer); nil for other errors.
 	Net *netdiag.Failure
 	// Paused: this call was not sent because an earlier failure (this
 	// error) paused calls for a while.
 	Paused bool
+	// cut: the caller's own deadline, shorter than the client's timeout,
+	// ended this network failure (it does not count towards a pause).
+	cut bool
 }
 
 func (e *Error) Error() string {
@@ -36,6 +43,8 @@ func (e *Error) Error() string {
 		if e.Info != "" {
 			s += ": " + e.Info
 		}
+	case e.BadReply:
+		s = "not an amap answer: " + e.Info
 	default:
 		s = e.Info
 	}
@@ -119,7 +128,14 @@ func (e *Error) message() string {
 		}
 		return "服务器无法连接高德（" + host + "）：" + e.Net.Reason
 	case e.HTTPStatus != 0:
-		return fmt.Sprintf("高德接口返回 HTTP %d，请稍后再试", e.HTTPStatus)
+		msg := fmt.Sprintf("高德接口返回 HTTP %d，请稍后再试", e.HTTPStatus)
+		if e.Info != "" && !strings.HasPrefix(strings.TrimSpace(e.Info), "{") {
+			// Not AMap's JSON: an answer from something in between.
+			msg = fmt.Sprintf("高德接口返回 HTTP %d，且返回的不是高德的数据：可能被代理、防火墙或网关拦截（%s）", e.HTTPStatus, e.Info)
+		}
+		return msg
+	case e.BadReply:
+		return "高德接口返回的不是高德的数据：可能被代理、防火墙、WAF 或网络认证页面拦截（" + e.Info + "）"
 	}
 	return "高德接口调用失败：" + e.Info
 }
@@ -133,6 +149,8 @@ func (e *Error) Layer() string {
 		return netdiag.LayerNetwork
 	case e.HTTPStatus != 0:
 		return netdiag.LayerHTTP
+	case e.BadReply:
+		return netdiag.LayerReply
 	}
 	return netdiag.LayerAPI
 }
@@ -148,7 +166,10 @@ func Details(err error) netdiag.Details {
 	case e.Network:
 		return netdiag.FromFailure(e.Net, e.Info)
 	case e.HTTPStatus != 0:
-		return netdiag.Details{Layer: netdiag.LayerHTTP, Status: e.HTTPStatus, Detail: e.Info}
+		return netdiag.Details{Layer: netdiag.LayerHTTP, Status: e.HTTPStatus, Detail: e.Info,
+			Blocked: e.Info != "" && !strings.HasPrefix(strings.TrimSpace(e.Info), "{")}
+	case e.BadReply:
+		return netdiag.Details{Layer: netdiag.LayerReply, Detail: e.Info, Blocked: true}
 	}
 	return netdiag.Details{Layer: netdiag.LayerAPI, Detail: "infocode " + e.Infocode + ": " + e.Info}
 }

@@ -458,10 +458,72 @@ export interface AIPlanResult {
   items: AIPlanItem[]
 }
 
+/** Key 指纹：长度与首尾几个字符，不含完整 Key */
+export interface DiagKeyHint {
+  length: number
+  head?: string
+  tail?: string
+  whitespace?: boolean
+  quotes?: boolean
+  non_ascii?: boolean
+  non_hex?: boolean
+  /** 与常见格式不符时的提示 */
+  warning?: string
+  /** 如「长度 32 · c549…bd36」 */
+  text: string
+}
+
+/** 服务器进程的代理环境变量（已去掉账号密码） */
+export interface DiagProxy {
+  https_proxy?: string
+  http_proxy?: string
+  no_proxy?: string
+  /** 访问该服务实际经过的代理，缺省为直连 */
+  used?: string
+}
+
+/**
+ * 失败环节：dns / proxy / connect / tls / timeout / network 为没连上服务；http / api / response 为服务返回了错误；
+ * slow 为 AI 已开始返回但没有在时限内完成（模型慢，不是网络问题）
+ */
+export type DiagLayer = 'dns' | 'proxy' | 'connect' | 'tls' | 'timeout' | 'network' | 'http' | 'api' | 'response' | 'slow'
+
+/** 检测的技术细节（均为可选，旧版服务端没有；不含任何 Key） */
+export interface DiagDetail {
+  host?: string
+  layer?: DiagLayer
+  /** 失败时的 HTTP 状态码 */
+  status?: number
+  /** 原始错误或服务商返回的信息（Key 已替换为 ***） */
+  detail?: string
+  /** 服务域名解析到的地址 */
+  addrs?: string[]
+  /** 经代理访问时，代理主机名解析到的地址 */
+  proxy_addrs?: string[]
+  /** 已连接的对端地址（经代理时为代理的地址） */
+  remote?: string
+  /** 返回的不是服务商自己的错误信息（代理、防火墙、WAF 页面），与 Key 无关 */
+  blocked?: boolean
+  /** 只有设置了代理环境变量时才有 */
+  proxy?: DiagProxy
+  key_hint?: DiagKeyHint
+}
+
 export interface AdminDiagnostics {
-  amap: { configured: boolean; ok: boolean; message: string; infocode?: string; latency_ms: number }
-  ai: { configured: boolean; ok: boolean; model: string; base_url: string; thinking: string; timeout_s: number; latency_ms: number; message: string }
-  tianditu: { configured: boolean; ok: boolean; message: string; latency_ms: number }
+  amap: DiagDetail & { configured: boolean; ok: boolean; message: string; infocode?: string; latency_ms: number }
+  ai: DiagDetail & {
+    configured: boolean
+    ok: boolean
+    model: string
+    base_url: string
+    thinking: string
+    timeout_s: number
+    latency_ms: number
+    message: string
+    /** auth / balance / model / rate_limit / server / network / timeout … */
+    kind?: string
+  }
+  tianditu: DiagDetail & { configured: boolean; ok: boolean; message: string; latency_ms: number }
 }
 
 export interface AdminStats {

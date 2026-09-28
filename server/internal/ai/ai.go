@@ -10,13 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
+
+	"triphub/internal/netdiag"
 )
 
 // ErrDisabled is returned when no model is configured.
@@ -137,6 +138,26 @@ func (c *Client) Thinking() string {
 		return ThinkingOff
 	}
 	return c.thinking
+}
+
+// Endpoint returns the chat completions URL (it never contains the key).
+func (c *Client) Endpoint() string {
+	if c == nil {
+		return ""
+	}
+	return c.endpoint
+}
+
+// KeyHint describes the configured API key without revealing it.
+func (c *Client) KeyHint() netdiag.KeyHint {
+	if c == nil {
+		return netdiag.Fingerprint("", netdiag.AnyKey)
+	}
+	format := netdiag.AnyKey
+	if strings.Contains(strings.ToLower(c.host()), "deepseek") {
+		format = netdiag.DeepSeekKey
+	}
+	return netdiag.Fingerprint(c.apiKey, format)
 }
 
 // Timeout returns the default call timeout.
@@ -299,14 +320,14 @@ func (c *Client) withDeadline(ctx context.Context) (context.Context, context.Can
 }
 
 func (c *Client) complete(ctx context.Context, body map[string]any, start time.Time) (string, error) {
-	resp, err := c.post(ctx, body, start)
+	resp, tr, err := c.post(ctx, body, start)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
-		return "", c.transportError(ctx, err, start)
+		return "", c.transportError(ctx, err, start, tr, nil)
 	}
 	return c.parseResponse(data)
 }
@@ -340,15 +361,17 @@ func emptyError(content string, reasoned bool, finish string) error {
 	return &Error{Kind: KindEmpty, Detail: fmt.Sprintf("empty content (reasoning=%v, finish_reason=%q)", reasoned, finish), reasoned: reasoned}
 }
 
-// post sends the request; a non-2xx answer becomes an *Error.
-func (c *Client) post(ctx context.Context, body map[string]any, start time.Time) (*http.Response, error) {
+// post sends the request; a non-2xx answer becomes an *Error. The trace
+// tells later read errors apart (slow model or broken connection).
+func (c *Client) post(ctx context.Context, body map[string]any, start time.Time) (*http.Response, *netdiag.Trace, error) {
 	b, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(b))
+	tr := netdiag.NewTrace()
+	req, err := http.NewRequestWithContext(tr.Context(ctx), http.MethodPost, c.endpoint, bytes.NewReader(b))
 	if err != nil {
-		return nil, &Error{Kind: KindNetwork, Detail: err.Error(), host: c.host(), err: err}
+		return nil, nil, &Error{Kind: KindNetwork, Detail: err.Error(), host: c.host(), err: err}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if body["stream"] == true {
@@ -361,38 +384,46 @@ func (c *Client) post(ctx context.Context, body map[string]any, start time.Time)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, c.transportError(ctx, err, start)
+		return nil, tr, c.transportError(ctx, err, start, tr, netdiag.ProxyOf(c.http, req))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		resp.Body.Close()
-		msg := errorText(extractErrorField(data))
+		field := extractErrorField(data)
+		msg := errorText(field)
 		if msg == "" {
-			msg = strings.TrimSpace(string(data))
+			msg = netdiag.BodySnippet(data, 500)
 		}
-		return nil, c.classify(resp.StatusCode, msg)
+		e := c.classify(resp.StatusCode, msg)
+		if resp.StatusCode == http.StatusForbidden && field == nil {
+			// Not the provider's JSON error: a proxy, firewall or gateway
+			// page, not a verdict on the key.
+			e.Kind, e.blocked = KindRequest, true
+		}
+		return nil, tr, e
 	}
-	return resp, nil
+	return resp, tr, nil
 }
 
-// transportError classifies a failure to send or read: the deadline ran
-// out (timeout), the caller went away (canceled) or the network failed.
-func (c *Client) transportError(ctx context.Context, err error, start time.Time) error {
-	switch {
-	case errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded):
-		return &Error{Kind: KindTimeout, Detail: err.Error(), waited: time.Since(start), err: context.DeadlineExceeded}
-	case errors.Is(ctx.Err(), context.Canceled):
-		return &Error{Kind: KindCanceled, Detail: err.Error(), err: context.Canceled}
+// transportError classifies a failure to send or read by how far the
+// request got (see netdiag.Trace): no connection or request sent is a
+// network failure (DNS, proxy, connect, TLS); a deadline after the request
+// was sent is a timeout; a broken connection is a network failure too. The
+// caller going away is a cancellation. proxy is the proxy used (nil: direct
+// or unknown).
+func (c *Client) transportError(ctx context.Context, err error, start time.Time, tr *netdiag.Trace, proxy *url.URL) error {
+	detail := netdiag.ErrorText(err, c.apiKey)
+	waited := time.Since(start)
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return &Error{Kind: KindCanceled, Detail: detail, err: context.Canceled}
 	}
-	var ne net.Error
-	if errors.As(err, &ne) && ne.Timeout() {
-		return &Error{Kind: KindTimeout, Detail: err.Error(), waited: time.Since(start), err: context.DeadlineExceeded}
+	in := tr.Info()
+	timeout := netdiag.IsTimeout(err) || errors.Is(ctx.Err(), context.DeadlineExceeded)
+	if in.GotConn && in.WroteRequest && timeout {
+		return &Error{Kind: KindTimeout, Detail: detail, host: c.host(), waited: waited, noResponse: !in.FirstByte,
+			err: context.DeadlineExceeded}
 	}
-	msg := err.Error()
-	if c.apiKey != "" {
-		msg = strings.ReplaceAll(msg, c.apiKey, "***")
-	}
-	return &Error{Kind: KindNetwork, Detail: msg, host: c.host(), err: err}
+	return &Error{Kind: KindNetwork, Detail: detail, Net: netdiag.Classify(err, tr, proxy), host: c.host(), waited: waited, err: err}
 }
 
 func extractErrorField(data []byte) json.RawMessage {
@@ -453,8 +484,9 @@ var modelMissingRe = regexp.MustCompile(`(?i)(model_not_found|模型不存在|un
 
 // classify maps an HTTP status and the provider's message to an *Error.
 func (c *Client) classify(status int, msg string) *Error {
+	msg = netdiag.Redact(msg, c.apiKey)
 	if len(msg) > 500 {
-		msg = msg[:500]
+		msg = strings.ToValidUTF8(msg[:500], "")
 	}
 	e := &Error{Status: status, Detail: msg, model: c.model, host: c.host()}
 	lower := strings.ToLower(msg)
@@ -550,7 +582,7 @@ func streamUnsupported(err error) bool {
 // stream runs one streaming request. got reports whether any output
 // (answer or reasoning) arrived.
 func (c *Client) stream(ctx context.Context, body map[string]any, start time.Time, onDelta func(Delta)) (text string, got bool, err error) {
-	resp, err := c.post(ctx, body, start)
+	resp, tr, err := c.post(ctx, body, start)
 	if err != nil {
 		return "", false, err
 	}
@@ -559,7 +591,7 @@ func (c *Client) stream(ctx context.Context, body map[string]any, start time.Tim
 		// Streaming ignored: a normal JSON answer.
 		data, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 		if err != nil {
-			return "", false, c.transportError(ctx, err, start)
+			return "", false, c.transportError(ctx, err, start, tr, nil)
 		}
 		text, err := c.parseResponse(data)
 		if err == nil && onDelta != nil {
@@ -605,7 +637,7 @@ func (c *Client) stream(ctx context.Context, body map[string]any, start time.Tim
 			if rerr == io.EOF {
 				break // some servers close without [DONE]
 			}
-			return content.String(), got, c.transportError(ctx, rerr, start)
+			return content.String(), got, c.transportError(ctx, rerr, start, tr, nil)
 		}
 		if content.Len() > 8<<20 {
 			return "", got, &Error{Kind: KindBadResponse, Detail: "answer too long"}

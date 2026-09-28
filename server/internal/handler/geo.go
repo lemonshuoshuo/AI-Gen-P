@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -176,8 +175,11 @@ func (h *Handler) geoAround(c *gin.Context) error {
 	return nil
 }
 
-// geoTimeout bounds the map service calls of a geo request.
-const geoTimeout = 6 * time.Second
+// geoTimeout bounds each map service call of a geo request: as long as
+// AMap's own request timeout, so that a slow answer from AMap (several
+// seconds from some servers in China) still arrives, and a request that
+// times out counts towards pausing AMap (see amap.Client).
+const geoTimeout = amap.RequestTimeout
 
 // geoSearch is the place search box: AMap (keyword search + input tips),
 // else Tianditu, else the offline atlas (province / city names only).
@@ -262,10 +264,14 @@ func (h *Handler) geoRegeo(c *gin.Context) error {
 	if !h.geoLimit.Allow(fmt.Sprintf("u%d", currentUserID(c))) {
 		return errTooMany("操作过于频繁，请稍后再试")
 	}
-	info := h.svc.Locate(c.Request.Context(), pos.Lng, pos.Lat, true)
+	info := h.svc.LocateWithin(c.Request.Context(), pos.Lng, pos.Lat, true, geoTimeout)
+	address := info.Address
+	if address == "" || amap.IsCountry(address) { // e.g. a point in the sea
+		address = joinNonEmpty("", info.Province, info.City, info.District)
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"province": info.Province, "province_code": info.ProvinceCode, "city": info.City, "city_code": info.CityCode,
-		"district": info.District, "street": info.Street, "address": info.Address, "spot": info.Spot,
+		"district": info.District, "street": info.Street, "address": address, "spot": info.Spot,
 		"lng": geo.Round(pos.Lng, 6), "lat": geo.Round(pos.Lat, 6),
 	})
 	return nil

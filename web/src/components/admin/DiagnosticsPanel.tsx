@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Copy, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
-import { api, errorMessage, isNotFound, type AdminDiagnostics } from '@/api'
+import { api, errorMessage, isNotFound, type AdminDiagnostics, type DiagDetail, type DiagProxy } from '@/api'
 import { Button, LoadError, Spinner, Tag } from '@/components/ui'
 import { copyText } from '@/lib/clipboard'
 import { cn } from '@/lib/cn'
@@ -44,8 +44,8 @@ function StateStamp({ state }: { state: State }) {
   )
 }
 
-/** 可复制的 .env / 命令片段：上方一行细线标题（文件名 + 复制），下方等宽正文 */
-function Snippet({ label, children }: { label: string; children: string }) {
+/** 可复制的 .env / 命令片段：上方一行细线标题（文件名 + 复制），下方等宽正文；wrap 时长行折行（原始错误） */
+function Snippet({ label, children, wrap }: { label: string; children: string; wrap?: boolean }) {
   return (
     <div className="mt-2 overflow-hidden rounded-md border border-ink-200 bg-paper">
       <div className="flex items-center justify-between border-b border-ink-200 py-1 pr-1 pl-3.5">
@@ -62,7 +62,14 @@ function Snippet({ label, children }: { label: string; children: string }) {
           复制
         </button>
       </div>
-      <pre className="overflow-x-auto px-3.5 py-2.5 font-mono text-[12.5px] leading-relaxed text-ink-800">{children}</pre>
+      <pre
+        className={cn(
+          'overflow-x-auto px-3.5 py-2.5 font-mono text-[12.5px] leading-relaxed text-ink-800',
+          wrap && 'whitespace-pre-wrap [overflow-wrap:anywhere]',
+        )}
+      >
+        {children}
+      </pre>
     </div>
   )
 }
@@ -155,6 +162,222 @@ function ServicePanel({
   )
 }
 
+/* ---------------- 技术细节与网络排查 ---------------- */
+
+type Checked = DiagDetail & { configured: boolean; ok: boolean }
+
+/** 没连上服务（而不是服务返回了错误）的失败环节 */
+const networkLayers = new Set(['dns', 'proxy', 'connect', 'tls', 'timeout', 'network'])
+
+const isNetworkFailure = (d: Checked) => d.configured && !d.ok && !!d.layer && networkLayers.has(d.layer)
+
+const layerLabel: Record<string, string> = {
+  dns: 'DNS 解析',
+  proxy: '代理',
+  connect: 'TCP 连接',
+  tls: 'TLS 握手',
+  timeout: '等待响应',
+  network: '网络连接',
+  http: 'HTTP 状态',
+  api: '接口返回',
+  response: '返回内容',
+  slow: '响应过慢',
+}
+
+function proxyEnv(p?: DiagProxy) {
+  if (!p) return ''
+  return [
+    p.https_proxy && `HTTPS_PROXY=${p.https_proxy}`,
+    p.http_proxy && `HTTP_PROXY=${p.http_proxy}`,
+    p.no_proxy && `NO_PROXY=${p.no_proxy}`,
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+/** 服务器进程实际使用的配置（Key 指纹、代理）与失败时的环节、解析地址和原始错误 */
+function TechDetail({ d }: { d: Checked }) {
+  if (!d.host && !d.key_hint && !d.layer) return null // 旧版服务端
+  const failed = !d.ok
+  const hint = d.key_hint
+  const env = proxyEnv(d.proxy)
+  const rows: [string, ReactNode][] = []
+  if (failed && d.layer)
+    rows.push([
+      '失败环节',
+      <>
+        {layerLabel[d.layer] ?? d.layer}
+        {!!d.status && <span className="font-num ml-2 text-ink-500">HTTP {d.status}</span>}
+      </>,
+    ])
+  if (d.host)
+    rows.push([
+      '服务地址',
+      <span className="font-mono text-[12.5px]">
+        {d.host}
+        {failed && !!d.addrs?.length && <span className="text-ink-500"> → {d.addrs.join(', ')}</span>}
+      </span>,
+    ])
+  rows.push([
+    '代理',
+    <>
+      {d.proxy?.used ? (
+        <>
+          经 <span className="font-mono text-[12.5px]">{d.proxy.used}</span> 转发
+          {failed && !!d.proxy_addrs?.length && (
+            <span className="font-mono text-[12.5px] text-ink-500"> → {d.proxy_addrs.join(', ')}</span>
+          )}
+        </>
+      ) : d.proxy ? (
+        '直连（设置了代理变量，但这个地址不经过代理）'
+      ) : (
+        '未设置代理（直连）'
+      )}
+      {env && <span className="mt-0.5 block font-mono text-[12px] whitespace-pre-line text-ink-500">{env}</span>}
+    </>,
+  ])
+  if (hint)
+    rows.push([
+      'Key',
+      hint.length ? (
+        <>
+          <span className="font-mono text-[12.5px]">{hint.text}</span>
+          {hint.warning && <span className="mt-0.5 block text-brand-600">{hint.warning}</span>}
+        </>
+      ) : (
+        <span className="text-ink-400">未设置</span>
+      ),
+    ])
+  return (
+    <div>
+      <Label>Detail · 技术细节</Label>
+      <dl className="mt-2 divide-y divide-ink-200 border-y border-ink-200 text-sm">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex gap-4 py-2.5">
+            <dt className="w-16 shrink-0 text-xs leading-5 tracking-wide text-ink-400">{k}</dt>
+            <dd className="min-w-0 flex-1 leading-5 [overflow-wrap:anywhere] text-ink-800">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      {failed && d.detail && (
+        <Snippet label="原始错误 · Key 已隐藏" wrap>
+          {d.detail}
+        </Snippet>
+      )}
+    </div>
+  )
+}
+
+/** 各失败环节的含义 */
+const layerCause: Record<string, { title: string; fix: ReactNode }> = {
+  dns: {
+    title: '域名解析失败',
+    fix: (
+      <>
+        容器里解析不了服务的域名。宿主机只配置了本机 DNS（如 <Code>127.0.0.1</Code> 上的 dnsmasq）、Docker
+        找不到可用的上游 DNS 时，会给容器改用 8.8.8.8，国内服务器常常不通；使用 systemd-resolved（<Code>127.0.0.53</Code>）时
+        Docker 读取的是 <Code>/run/systemd/resolve/resolv.conf</Code> 中的上游 DNS。
+      </>
+    ),
+  },
+  proxy: {
+    title: '代理不可用',
+    fix: (
+      <>
+        容器带着 <Code>HTTPS_PROXY</Code>，多半是 Docker 从 <Code>~/.docker/config.json</Code> 的 <Code>proxies</Code>{' '}
+        注入的。容器里的 <Code>127.0.0.1</Code> 指容器自己，连不到宿主机上的代理。
+      </>
+    ),
+  },
+  connect: {
+    title: 'TCP 连接失败',
+    fix: <>出站连接被拒绝或超时：检查云服务器安全组、防火墙，以及 Docker 的 NAT（iptables）规则是否被清掉。</>,
+  },
+  tls: {
+    title: 'TLS 握手失败',
+    fix: (
+      <>
+        TCP 已连通但握手没有完成。握手超时多为 MTU 不匹配（云服务器、VPN 网卡的 MTU 小于 1500）；证书错误请检查服务器时间，或是否有
+        HTTPS 劫持。
+      </>
+    ),
+  },
+  timeout: {
+    title: '连上了，但没有响应',
+    fix: <>请求已经发出，服务在限定时间内没有返回任何数据：多为代理或防火墙拦截了响应，也可能是服务繁忙。</>,
+  },
+  network: {
+    title: '连接中断',
+    fix: <>连接建立后被中断，常见于代理、防火墙或不稳定的网络。</>,
+  },
+}
+
+/** 网络层失败：与 Key 无关，给出容器网络的排查步骤而不是申请 Key 的步骤 */
+function NetworkHelp({ d }: { d: Checked }) {
+  const cause = d.layer ? layerCause[d.layer] : undefined
+  return (
+    <div className="space-y-6">
+      {cause && <Diagnosis title={cause.title}>{cause.fix}</Diagnosis>}
+      <div>
+        <Label>Network · 容器网络排查</Label>
+        <p className="mt-2 text-sm leading-relaxed text-ink-500">
+          服务器没能连上这个服务，与 Key 是否正确无关，不需要重新申请 Key。在服务器的部署目录中依次检查：
+        </p>
+        <Steps
+          items={[
+            <>
+              在容器里运行自检，逐项查看代理、DNS、TCP、TLS 与一次真实接口调用：
+              <Snippet label="终端 · 部署目录">docker compose exec app /triphub -diagnose</Snippet>
+            </>,
+            <>
+              查看 <Code>~/.docker/config.json</Code>（用 sudo 运行 Docker 时是 <Code>/root/.docker/config.json</Code>）是否有{' '}
+              <Code>proxies</Code>：删掉它，或把代理地址改成容器能访问的地址，然后重新创建容器：
+              <Snippet label="终端 · 部署目录">docker compose up -d --force-recreate app</Snippet>
+            </>,
+            <>
+              修改 <Code>.env</Code> 后要执行 <Code>docker compose up -d</Code>；<Code>docker compose restart</Code> 不会重新读取{' '}
+              <Code>.env</Code>，容器仍在用旧的配置。
+            </>,
+            <>
+              DNS：在 <Code>/etc/docker/daemon.json</Code> 中设置国内 DNS 后重启 Docker（<Code>systemctl restart docker</Code>）：
+              <Snippet label="/etc/docker/daemon.json">{'{ "dns": ["223.5.5.5", "119.29.29.29"] }'}</Snippet>
+            </>,
+            <>
+              防火墙：<Code>firewall-cmd --reload</Code> 或修改 iptables 后要重启 Docker，否则容器的出站规则会丢失；并确认安全组放行了出站
+              443 端口。
+            </>,
+            <>
+              MTU：TLS 握手超时而宿主机上 <Code>curl</Code> 正常时，把网卡的 MTU（<Code>ip link</Code> 查看，如 1450）设给 Docker
+              网络：在 <Code>docker-compose.yml</Code> 的 <Code>networks.default.driver_opts</Code> 中加入{' '}
+              <Code>com.docker.network.driver.mtu: "1450"</Code>，然后 <Code>docker compose down && docker compose up -d</Code>。
+            </>,
+          ]}
+        />
+      </div>
+    </div>
+  )
+}
+
+/** 收到了回应，但不是服务商的数据（代理、防火墙、WAF、网络认证页面）：与 Key 无关 */
+function BlockedHelp({ d }: { d: Checked }) {
+  return (
+    <Diagnosis title="请求被拦截">
+      服务器收到了回应，但不是服务商的数据{d.status ? `（HTTP ${d.status}）` : ''}，内容见上方「原始错误」：多为代理、防火墙、WAF
+      或网络认证页面拦截了请求，与 Key 无关，不需要重新申请 Key。检查 <Code>~/.docker/config.json</Code> 的{' '}
+      <Code>proxies</Code> 与服务器的出站策略，或在部署目录运行 <Code>docker compose exec app /triphub -diagnose</Code> 查看详情。
+    </Diagnosis>
+  )
+}
+
+/** 与 Key 无关、稍后会自行恢复的失败：只需稍后重新检测 */
+function RetryLater({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Diagnosis title={title}>
+      {children}稍后点「重新检测」即可，不需要修改 <Code>.env</Code>。
+    </Diagnosis>
+  )
+}
+
 /* ---------------- 高德 ---------------- */
 
 const amapCodes: { codes: string[]; title: string; fix: ReactNode }[] = [
@@ -203,10 +426,17 @@ const amapCodes: { codes: string[]; title: string; fix: ReactNode }[] = [
   },
 ]
 
+/** Key 本身配置有误的错误码：只有这些（和原因不明的失败）才给出申请 / 填写 Key 的步骤 */
+const amapKeyCodes = new Set(['10001', '10002', '10006', '10007', '10008', '10009', '10012', '10013'])
+
 function AmapPanel({ d }: { d: AdminDiagnostics['amap'] }) {
   const state = stateOf(d)
+  const network = isNetworkFailure(d)
   const code = d.infocode && d.infocode !== '10000' ? d.infocode : undefined
   const matched = code ? amapCodes.find((c) => c.codes.includes(code)) : undefined
+  // 高德自己的回应总是 HTTP 200 的 JSON：其它状态或内容来自中间的代理、网关，或高德暂时异常
+  const reply = state === 'bad' && !network && (d.blocked || d.layer === 'http' || d.layer === 'response')
+  const keySteps = state === 'off' || (state === 'bad' && !network && !reply && (!code || amapKeyCodes.has(code)))
   const steps = [
     <>
       登录高德开放平台（<Code>console.amap.com</Code>）→ 应用管理 → 创建应用并添加 Key，服务平台选择「Web服务」。
@@ -241,13 +471,25 @@ function AmapPanel({ d }: { d: AdminDiagnostics['amap'] }) {
           错误码 infocode <span className="font-num text-base text-ink-900">{code}</span>
         </p>
       )}
-      {state !== 'ok' && (
+      {state !== 'off' && <TechDetail d={d} />}
+      {network && <NetworkHelp d={d} />}
+      {reply &&
+        (d.blocked ? (
+          <BlockedHelp d={d} />
+        ) : (
+          <RetryLater title="高德暂时异常">
+            高德返回了 HTTP {d.status}，与 Key 无关；经代理访问时也可能是代理出错。
+          </RetryLater>
+        ))}
+      {state !== 'ok' && !network && !reply && (
         <div className="space-y-6">
           {matched && <Diagnosis title={`${code} · ${matched.title}`}>{matched.fix}</Diagnosis>}
-          <div>
-            <Label>{state === 'off' ? 'Setup · 配置方法' : 'Fix · 修复步骤'}</Label>
-            <Steps items={steps} />
-          </div>
+          {keySteps && (
+            <div>
+              <Label>{state === 'off' ? 'Setup · 配置方法' : 'Fix · 修复步骤'}</Label>
+              <Steps items={steps} />
+            </div>
+          )}
           {state === 'bad' && (
             <div>
               <Label>Infocode · 常见错误码</Label>
@@ -279,8 +521,78 @@ const thinkingLabel = (t: string) => {
   return v === 'off' ? '关闭' : v === 'on' ? '开启' : `开启 · ${v}`
 }
 
-/** 按错误信息猜原因 */
-function aiCause(msg: string): { title: string; fix: ReactNode } | undefined {
+/** 按服务端给出的错误类别（kind）判断原因；旧版服务端没有 kind 时按错误信息猜 */
+function aiCause(d: AdminDiagnostics['ai']): { title: string; fix: ReactNode } | undefined {
+  const deepseek = /deepseek/i.test(d.base_url)
+  switch (d.kind) {
+    case 'auth':
+      return {
+        title: 'API Key 无效或没有权限',
+        fix: (
+          <>
+            检查 <Code>AI_API_KEY</Code> 是否完整、是否已被删除；可以把上方「技术细节」中 Key 的长度和首尾字符与服务商控制台里的 Key
+            对照，确认容器用的是新 Key。
+          </>
+        ),
+      }
+    case 'balance':
+      return {
+        title: '账户余额不足',
+        fix: deepseek ? (
+          <>
+            请在 DeepSeek 开放平台（<Code>platform.deepseek.com</Code>）充值。余额属于账户，新建一个 Key 解决不了这个问题；充值后点「重新检测」即可，不需要修改
+            <Code>.env</Code>。
+          </>
+        ) : (
+          <>到模型服务商的控制台充值或提升额度后点「重新检测」，不需要修改 <Code>.env</Code>。</>
+        ),
+      }
+    case 'model':
+      return {
+        title: '模型名不正确',
+        fix: (
+          <>
+            检查 <Code>AI_MODEL</Code>；使用 DeepSeek 时为 <Code>deepseek-flash</Code>。
+          </>
+        ),
+      }
+    case 'rate_limit':
+      return { title: '请求过于频繁', fix: <>服务商限制了请求频率或并发数，与 Key 是否正确无关，稍后重新检测即可。</> }
+    case 'server':
+      return { title: '服务商暂时不可用', fix: <>模型服务返回了 5xx 错误，与本站配置无关，稍后重新检测。</> }
+    case 'timeout':
+      // 没有收到任何数据的超时是网络问题（layer 为 timeout，显示容器网络排查）；这里是已经开始返回、但没有及时完成
+      return {
+        title: '模型响应过慢',
+        fix: (
+          <>
+            模型已经开始返回，但没有在限定时间内完成，与网络和 Key 无关：多为服务商繁忙或开启了深度思考。可以在 <Code>.env</Code> 中设置{' '}
+            <Code>AI_THINKING=off</Code> 或换用更快的模型（改后执行 <Code>docker compose up -d</Code>），或稍后重新检测。
+          </>
+        ),
+      }
+    case 'empty':
+      return {
+        title: '没有返回结果',
+        fix: (
+          <>
+            模型只返回了思考过程或空内容。开启深度思考时可在 <Code>.env</Code> 中设 <Code>AI_THINKING=off</Code>，执行{' '}
+            <Code>docker compose up -d</Code> 后重新检测。
+          </>
+        ),
+      }
+    case 'bad_response':
+      return {
+        title: '接口地址不是 OpenAI 兼容接口',
+        fix: (
+          <>
+            检查 <Code>AI_BASE_URL</Code>，使用 DeepSeek 时为 <Code>https://api.deepseek.com</Code>。
+          </>
+        ),
+      }
+  }
+  if (d.kind) return undefined
+  const msg = d.message
   if (/401|403|unauthori|invalid.{0,12}key|authentication|api key/i.test(msg))
     return { title: 'API Key 无效', fix: <>检查 <Code>AI_API_KEY</Code> 是否正确、是否已过期或被删除。</> }
   if (/402|insufficient|balance|余额|欠费|quota/i.test(msg))
@@ -295,7 +607,7 @@ function aiCause(msg: string): { title: string; fix: ReactNode } | undefined {
         </>
       ),
     }
-  if (/timeout|timed out|deadline|超时|connection|dial|no such host|refused|网络/i.test(msg))
+  if (/timeout|timed out|deadline|超时|connection|dial|no such host|refused|网络|无法连接/i.test(msg))
     return {
       title: '连接失败或超时',
       fix: <>服务器访问不到模型接口：检查服务器的网络、防火墙或代理设置；开启了深度思考时响应也会明显变慢。</>,
@@ -313,9 +625,16 @@ function Meta({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
+/** 与 Key / 接口地址 / 模型名的配置有关（或原因不明）的错误类别：只有这些才给出填写配置的步骤 */
+const aiConfigKinds = new Set(['auth', 'model', 'bad_response', 'request', 'provider'])
+
 function AiPanel({ d }: { d: AdminDiagnostics['ai'] }) {
   const state = stateOf(d)
-  const cause = state === 'bad' ? aiCause(d.message) : undefined
+  const network = isNetworkFailure(d)
+  const blocked = state === 'bad' && !network && !!d.blocked
+  const cause = state === 'bad' && !network && !blocked ? aiCause(d) : undefined
+  const configSteps =
+    state === 'off' || (state === 'bad' && !network && !blocked && (!d.kind || aiConfigKinds.has(d.kind)))
   const thinkingOn = !!d.thinking && d.thinking.toLowerCase() !== 'off'
   const slow = state === 'ok' && d.latency_ms > 15000
   return (
@@ -365,6 +684,9 @@ function AiPanel({ d }: { d: AdminDiagnostics['ai'] }) {
         </dl>
       )}
 
+      {state !== 'off' && <TechDetail d={d} />}
+      {network && <NetworkHelp d={d} />}
+      {blocked && <BlockedHelp d={d} />}
       {cause && <Diagnosis title={cause.title}>{cause.fix}</Diagnosis>}
       {slow && (
         <Diagnosis title="响应较慢">
@@ -373,7 +695,7 @@ function AiPanel({ d }: { d: AdminDiagnostics['ai'] }) {
         </Diagnosis>
       )}
 
-      {state !== 'ok' ? (
+      {configSteps ? (
         <div>
           <Label>{state === 'off' ? 'Setup · 配置方法' : 'Fix · 修复步骤'}</Label>
           <Steps
@@ -403,6 +725,12 @@ function AiPanel({ d }: { d: AdminDiagnostics['ai'] }) {
 
 function TiandituPanel({ d }: { d: AdminDiagnostics['tianditu'] }) {
   const state = stateOf(d)
+  const network = isNetworkFailure(d)
+  const blocked = state === 'bad' && !network && !!d.blocked
+  // 天地图用 401 / 403 或错误码回应 Key 的问题；5xx 等其它状态与 Key 无关
+  const keyIssue =
+    state === 'bad' && !network && !blocked && (!d.layer || d.layer === 'api' || d.status === 401 || d.status === 403)
+  const serverDown = state === 'bad' && !network && !blocked && !keyIssue && !!d.status && d.status >= 500
   return (
     <ServicePanel
       no="03"
@@ -420,12 +748,16 @@ function TiandituPanel({ d }: { d: AdminDiagnostics['tianditu'] }) {
       purpose="免费的备用服务：高德未配置、出错或额度用完时，用于地点搜索与地址解析。不配置也能正常使用。"
       message={d.message}
     >
-      {state === 'bad' && (
+      {state !== 'off' && <TechDetail d={d} />}
+      {network && <NetworkHelp d={d} />}
+      {blocked && <BlockedHelp d={d} />}
+      {serverDown && <RetryLater title="天地图暂时异常">天地图返回了 HTTP {d.status}，与 Key 无关。</RetryLater>}
+      {keyIssue && (
         <Diagnosis title="确认 Key 的类型">
           服务器上只能使用「服务端」类型的 Key；「浏览器端」Key 会被天地图拒绝。也请确认 Key 已启用、复制完整。
         </Diagnosis>
       )}
-      {state !== 'ok' && (
+      {(state === 'off' || keyIssue) && (
         <div>
           <Label>{state === 'off' ? 'Setup · 配置方法（可选）' : 'Fix · 修复步骤'}</Label>
           <Steps

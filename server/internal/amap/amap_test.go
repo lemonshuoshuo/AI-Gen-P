@@ -207,13 +207,62 @@ func TestDisabledAndUnreachable(t *testing.T) {
 	}
 	c := New("k")
 	c.SetBaseURL("http://127.0.0.1:1") // nothing listens here
-	start := time.Now()
-	if _, err := c.Search(context.Background(), "x", "", false, 5); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("unreachable: %v", err)
+	c.netGap = 0                       // count failures however close together
+	for i := range netFailLimit {
+		_, err := c.Search(context.Background(), fmt.Sprint("x", i), "", false, 5)
+		var e *Error
+		if !errors.As(err, &e) || e.Paused || !e.Network || e.Layer() != "connect" {
+			t.Fatalf("unreachable #%d: %v", i, err)
+		}
+		if (i < netFailLimit-1) != (c.LastError() == nil) {
+			t.Fatalf("after %d failures in a row the breaker is open: %v", i+1, c.LastError())
+		}
 	}
-	// The circuit breaker makes the next call fail instantly.
-	if _, err := c.Search(context.Background(), "x", "", false, 5); !errors.Is(err, ErrUnavailable) || time.Since(start) > 3500*time.Millisecond {
-		t.Fatalf("breaker: %v after %v", err, time.Since(start))
+	// Paused: the next call fails at once and says why.
+	_, err := c.Search(context.Background(), "y", "", false, 5)
+	var e *Error
+	if !errors.As(err, &e) || !e.Paused || !strings.Contains(ErrorMessage(err), "已暂停调用高德") {
+		t.Fatalf("breaker: %v", err)
+	}
+	if until := time.Unix(0, c.fail.until.Load()); time.Until(until) > netPause || time.Until(until) < netPause-5*time.Second {
+		t.Fatalf("paused until %v", until)
+	}
+}
+
+// A failure between successes does not add up: the count restarts after
+// every answer.
+func TestNetworkFailuresResetOnSuccess(t *testing.T) {
+	var down atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if down.Load() {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"1","count":"0","pois":[]}`))
+	}))
+	defer srv.Close()
+	c := New("k")
+	c.SetBaseURL(srv.URL)
+	c.netGap = 0
+	for i := range 3 * netFailLimit {
+		down.Store(i%2 == 0) // fail, succeed, fail…
+		_, err := c.Search(context.Background(), fmt.Sprint("q", i), "", false, 5)
+		if (err != nil) != (i%2 == 0) || c.LastError() != nil {
+			t.Fatalf("call %d: %v, paused: %v", i, err, c.LastError())
+		}
+	}
+	down.Store(true)
+	for i := range netFailLimit {
+		_, _ = c.Search(context.Background(), fmt.Sprint("d", i), "", false, 5)
+	}
+	var e *Error
+	if !errors.As(c.LastError(), &e) || e.HTTPStatus != http.StatusBadGateway || !strings.Contains(e.Message(), "HTTP 502") {
+		t.Fatalf("%d failures in a row: %v", netFailLimit, c.LastError())
+	}
+	// The admin check closes the breaker once AMap answers again.
+	down.Store(false)
+	if err := c.Check(context.Background()); err != nil || c.LastError() != nil {
+		t.Fatalf("check: %v, paused: %v", err, c.LastError())
 	}
 }
 
@@ -243,19 +292,149 @@ func TestCallerCancelDoesNotTripBreaker(t *testing.T) {
 	if _, err := c.Search(context.Background(), "after-cancel", "", false, 5); err != nil {
 		t.Fatalf("a cancelled call must not trip the breaker: %v", err)
 	}
-	// Running out of time is an AMap problem and does trip it.
-	tctx, tcancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer tcancel()
-	if _, err := c.Search(tctx, "timeout", "", false, 5); !errors.Is(err, ErrUnavailable) {
+	// A caller deadline shorter than the client's timeout (the 3 s of
+	// Locate, recommendations…) ends requests without counting: AMap was not
+	// given the time a request may take.
+	cut := func(kw string) error {
+		tctx, tcancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer tcancel()
+		_, err := c.Search(tctx, kw, "", false, 5)
+		return err
+	}
+	c.netGap = 0
+	for i := range 2 * netFailLimit {
+		err := cut(fmt.Sprint("cut", i))
+		var e *Error
+		if !errors.As(err, &e) || e.Paused || e.Layer() != "timeout" || !strings.HasPrefix(e.Message(), "高德接口响应超时") {
+			t.Fatalf("cut call %d: %v", i, err)
+		}
+	}
+	if c.LastError() != nil {
+		t.Fatalf("calls cut short by their caller must not pause AMap: %v", c.LastError())
+	}
+	// Running out of the client's own time counts as an AMap failure, but a
+	// single slow request does not pause AMap for everyone.
+	c.http.Timeout = 100 * time.Millisecond
+	timeout := func(kw string) error {
+		_, err := c.Search(context.Background(), kw, "", false, 5)
+		return err
+	}
+	err := timeout("timeout")
+	var e *Error
+	if !errors.As(err, &e) || e.Layer() != "timeout" || !strings.HasPrefix(e.Message(), "高德接口响应超时") {
 		t.Fatalf("timed-out call: %v", err)
 	}
-	if _, err := c.Search(context.Background(), "after-timeout", "", false, 5); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("breaker should be open after a timeout: %v", err)
+	c.http.Timeout = RequestTimeout
+	if _, err := c.Search(context.Background(), "after-timeout", "", false, 5); err != nil {
+		t.Fatalf("one timeout must not open the breaker: %v", err)
+	}
+	// Several in a row do.
+	c.http.Timeout = 100 * time.Millisecond
+	for i := range netFailLimit {
+		if err := timeout(fmt.Sprint("timeout", i)); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("timed-out call: %v", err)
+		}
+	}
+	if _, err := c.Search(context.Background(), "after-timeouts", "", false, 5); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("breaker should be open after %d timeouts in a row: %v", netFailLimit, err)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if seen["after-timeout"] {
+	if seen["after-timeouts"] {
 		t.Fatal("the open breaker let a request through")
+	}
+}
+
+// Failures count once per moment: Find's two parallel requests failing
+// together are one failure, so one slow search and one slow reverse
+// geocoding do not pause AMap; requests started before the last answer or
+// breaker change do not count at all.
+func TestNetworkFailuresCountOncePerMoment(t *testing.T) {
+	block := make(chan struct{})
+	defer close(block)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select { // never answers in time
+		case <-block:
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+	c := New("k")
+	c.SetBaseURL(srv.URL)
+	c.http.Timeout = 100 * time.Millisecond
+	c.netGap = 50 * time.Millisecond
+	if _, err := c.Find(context.Background(), "慢", "", 5); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("find: %v", err)
+	}
+	if n := c.streak.n; n != 1 {
+		t.Fatalf("a failed Find counts once, got %d", n)
+	}
+	if _, err := c.Regeo(context.Background(), 121.9, 28.4); !errors.Is(err, ErrUnavailable) || c.LastError() != nil {
+		t.Fatalf("one slow search and one slow regeo must not pause AMap: %v, paused: %v", err, c.LastError())
+	}
+	if _, err := c.Find(context.Background(), "慢2", "", 5); !errors.Is(err, ErrUnavailable) || c.LastError() == nil {
+		t.Fatalf("a third failure at another moment pauses AMap: %v, paused: %v", err, c.LastError())
+	}
+}
+
+func TestNetStreak(t *testing.T) {
+	var s netStreak
+	gap := time.Second
+	now := time.Now()
+	for i, tc := range []struct {
+		start   time.Time
+		n       int
+		counted bool
+	}{
+		{now, 1, true},
+		{now.Add(300 * time.Millisecond), 1, false}, // same moment (a parallel request)
+		{now.Add(-300 * time.Millisecond), 1, false},
+		{now.Add(1500 * time.Millisecond), 2, true},
+		{now.Add(3 * time.Second), 3, true},
+	} {
+		if n, counted := s.fail(tc.start, gap); n != tc.n || counted != tc.counted {
+			t.Fatalf("#%d: %d %v, want %d %v", i, n, counted, tc.n, tc.counted)
+		}
+	}
+	before := time.Now().Add(-time.Millisecond)
+	s.reset()
+	// Still in flight when AMap answered (or the breaker opened): not counted.
+	if n, counted := s.fail(before, gap); n != 0 || counted {
+		t.Fatalf("a request started before the reset counted: %d %v", n, counted)
+	}
+	if n, counted := s.fail(time.Now(), gap); n != 1 || !counted {
+		t.Fatalf("after the reset: %d %v", n, counted)
+	}
+}
+
+// A 200 answer that is not AMap's JSON (a captive portal, a proxy or WAF
+// page) is explained, and counts like a network failure.
+func TestNotAnAmapAnswer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<html><head><title>Portal Login</title></head><body>key=` + r.URL.Query().Get("key") + `</body></html>`))
+	}))
+	defer srv.Close()
+	c := New("0123456789abcdef0123456789abcdef")
+	c.SetBaseURL(srv.URL)
+	c.netGap = 0
+	_, err := c.Search(context.Background(), "x", "", false, 5)
+	var e *Error
+	if !errors.As(err, &e) || !e.BadReply || e.Layer() != "response" {
+		t.Fatalf("html answer: %v", err)
+	}
+	d := Details(err)
+	if d.Layer != "response" || !d.Blocked || d.Detail != "HTML 页面「Portal Login」" {
+		t.Fatalf("details: %+v", d)
+	}
+	if msg := e.Message(); !strings.Contains(msg, "不是高德的数据") || strings.Contains(msg, "Key 无效") {
+		t.Fatalf("message: %q", msg)
+	}
+	for i := range netFailLimit - 1 {
+		_, _ = c.Search(context.Background(), fmt.Sprint("y", i), "", false, 5)
+	}
+	if c.LastError() == nil {
+		t.Fatal("answers that are not AMap's count towards pausing it")
 	}
 }
 
@@ -378,5 +557,38 @@ func TestSearchAndAroundCache(t *testing.T) {
 	}
 	if _, ok := c.CachedPOI("B0CACHE"); !ok {
 		t.Fatal("POIs of cached results should stay in the POI cache")
+	}
+}
+
+// AMap answers points in the sea with the country as province and address:
+// that is no place, the fields are left empty for the atlas to fill.
+func TestRegeoSea(t *testing.T) {
+	for _, body := range []string{
+		`{"status":"1","info":"OK","infocode":"10000","regeocode":{"formatted_address":"中华人民共和国",
+			"addressComponent":{"country":"中国","province":"中华人民共和国","city":[],"citycode":[],"district":[],"adcode":"100000",
+			"township":[],"towncode":[],"streetNumber":{"street":[],"number":[]}},
+			"pois":[{"id":"B0SEA","name":"海上风电场","type":"公司企业;公司;公司","distance":"150","location":"121.907,28.456","address":[]}],
+			"roads":[],"aois":[]}}`,
+		`{"status":"1","info":"OK","infocode":"10000","regeocode":{"formatted_address":[],
+			"addressComponent":{"country":[],"province":[],"city":[],"district":[],"adcode":[],"township":[]},"pois":[],"roads":[],"aois":[]}}`,
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) }))
+		c := New("k")
+		c.SetBaseURL(srv.URL)
+		r, err := c.Regeo(context.Background(), 121.9063, 28.4556)
+		if err != nil || r.Province != "" || r.City != "" || r.FormattedAddress != "" || r.Adcode != "" {
+			t.Fatalf("regeo: %+v %v", r, err)
+		}
+		d, err := c.RegeoDetail(context.Background(), 121.9063, 28.4556)
+		if err != nil || d.Province != "" || d.City != "" || d.FormattedAddress != "" {
+			t.Fatalf("regeo detail: %+v %v", d, err)
+		}
+		if strings.Contains(body, "B0SEA") && (len(d.POIs) != 1 || d.POIs[0].Name != "海上风电场" || d.POIs[0].City != "") {
+			t.Fatalf("nearby POIs are kept: %+v", d.POIs)
+		}
+		srv.Close()
+	}
+	if !IsCountry(" 中华人民共和国 ") || IsCountry("浙江省") {
+		t.Fatal("IsCountry")
 	}
 }

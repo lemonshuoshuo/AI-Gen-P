@@ -72,7 +72,7 @@ func TestGeoAround(t *testing.T) {
 	}
 	// AMap failing is reported (amap_error), so the client can say why the list is empty.
 	failed := e.must(200, "GET", "/geo/around?lng=121&lat=31", tok, nil).obj(t)
-	if failed["source"] != "none" || len(failed["items"].([]any)) != 0 || failed["amap_error"] != "高德调用额度已用完" {
+	if failed["source"] != "none" || len(failed["items"].([]any)) != 0 || failed["amap_error"] != "高德调用额度已用完（infocode 10003），次日零点恢复，或在控制台提升配额" {
 		t.Fatalf("around with AMap failing: %v", failed)
 	}
 }

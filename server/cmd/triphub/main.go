@@ -28,6 +28,7 @@ import (
 	"triphub/internal/handler"
 	"triphub/internal/media"
 	"triphub/internal/model"
+	"triphub/internal/netdiag"
 	"triphub/internal/service"
 	"triphub/internal/version"
 	"triphub/internal/webui"
@@ -43,6 +44,7 @@ func main() {
 	}
 	showVersion := flag.Bool("version", false, "print version and exit")
 	healthcheck := flag.Bool("healthcheck", false, "check that the server on TRIPHUB_ADDR answers /api/v1/health, exit 0 if healthy (for Docker HEALTHCHECK)")
+	diagnose := flag.Bool("diagnose", false, "check the configured external services (AMap, AI, Tianditu) step by step: proxy, DNS, TCP, TLS and one real API call; exit 0 if all work (docker compose exec app /triphub -diagnose)")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println("triphub", version.Version)
@@ -50,6 +52,9 @@ func main() {
 	}
 	if *healthcheck {
 		os.Exit(runHealthcheck())
+	}
+	if *diagnose {
+		os.Exit(runDiagnose(os.Stdout))
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	if err := run(); err != nil {
@@ -121,7 +126,11 @@ func run() error {
 
 	slog.Info("starting triphub", "version", version.Version, "addr", cfg.Addr, "data_dir", cfg.DataDir,
 		"amap", cfg.AmapKey != "", "tianditu", cfg.TiandituKey != "", "ai", cfg.AIEnabled(), "ai_model", cfg.AIModel,
-		"ai_thinking", cfg.AIThinking, "ai_timeout", cfg.AITimeout)
+		"ai_base_url", netdiag.RedactURL(cfg.AIBaseURL, cfg.AIAPIKey), "ai_thinking", cfg.AIThinking, "ai_timeout", cfg.AITimeout)
+	cfg.LogKeys()
+	if px := netdiag.Proxies(""); px.Set() {
+		slog.Info("outbound proxy from the environment", "proxy", px.Text())
+	}
 
 	gdb, err := db.Open(ctx, cfg.DBDSN, 60*time.Second)
 	if err != nil {

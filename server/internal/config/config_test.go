@@ -123,3 +123,67 @@ func TestAIOptions(t *testing.T) {
 		t.Fatalf("tianditu key: %q %v", c.TiandituKey, err)
 	}
 }
+
+func TestCleanValue(t *testing.T) {
+	const key = "c549b0e3a1d24f6c8e7b9a0d1c2e3f4a"
+	for _, tc := range []struct {
+		in, want string
+		removed  string
+	}{
+		{key, key, ""},
+		{"  " + key + " ", key, "首尾空白"},
+		{`"` + key + `"`, key, "首尾引号"},
+		{`'` + key + `'`, key, "首尾引号"},
+		{"“" + key + "”", key, "首尾引号"},
+		{`"` + key + `" # 测试 key`, key, "首尾引号、行尾注释"},
+		{`"abc # not a comment"`, "abc # not a comment", "首尾引号"},
+		{key + "\t# 测试", key, "行尾注释"},
+		{key + " #comment", key, "行尾注释"},
+		{"abc#def", "abc#def", ""},
+		{"\ufeff" + key + "\u200b", key, "BOM / 零宽字符"},
+		{key + "\r\n", key, "换行符"},
+		{"\u2060sk-" + key + "\u200c\u200d", "sk-" + key, "BOM / 零宽字符"},
+		{`"https://api.deepseek.com"  # DeepSeek`, "https://api.deepseek.com", "首尾引号、行尾注释"},
+		{"https://example.com/v1#frag", "https://example.com/v1#frag", ""},
+		{`"unterminated`, `"unterminated`, ""},
+		{"", "", ""},
+	} {
+		got, removed := cleanValue(tc.in)
+		if got != tc.want || strings.Join(removed, "、") != tc.removed {
+			t.Errorf("cleanValue(%q) = %q %v, want %q %q", tc.in, got, removed, tc.want, tc.removed)
+		}
+	}
+}
+
+func TestLoadCleansKeys(t *testing.T) {
+	const key = "c549b0e3a1d24f6c8e7b9a0d1c2e3f4a"
+	t.Setenv("TRIPHUB_AMAP_KEY", `"`+key+`"	# 高德`)
+	t.Setenv("TRIPHUB_AI_API_KEY", "sk-0123456789abcdef0123456789abcdef\u200b")
+	t.Setenv("TRIPHUB_AI_BASE_URL", " 'https://api.deepseek.com/' ")
+	t.Setenv("TRIPHUB_AI_MODEL", "deepseek-flash\r")
+	t.Setenv("TRIPHUB_TIANDITU_KEY", key)
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.AmapKey != key || c.AIAPIKey != "sk-0123456789abcdef0123456789abcdef" || c.AIBaseURL != "https://api.deepseek.com" ||
+		c.AIModel != "deepseek-flash" || c.TiandituKey != key {
+		t.Fatalf("cleaned: %q %q %q %q %q", c.AmapKey, c.AIAPIKey, c.AIBaseURL, c.AIModel, c.TiandituKey)
+	}
+	var vars []string
+	for _, cl := range c.Cleaned {
+		vars = append(vars, cl.Var)
+	}
+	if strings.Join(vars, ",") != "TRIPHUB_AMAP_KEY,TRIPHUB_AI_BASE_URL,TRIPHUB_AI_API_KEY,TRIPHUB_AI_MODEL" {
+		t.Fatalf("cleaned vars: %v", c.Cleaned)
+	}
+	hints := c.KeyHints()
+	if len(hints) != 3 || hints[0].Hint.Text != "长度 32 · c549…3f4a" || hints[1].Hint.Warning != "" || hints[1].Hint.Length != 35 {
+		t.Fatalf("hints: %+v", hints)
+	}
+	for _, h := range hints {
+		if strings.Contains(h.Hint.Text, key) {
+			t.Fatalf("a key leaked into its hint: %+v", h)
+		}
+	}
+}

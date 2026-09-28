@@ -13,7 +13,7 @@ import (
 )
 
 // keyParamRe matches key-like query parameters in URLs inside error texts.
-var keyParamRe = regexp.MustCompile(`(?i)([?&](?:key|tk|api_key|apikey|access_token|token)=)[^&\s"']*`)
+var keyParamRe = regexp.MustCompile(`(?i)([?&](?:key|tk|api_key|api-key|apikey|access_token|token|secret|password|sig|signature)=)[^&\s"'#]*`)
 
 // Redact replaces the secrets (and their URL-encoded forms) and key-like
 // query parameters in s with ***.
@@ -27,6 +27,37 @@ func Redact(s string, secrets ...string) string {
 		}
 	}
 	return keyParamRe.ReplaceAllString(s, "${1}***")
+}
+
+// RedactURL renders a configured URL (e.g. TRIPHUB_AI_BASE_URL) for logs
+// and the diagnostics: user info (credentials of a gateway) becomes ***,
+// the fragment is dropped and key-like query parameters and the secrets
+// are masked.
+func RedactURL(raw string, secrets ...string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		// Not a URL we can take apart: at least cut credentials before an @.
+		s := raw
+		if i := strings.Index(s, "://"); i >= 0 {
+			if j := strings.IndexByte(s[i+3:], '@'); j >= 0 {
+				s = s[:i+3] + "***@" + s[i+3+j+1:]
+			}
+		}
+		return Redact(s, secrets...)
+	}
+	s := u.Scheme + "://"
+	if u.User != nil {
+		s += "***@"
+	}
+	s += u.Host + u.EscapedPath()
+	if u.RawQuery != "" {
+		s += "?" + u.RawQuery
+	}
+	return Redact(s, secrets...)
 }
 
 // maxErrorText bounds ErrorText.
@@ -46,7 +77,7 @@ func ErrorText(err error, secrets ...string) string {
 		if i := strings.IndexByte(u, '?'); i >= 0 {
 			u = u[:i]
 		}
-		s = strings.Replace(s, ue.Error(), ue.Op+" "+strconv.Quote(u)+": "+ue.Err.Error(), 1)
+		s = strings.Replace(s, ue.Error(), ue.Op+" "+strconv.Quote(RedactURL(u))+": "+ue.Err.Error(), 1)
 	}
 	s = Redact(s, secrets...)
 	if len(s) > maxErrorText {
@@ -107,8 +138,8 @@ func Proxies(target string) Proxy {
 		HTTP:  RedactProxy(getEnvAny("HTTP_PROXY", "http_proxy")),
 		No:    strings.TrimSpace(getEnvAny("NO_PROXY", "no_proxy")),
 	}
-	if len(p.No) > 300 {
-		p.No = p.No[:300] + "…"
+	if len(p.No) > 200 {
+		p.No = strings.ToValidUTF8(p.No[:200], "") + "…"
 	}
 	if target != "" {
 		if u, err := url.Parse(target); err == nil && u.Host != "" {
@@ -120,8 +151,8 @@ func Proxies(target string) Proxy {
 	return p
 }
 
-// RedactProxy reduces a proxy URL to scheme://host:port (no user, password
-// or path).
+// RedactProxy reduces a proxy URL to scheme://host:port without the path;
+// a user name and password become ***.
 func RedactProxy(v string) string {
 	v = strings.TrimSpace(v)
 	if v == "" {
@@ -136,7 +167,7 @@ func RedactProxy(v string) string {
 	}
 	s := u.Scheme + "://" + u.Host
 	if u.User != nil {
-		s += "（含账号密码，已隐藏）"
+		s = u.Scheme + "://***@" + u.Host
 	}
 	return s
 }
@@ -247,4 +278,35 @@ func Fingerprint(key string, format KeyFormat) KeyHint {
 		h.Text += "（" + strings.Join(flags, "、") + "）"
 	}
 	return h
+}
+
+var titleRe = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+
+// BodySnippet summarises an error response body for operators: the title
+// of an HTML page (a proxy, firewall or WAF answered instead of the API),
+// else at most n bytes of the text.
+func BodySnippet(body []byte, n int) string {
+	s := strings.TrimSpace(strings.ToValidUTF8(string(body), ""))
+	if strings.HasPrefix(s, "<") {
+		title := ""
+		if m := titleRe.FindStringSubmatch(s); m != nil {
+			title = strings.Join(strings.Fields(m[1]), " ")
+		}
+		out := "HTML 页面"
+		if title != "" {
+			out += "「" + title + "」"
+		}
+		if strings.Contains(strings.ToLower(s), "waf") {
+			out += "（被 WAF / 防火墙拦截）"
+		}
+		return out
+	}
+	if len(s) > n {
+		cut := n
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		s = s[:cut] + "…"
+	}
+	return s
 }

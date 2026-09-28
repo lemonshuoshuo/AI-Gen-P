@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"triphub/internal/netdiag"
 )
 
 func TestExtractJSON(t *testing.T) {
@@ -237,6 +240,23 @@ func TestErrorMapping(t *testing.T) {
 		case "forbidden":
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"error":{"message":"access denied"}}`))
+		case "blocked":
+			// A proxy / WAF page, not the provider's error.
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`<html><head><title>Access Denied</title></head><body>blocked by WAF</body></html>`))
+		case "echo":
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"bad key sk-secret"}}`))
+		case "headers-then-slow":
+			// The answer starts, then the model takes too long.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("\n"))
+			w.(http.Flusher).Flush()
+			select {
+			case <-time.After(3 * time.Second):
+			case <-r.Context().Done():
+			}
 		case "poor":
 			w.WriteHeader(http.StatusPaymentRequired)
 			_, _ = w.Write([]byte(`{"error":{"message":"Insufficient Balance","type":"unknown_error"}}`))
@@ -274,12 +294,14 @@ func TestErrorMapping(t *testing.T) {
 		return err
 	}
 	for model, want := range map[string]string{
-		"auth":          "AI Key 无效或没有权限",
-		"forbidden":     "AI Key 无效或没有权限",
-		"poor":          "AI 账户余额不足",
-		"nosuch":        "模型不存在：nosuch",
+		"auth":          "AI Key 无效或没有权限（HTTP 401：Authentication Fails, Your api key: ****abcd is invalid",
+		"forbidden":     "AI Key 无效或没有权限（HTTP 403：access denied）",
+		"blocked":       "AI 服务拒绝访问（HTTP 403），且返回的不是服务商的错误信息：可能被代理、防火墙或网关拦截（HTML 页面「Access Denied」（被 WAF / 防火墙拦截））",
+		"poor":          "AI 账户余额或额度不足（HTTP 402），请到模型服务商的控制台充值",
+		"nosuch":        "模型不存在：nosuch（HTTP 400：Model Not Exist",
 		"nosuch-openai": "模型不存在：nosuch-openai",
-		"busy":          "AI 服务暂时不可用（HTTP 503），请稍后再试",
+		"busy":          "AI 服务繁忙（HTTP 503，服务器过载），请稍后再试",
+		"echo":          "AI 服务拒绝了请求（HTTP 400）：bad key ***",
 		"thinker":       "AI 只返回了思考过程",
 		"silent":        "AI 返回了空内容",
 		"inline":        "AI 服务出错：quota exceeded",
@@ -298,14 +320,70 @@ func TestErrorMapping(t *testing.T) {
 	if !errors.As(err, &e) || e.Kind != KindTimeout || !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 2*time.Second {
 		t.Fatalf("timeout: %v", err)
 	}
-	if msg := UserMessage(err); msg != "AI 响应超时（等待了 1 秒），可在设置中换用更快的模型或关闭深度思考" {
+	// Sent, but no answer at all: not blamed on the model alone.
+	if msg := UserMessage(err); !strings.HasPrefix(msg, "请求已发出，但 AI 服务（127.0.0.1:") || !strings.Contains(msg, "在 1 秒内没有任何响应：多为网络、代理或防火墙问题") ||
+		strings.Contains(msg, "换用更快的模型") || e.Layer() != "timeout" {
 		t.Fatalf("timeout message: %s", msg)
 	}
-	// Nothing listens on port 1.
+	// The answer started, then the model was too slow.
+	err = call("headers-then-slow", 1100*time.Millisecond)
+	if !errors.As(err, &e) || e.Kind != KindTimeout || UserMessage(err) != "AI 响应超时（等待了 1 秒），可在设置中换用更快的模型或关闭深度思考" {
+		t.Fatalf("slow model: %v %q", err, UserMessage(err))
+	}
+	// Not a network failure: the diagnostics must not send the operator
+	// after the network.
+	if e.Layer() != "slow" || Details(err).Layer != "slow" || netdiag.IsNetwork(e.Layer()) {
+		t.Fatalf("slow model layer: %q", e.Layer())
+	}
+	// A 403 page that is not the provider's error is flagged as blocked.
+	if err := call("blocked", 5*time.Second); !Details(err).Blocked || Details(err).Layer != "http" {
+		t.Fatalf("blocked details: %+v", Details(err))
+	}
+	if err := call("forbidden", 5*time.Second); Details(err).Blocked {
+		t.Fatalf("the provider's own 403 is not blocked: %+v", Details(err))
+	}
+	// Nothing listens on port 1: a network failure, never a bad key or a slow model.
 	c := NewClient(Config{BaseURL: "http://127.0.0.1:1/v1", Model: "m", APIKey: "sk-secret"})
 	_, err = c.Complete(context.Background(), []Message{{Role: "user", Content: "hi"}}, Options{})
-	if msg := UserMessage(err); msg != "无法连接 AI 服务：127.0.0.1:1" || strings.Contains(err.Error(), "sk-secret") {
+	if msg := UserMessage(err); msg != "无法连接 AI 服务（127.0.0.1:1）：TCP 连接 127.0.0.1:1 失败：连接被拒绝（connection refused）" ||
+		strings.Contains(err.Error(), "sk-secret") {
 		t.Fatalf("network: %q (%v)", msg, err)
+	}
+	if d := Details(err); d.Layer != "connect" || !strings.Contains(d.Detail, "connection refused") {
+		t.Fatalf("network details: %+v", d)
+	}
+	// A connection that cannot be made in time is a network failure too.
+	ln, lerr := net.Listen("tcp", "127.0.0.1:0")
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	defer ln.Close()
+	go func() { // accepts, never speaks TLS
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+		}
+	}()
+	c = NewClient(Config{BaseURL: "https://" + ln.Addr().String(), Model: "m"})
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	_, err = c.Complete(ctx, []Message{{Role: "user", Content: "hi"}}, Options{})
+	if !errors.As(err, &e) || e.Kind != KindNetwork || e.Layer() != "tls" || strings.Contains(UserMessage(err), "换用更快的模型") ||
+		!strings.Contains(UserMessage(err), "TLS 握手超时") {
+		t.Fatalf("tls stall: %v %q", err, UserMessage(err))
+	}
+}
+
+func TestDeepSeekBalanceMessage(t *testing.T) {
+	e := &Error{Kind: KindBalance, Status: 402, host: "api.deepseek.com"}
+	if e.Message() != "AI 账户余额不足，请在 DeepSeek 平台（platform.deepseek.com）充值（HTTP 402）" || e.Layer() != "http" || e.KindName() != "balance" {
+		t.Fatalf("balance: %q %s", e.Message(), e.Layer())
+	}
+	if (&Error{Kind: KindProvider, Detail: "x"}).Layer() != "api" {
+		t.Fatal("an error in a 2xx answer is an api error")
 	}
 }
 
@@ -425,7 +503,7 @@ func TestChatStreamFallback(t *testing.T) {
 	defer auth.Close()
 	streams = nil
 	_, err := New(auth.URL, "k", "m", 5*time.Second).ChatStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, Options{}, nil)
-	if UserMessage(err) != "AI Key 无效或没有权限" || len(streams) != 1 {
+	if !strings.HasPrefix(UserMessage(err), "AI Key 无效或没有权限（HTTP 401）") || len(streams) != 1 {
 		t.Fatalf("auth error while streaming: %v (%d requests)", err, len(streams))
 	}
 }

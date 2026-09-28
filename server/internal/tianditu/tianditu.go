@@ -29,6 +29,7 @@ import (
 
 	"triphub/internal/geo"
 	"triphub/internal/lru"
+	"triphub/internal/netdiag"
 )
 
 // DefaultBaseURL is the Tianditu web service endpoint.
@@ -67,6 +68,22 @@ func New(key string) *Client {
 // SetBaseURL overrides the API base URL (tests).
 func (c *Client) SetBaseURL(u string) { c.baseURL = strings.TrimRight(u, "/") }
 
+// BaseURL returns the API base URL.
+func (c *Client) BaseURL() string {
+	if c == nil {
+		return DefaultBaseURL
+	}
+	return c.baseURL
+}
+
+// KeyHint describes the configured key without revealing it.
+func (c *Client) KeyHint() netdiag.KeyHint {
+	if c == nil {
+		return netdiag.Fingerprint("", netdiag.HexKey)
+	}
+	return netdiag.Fingerprint(c.key, netdiag.HexKey)
+}
+
 // Enabled reports whether a key is configured.
 func (c *Client) Enabled() bool { return c != nil && c.key != "" }
 
@@ -98,7 +115,11 @@ type Error struct {
 	Resolve    string // Tianditu's suggested fix, if any
 	Network    bool
 	Host       string
-	Paused     bool // not sent: an earlier failure (this one) paused calls
+	Net        *netdiag.Failure // the layer of a network error that failed
+	Paused     bool             // not sent: an earlier failure (this one) paused calls
+	// Blocked: a 401 / 403 / 418 whose body is not Tianditu's JSON error (a
+	// proxy, firewall, gateway or WAF page): not a verdict on the key.
+	Blocked bool
 }
 
 func (e *Error) Error() string {
@@ -123,6 +144,9 @@ func (e *Error) Unwrap() error { return ErrUnavailable }
 // keyError reports errors that every request would get (wrong / invalid
 // key, key type or whitelist, quota): they pause calls for 10 minutes.
 func (e *Error) keyError() bool {
+	if e.Blocked {
+		return false
+	}
 	if e.HTTPStatus == http.StatusUnauthorized || e.HTTPStatus == http.StatusForbidden || e.HTTPStatus == http.StatusTooManyRequests {
 		return true
 	}
@@ -155,7 +179,16 @@ func (e *Error) message() string {
 		if host == "" {
 			host = "api.tianditu.gov.cn"
 		}
-		return "服务器无法连接天地图（" + host + "）"
+		switch {
+		case e.Net == nil:
+			return "服务器无法连接天地图（" + host + "）"
+		case e.Net.Layer == netdiag.LayerTimeout:
+			return "天地图接口响应超时（" + host + "）：" + e.Net.Reason
+		}
+		return "服务器无法连接天地图（" + host + "）：" + e.Net.Reason
+	case e.Blocked:
+		return fmt.Sprintf("天地图拒绝访问（HTTP %d），返回的不是天地图的错误信息：可能被代理、防火墙或网关拦截", e.HTTPStatus) +
+			detail(e.Msg, "")
 	case e.Code == "12" || e.Code == "18" || strings.Contains(text, "权限类型") || strings.Contains(text, "key类型") ||
 		strings.Contains(text, "浏览器端"):
 		return "天地图 Key 类型不对：请在天地图控制台为本站创建「服务端」类型的 Key"
@@ -185,6 +218,23 @@ func detail(msg, resolve string) string {
 		return ""
 	}
 	return "（" + strings.Join(parts, "；") + "）"
+}
+
+// Details explains err for the admin diagnostics; the zero Details when
+// err is not an *Error.
+func Details(err error) netdiag.Details {
+	var e *Error
+	if !errors.As(err, &e) {
+		return netdiag.Details{}
+	}
+	switch {
+	case e.Network:
+		return netdiag.FromFailure(e.Net, e.Msg)
+	case e.HTTPStatus != 0:
+		return netdiag.Details{Layer: netdiag.LayerHTTP, Status: e.HTTPStatus, Blocked: e.Blocked,
+			Detail: strings.TrimSpace(e.Code + " " + e.Msg + " " + e.Resolve)}
+	}
+	return netdiag.Details{Layer: netdiag.LayerAPI, Detail: strings.TrimSpace("code " + e.Code + ": " + e.Msg + " " + e.Resolve)}
 }
 
 // ErrorMessage explains an error returned by this package in Chinese; ""
@@ -269,7 +319,8 @@ type apiErrorBody struct {
 // of a 200 answer. It does not look at or open the breaker.
 func (c *Client) fetch(ctx context.Context, path string, q url.Values) ([]byte, error) {
 	q.Set("tk", c.key)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path+"?"+q.Encode(), nil)
+	tr := netdiag.NewTrace()
+	req, err := http.NewRequestWithContext(tr.Context(ctx), http.MethodGet, c.baseURL+path+"?"+q.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -281,13 +332,15 @@ func (c *Client) fetch(ctx context.Context, path string, q url.Values) ([]byte, 
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return nil, fmt.Errorf("%w: %v", ErrUnavailable, ctx.Err())
 		}
-		msg := strings.ReplaceAll(err.Error(), c.key, "***")
-		return nil, &Error{Network: true, Msg: msg, Host: hostOf(c.baseURL)}
+		// The text drops the URL's query and never contains the key.
+		return nil, &Error{Network: true, Msg: netdiag.ErrorText(err, c.key), Host: hostOf(c.baseURL),
+			Net: netdiag.Classify(err, tr, netdiag.ProxyOf(c.http, req))}
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return nil, &Error{Network: true, Msg: err.Error(), Host: hostOf(c.baseURL)}
+		return nil, &Error{Network: true, Msg: netdiag.ErrorText(err, c.key), Host: hostOf(c.baseURL),
+			Net: netdiag.Classify(err, tr, netdiag.ProxyOf(c.http, req))}
 	}
 	var eb apiErrorBody
 	_ = json.Unmarshal(data, &eb)
@@ -295,14 +348,17 @@ func (c *Client) fetch(ctx context.Context, path string, q url.Values) ([]byte, 
 	if msg == "" {
 		msg = string(eb.Message)
 	}
+	msg = netdiag.Redact(msg, c.key)
 	if resp.StatusCode != http.StatusOK {
+		// Tianditu's own errors are JSON ({"code":…,"msg":…}); a 401 / 403 /
+		// 418 page without it comes from a proxy, firewall or WAF.
+		own := hasAnyKey(data, "code", "msg", "message", "resolve", "status", "infocode")
 		if msg == "" {
-			msg = strings.TrimSpace(string(data))
-			if len(msg) > 200 {
-				msg = msg[:200]
-			}
+			msg = netdiag.Redact(netdiag.BodySnippet(data, 200), c.key)
 		}
-		return nil, &Error{HTTPStatus: resp.StatusCode, Code: string(eb.Code), Msg: msg, Resolve: string(eb.Resolve)}
+		blocked := !own && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden ||
+			resp.StatusCode == http.StatusTeapot)
+		return nil, &Error{HTTPStatus: resp.StatusCode, Code: string(eb.Code), Msg: msg, Resolve: string(eb.Resolve), Blocked: blocked}
 	}
 	// A gateway error with status 200, e.g. {"code":302010,"msg":"该tk已限流"}.
 	if msg != "" && eb.Code != "" && !hasAnyKey(data, "pois", "result", "status", "area", "statistics") {
@@ -325,7 +381,8 @@ func hasAnyKey(data []byte, keys ...string) bool {
 }
 
 // get is fetch behind the breaker: key errors pause calls for 10 minutes,
-// network errors for a minute, server errors for 30 seconds.
+// network errors and blocked requests for a minute, server errors for 30
+// seconds.
 func (c *Client) get(ctx context.Context, path string, q url.Values) ([]byte, error) {
 	if err := c.available(); err != nil {
 		return nil, err
@@ -337,6 +394,12 @@ func (c *Client) get(ctx context.Context, path string, q url.Values) ([]byte, er
 		case e.Network:
 			c.pause(time.Minute, e)
 			slog.Warn("tianditu request failed, disabling for 60s", "path", path, "err", e.Msg)
+		case e.Blocked:
+			// Every request would be blocked too, but the key may be fine:
+			// no 10-minute key pause.
+			c.pause(time.Minute, e)
+			slog.Warn("天地图请求被拦截（返回的不是天地图的错误信息），暂停调用 1 分钟", "path", path, "status", e.HTTPStatus,
+				"err", e.Msg)
 		case e.keyError():
 			c.pause(10*time.Minute, e)
 			slog.Warn("天地图 Key 无效或调用受限，暂停调用 10 分钟", "path", path, "err", e.Error(), "hint", e.Message())

@@ -139,12 +139,24 @@ func (h *Handler) geoPick(c *gin.Context) error {
 	return nil
 }
 
+// mergeAddress completes the address a from a map service with the
+// offline atlas (base): a point in the sea has no province, and AMap then
+// names the whole country ("中华人民共和国"), which is never taken for a
+// province, city or address.
 func mergeAddress(base, a pickAddress) pickAddress {
+	for _, f := range []*string{&a.Province, &a.City, &a.District, &a.Address} {
+		if amap.IsCountry(*f) {
+			*f = ""
+		}
+	}
 	if a.Province == "" {
 		a.Province = base.Province
 	}
 	if a.City == "" {
 		a.City = base.City
+	}
+	if a.Address == "" {
+		a.Address = joinNonEmpty("", a.Province, a.City, a.District)
 	}
 	return a
 }

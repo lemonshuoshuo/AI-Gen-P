@@ -7,12 +7,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"triphub/internal/netdiag"
 )
 
 // Config is the runtime configuration.
@@ -53,6 +58,121 @@ type Config struct {
 	// TiandituKey is the optional 天地图 服务端 key (free fallback for
 	// place search and reverse geocoding).
 	TiandituKey string
+
+	// Cleaned lists the key / URL / model variables whose value had to be
+	// cleaned up (quotes, invisible characters, an inline comment…).
+	Cleaned []Cleaned
+}
+
+// Cleaned records a variable whose value was cleaned up on load.
+type Cleaned struct {
+	Var     string   // e.g. TRIPHUB_AMAP_KEY
+	Removed []string // what was removed, in Chinese
+}
+
+// invisibleChars are removed from keys, URLs and model names: a BOM and
+// zero-width characters that come with text copied from web pages and chats.
+var invisibleChars = strings.NewReplacer("\ufeff", "", "\u200b", "", "\u200c", "", "\u200d", "", "\u2060", "")
+
+// quotePairs are the quotes stripped from around a value.
+var quotePairs = map[rune]rune{'"': '"', '\'': '\'', '“': '”', '‘': '’'}
+
+// cleanValue cleans up a key, URL or model name read from the environment:
+// it removes a BOM and zero-width characters, CR / LF and surrounding
+// whitespace, one pair of surrounding matching quotes and a trailing
+// comment introduced by whitespace and '#' (as .env files allow). removed
+// says what was taken away.
+func cleanValue(raw string) (v string, removed []string) {
+	v = raw
+	if t := invisibleChars.Replace(v); t != v {
+		v, removed = t, append(removed, "BOM / 零宽字符")
+	}
+	if t := strings.NewReplacer("\r", "", "\n", "").Replace(v); t != v {
+		v, removed = t, append(removed, "换行符")
+	}
+	if t := strings.TrimSpace(v); t != v {
+		v, removed = t, append(removed, "首尾空白")
+	}
+	if q, size := utf8.DecodeRuneInString(v); quotePairs[q] != 0 {
+		if end := strings.IndexRune(v[size:], quotePairs[q]); end >= 0 {
+			inner, rest := v[size:size+end], strings.TrimSpace(v[size+end+utf8.RuneLen(quotePairs[q]):])
+			if rest == "" || strings.HasPrefix(rest, "#") {
+				removed = append(removed, "首尾引号")
+				if rest != "" {
+					removed = append(removed, "行尾注释")
+				}
+				if t := strings.TrimSpace(inner); t != inner {
+					removed = append(removed, "引号内的首尾空白")
+					inner = t
+				}
+				return inner, removed
+			}
+		}
+	}
+	for i, r := range v {
+		if r != '#' || i == 0 {
+			continue
+		}
+		if prev, _ := utf8.DecodeLastRuneInString(v[:i]); unicode.IsSpace(prev) {
+			v, removed = strings.TrimSpace(v[:i]), append(removed, "行尾注释")
+			break
+		}
+	}
+	return v, removed
+}
+
+// clean reads and cleans up the variable name, recording what was removed.
+func (c *Config) clean(name string) string {
+	v, removed := cleanValue(os.Getenv(name))
+	if len(removed) > 0 {
+		c.Cleaned = append(c.Cleaned, Cleaned{Var: name, Removed: removed})
+	}
+	return v
+}
+
+// KeyInfo is a fingerprint of a configured key.
+type KeyInfo struct {
+	Var  string // e.g. TRIPHUB_AMAP_KEY
+	Hint netdiag.KeyHint
+}
+
+// KeyHints describes the configured keys without revealing them (unset
+// keys are left out).
+func (c *Config) KeyHints() []KeyInfo {
+	aiFormat := netdiag.AnyKey
+	if strings.Contains(strings.ToLower(c.AIBaseURL), "deepseek") {
+		aiFormat = netdiag.DeepSeekKey
+	}
+	var out []KeyInfo
+	for _, k := range []struct {
+		name, v string
+		f       netdiag.KeyFormat
+	}{
+		{"TRIPHUB_AMAP_KEY", c.AmapKey, netdiag.HexKey},
+		{"TRIPHUB_AI_API_KEY", c.AIAPIKey, aiFormat},
+		{"TRIPHUB_TIANDITU_KEY", c.TiandituKey, netdiag.HexKey},
+	} {
+		if k.v != "" {
+			out = append(out, KeyInfo{Var: k.name, Hint: netdiag.Fingerprint(k.v, k.f)})
+		}
+	}
+	return out
+}
+
+// LogKeys logs a fingerprint of each configured key (never the key) and a
+// warning for each value that had to be cleaned up.
+func (c *Config) LogKeys() {
+	for _, k := range c.KeyHints() {
+		args := []any{"var", k.Var, "key", k.Hint.Text}
+		if k.Hint.Warning != "" {
+			args = append(args, "warning", k.Hint.Warning)
+		}
+		slog.Info("key configured", args...)
+	}
+	for _, cl := range c.Cleaned {
+		slog.Warn("配置值含有多余字符，已自动去掉；请修正 .env 中对应的一行", "var", cl.Var,
+			"removed", strings.Join(cl.Removed, "、"))
+	}
 }
 
 // DefaultAITimeout is the default TRIPHUB_AI_TIMEOUT: a multi-day plan from
@@ -106,7 +226,6 @@ func Load() (*Config, error) {
 		JWTSecret:     strings.TrimSpace(os.Getenv("TRIPHUB_JWT_SECRET")),
 		AdminUsername: strings.TrimSpace(os.Getenv("TRIPHUB_ADMIN_USERNAME")),
 		AdminPassword: os.Getenv("TRIPHUB_ADMIN_PASSWORD"),
-		AmapKey:       strings.TrimSpace(os.Getenv("TRIPHUB_AMAP_KEY")),
 		CORSOrigins:   list(os.Getenv("TRIPHUB_CORS_ORIGINS")),
 		MaxUploadMB:   20,
 		SiteName:      env("TRIPHUB_SITE_NAME", "TripHub"),
@@ -116,13 +235,15 @@ func Load() (*Config, error) {
 		TilesSatelliteLabel: list(os.Getenv("TRIPHUB_TILES_SATELLITE_LABEL")),
 		TilesAttribution:    env("TRIPHUB_TILES_ATTRIBUTION", "© 高德地图"),
 
-		AIBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("TRIPHUB_AI_BASE_URL")), "/"),
-		AIAPIKey:  strings.TrimSpace(os.Getenv("TRIPHUB_AI_API_KEY")),
-		AIModel:   strings.TrimSpace(os.Getenv("TRIPHUB_AI_MODEL")),
 		AITimeout: DefaultAITimeout,
-
-		TiandituKey: strings.TrimSpace(os.Getenv("TRIPHUB_TIANDITU_KEY")),
 	}
+	// Keys, the AI endpoint and model are cleaned up: values pasted into .env
+	// often carry quotes, invisible characters or a comment.
+	c.AmapKey = c.clean("TRIPHUB_AMAP_KEY")
+	c.AIBaseURL = strings.TrimRight(c.clean("TRIPHUB_AI_BASE_URL"), "/")
+	c.AIAPIKey = c.clean("TRIPHUB_AI_API_KEY")
+	c.AIModel = c.clean("TRIPHUB_AI_MODEL")
+	c.TiandituKey = c.clean("TRIPHUB_TIANDITU_KEY")
 	mode, ok := aiThinkingModes[strings.ToLower(strings.TrimSpace(os.Getenv("TRIPHUB_AI_THINKING")))]
 	if !ok {
 		return nil, fmt.Errorf("invalid TRIPHUB_AI_THINKING %q (off / on / low / high / max)", os.Getenv("TRIPHUB_AI_THINKING"))

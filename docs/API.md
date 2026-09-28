@@ -456,7 +456,7 @@ AuthResult：
 - 返回的是建议，不会自动保存。客户端可在用户确认后通过 `POST /trips` + `POST /trips/:id/waypoints/batch` 保存
 - 地点坐标优先用高德搜索校正（`located=true`），无法定位的项 `located=false`，坐标可能为空
 - 未经高德定位（`located=false`）但按名称匹配到社区地点（`place_id` 非空）的项，坐标取该地点的坐标
-- 失败时返回 `500 internal`，message 说明原因，可直接展示：`AI Key 无效或没有权限`（401/403）、`AI 账户余额不足`（402）、`模型不存在：<模型名>`、`AI 响应超时（等待了 N 秒），可在设置中换用更快的模型或关闭深度思考`、`无法连接 AI 服务：<主机>`、`AI 返回的内容无法解析，请重试` 等
+- 失败时返回 `500 internal`，message 说明原因，可直接展示：`AI Key 无效或没有权限（HTTP 401：…）…`（401，或带服务商错误信息的 403）、`AI 账户余额不足，请在 DeepSeek 平台（platform.deepseek.com）充值（HTTP 402）`（其它服务商为 `AI 账户余额或额度不足…`）、`模型不存在：<模型名>…`、`AI 服务请求过于频繁或并发超限（HTTP 429）…`、`AI 服务繁忙（HTTP 503，服务器过载）…`、`AI 响应超时（等待了 N 秒），可在设置中换用更快的模型或关闭深度思考`（回复已开始但太慢）、`请求已发出，但 AI 服务（<主机>）在 N 秒内没有任何响应…`、`无法连接 AI 服务（<主机>）：<失败环节与原因>`（DNS、代理、TCP、TLS；网络故障不会被说成 Key 无效或模型太慢）、`AI 返回的内容无法解析，请重试` 等
 - 生成多日行程通常需要 10–60 秒（服务端超时 `TRIPHUB_AI_TIMEOUT`，缺省 120 秒）。网页端建议使用下面的流式接口显示进度；App 等不便处理 SSE 的客户端继续用本接口，并把请求超时设为 2 分钟以上
 
 `POST /ai/plan/stream`：请求体、登录要求与频率限制同 `POST /ai/plan`（两者合计每人每小时 30 次）。参数错误、未登录、未配置 AI（400）、超出频率（429）等在开始推送之前以普通 JSON 错误返回；之后响应为 `200`，`Content-Type: text/event-stream`（不压缩，带 `Cache-Control: no-cache`、`X-Accel-Buffering: no`，经 Nginx 反向代理时无需额外配置），事件依次为：
@@ -574,7 +574,7 @@ data: {"title":"杭州三日·美食拍照之旅","summary":"…","items":[…]}
   "amap_error": "高德 Key 的服务平台不是「Web服务」：…" }
 ```
 - `source`：结果来源。`amap`：高德（同时查询关键字搜索与输入提示并合并：按 `amap_id` 去重，名称与关键词完全相同 / 以关键词开头的排在前面，能搜到只出现在输入提示里的小店、民宿；关键词前带城市名如「台州那海民宿」也能匹配「那海民宿」；`city` 或 `lng`/`lat` 所在城市只作为优先范围，不限定结果）；`tianditu`：天地图（未配置高德、高德调用失败或高德没有结果时，服务端配置了天地图 Key 才会使用；`amap_id` 为空字符串）；`local`：离线行政区划，仅能搜索省 / 市名称（返回行政区中心）
-- `amap_error`：仅在服务端配置了高德 Key 但调用失败时出现，为可直接展示给管理员的中文原因，例如 `高德 Key 无效，请检查 .env 中的 AMAP_KEY`、`高德 Key 的服务平台不是「Web服务」：请在高德控制台为本站创建服务平台为「Web服务」的 Key`、`服务器 IP 不在高德 Key 的白名单中`、`高德调用额度已用完`、`该 Key 没有此接口权限`、`服务器无法连接高德（restapi.amap.com）`，其它错误带 infocode。Key 无效 / 额度用尽等错误会让服务端暂停调用高德 10 分钟（网络故障 1 分钟），暂停期间返回同一原因并注明「已暂停调用高德，稍后自动重试」。此时结果来自天地图或离线行政区划，`source` 相应为 `tianditu` / `local`。`/geo/around`、`/geo/pick` 中的 `amap_error` 含义相同
+- `amap_error`：仅在服务端配置了高德 Key 但调用失败时出现，为可直接展示给管理员的中文原因，例如 `高德 Key 无效（infocode 10001 INVALID_USER_KEY）：…`、`高德 Key 的服务平台不是「Web服务」：请在高德控制台为本站创建服务平台为「Web服务」的 Key`、`服务器 IP 不在高德 Key 的白名单中（infocode 10005）：…`、`高德调用额度已用完（infocode 10003）…`、`该 Key 没有此接口权限（infocode 10012）`、`服务器无法连接高德（restapi.amap.com）：<失败环节与原因>`、`高德接口响应超时（restapi.amap.com）：…`，其它错误带 infocode。Key 无效 / 额度用尽等错误会让服务端暂停调用高德 10 分钟；网络故障（含超时、HTTP 错误状态和不是高德数据的应答）在不同时刻连续 3 次才暂停 20 秒（相隔不到 2 秒发出的请求只算一次，如一次搜索并发的两个请求），高德有任何应答即重新计数；单次请求最长等待 10 秒。暂停期间返回同一原因并注明「已暂停调用高德，稍后自动重试」。此时结果来自天地图或离线行政区划，`source` 相应为 `tianditu` / `local`。`/geo/around`、`/geo/pick` 中的 `amap_error` 含义相同
 - `place`：该高德 POI 对应地点的社区统计（同 Place 中的同名字段，便于规划时提示「踩雷」），该 POI 还没有公开打卡时为 `null`；`source` 为 `tianditu` / `local` 时总为 `null`
 - `amap_rating` / `amap_cost`：高德的商户评分（0–5）与人均消费（元），未知或非高德结果时为 0
 - 高德与天地图返回的坐标都已转换为 GCJ-02；天地图结果缺少省 / 市时按坐标离线补全
@@ -590,6 +590,7 @@ data: {"title":"杭州三日·美食拍照之旅","summary":"…","items":[…]}
   "lng": 120.14, "lat": 30.25 }
 ```
 `spot`：该点所在的景区 / 园区 / 商场等区域（AOI），或 30 米内最近的地点名称，没有时为空字符串（高德不可用时使用天地图，都未配置时为空）。地图点选请使用 `/geo/pick`。
+`province` / `city` 来自离线行政区划（海岸附近的海上点位会归到最近的地级市）。高德对海上的点位不返回省份、只返回「中华人民共和国」，这种结果不会被当作地名：`address` 此时为离线行政区划的「省 + 市」。
 
 `/geo/pick` 响应（路线编辑中在地图上点选位置时使用，由用户从候选中选择打卡点名称）：
 ```json
@@ -616,6 +617,7 @@ data: {"title":"杭州三日·美食拍照之旅","summary":"…","items":[…]}
 - `place_id` / `place`：对应的社区地点（按 `amap_id` 或同名关联）及其社区统计（同 `/geo/search` 的 `place`，没有公开打卡时 `place` 为 `null`）。社区地点遵循地点的可见性规则（有公开打卡、带高德 ID、被公开旅程引用，或出现在查看者自己参与的旅程中），其他用户私密旅程中的地点不会出现
 - `source`：`amap`（高德逆地理编码）；`tianditu`（未配置高德或高德调用失败时使用天地图：只提供最近的一个地点名称，其坐标取点击位置）；`local`（都不可用：只有社区地点和按离线行政区划命名的地址）
 - `amap_error`：同 `/geo/search`
+- 海上的点位：高德不返回省份（只有「中华人民共和国」）时，`address` 的省、市取自离线行政区划，`address.address` 为「省 + 市」，附近若有 AOI / POI 仍作为候选返回；「中华人民共和国」不会出现在地址或候选名称中
 - 选择 `aoi` / `poi` 候选后，客户端创建打卡点时可带上 `name`、`amap_id` 和候选的坐标；选择 `address` 时可只传坐标（名称留空由服务端自动命名）或使用候选的 `name`
 
 ### 情侣空间「我们一起走过的地方」 🔐
@@ -673,9 +675,36 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 }
 ```
 - `amap`：在北京搜索「天安门」（不走缓存，也不受暂停影响；成功后解除暂停）；`infocode` 为高德的错误码（仅失败时出现）
-- `ai`：向模型发送一条「只回复 ok」的最小请求（30 秒超时）；`thinking` 为深度思考设置（`off` / `on` / `low` / `high` / `max`），`timeout_s` 为 AI 规划的超时秒数；失败时 `message` 同 `/ai/plan` 的错误说明
+- `ai`：向模型发送一条「只回复 ok」的最小请求（30 秒超时）；`base_url` 中的账号密码与 Key 类查询参数显示为 `***`；`thinking` 为深度思考设置（`off` / `on` / `low` / `high` / `max`），`timeout_s` 为 AI 规划的超时秒数；失败时 `message` 同 `/ai/plan` 的错误说明，`kind` 为错误类别（`auth` / `balance` / `model` / `rate_limit` / `server` / `request` / `network` / `timeout` / `bad_response` / `empty` / `provider`）
 - `tianditu`：用天地图搜索北京的「天安门」
 - `ok=false` 时 `message` 为可直接展示的中文原因；未配置的服务 `configured=false`
+
+已配置的服务还带有以下可选字段（旧版服务端没有；不含任何 Key），失败时服务端也会以 `diagnostics check failed` 写入日志：
+
+| 字段 | 说明 |
+|---|---|
+| `host` | 服务的主机名，如 `restapi.amap.com` |
+| `key_hint` | Key 指纹：`length`（字符数）、`head` / `tail`（16 位以上的 Key 为首尾各 4 个字符，8–15 位为 2 个，更短的不显示）、`whitespace` / `quotes` / `non_ascii` / `non_hex`（含空白、引号、非 ASCII、非十六进制字符，`sk-` 前缀除外）、`warning`（与常见格式不符时的提示，如高德 / 天地图应为 32 位十六进制，DeepSeek 为 `sk-` 加 32 位十六进制）、`text`（如 `长度 32 · c549…bd36`） |
+| `proxy` | 仅在设置了代理环境变量时出现：`https_proxy` / `http_proxy` / `no_proxy`（去掉了账号密码与路径），`used` 为访问该服务实际经过的代理（缺省为直连） |
+| `layer` | 仅失败时：失败环节。`dns`（域名解析）、`proxy`（代理不可用）、`connect`（TCP 连接）、`tls`（TLS 握手 / 证书）、`timeout`（已连接并发出请求，但没有收到任何响应）、`network`（连接中断）为没连上服务；`http`（HTTP 错误状态）、`api`（服务返回错误码）、`response`（返回的不是服务商的数据或内容不可用）为服务返回了错误；`slow`（仅 AI：已开始返回，但没有在时限内完成，是模型慢而不是网络问题） |
+| `status` | 仅失败时：HTTP 状态码 |
+| `blocked` | 仅失败时：返回的不是服务商自己的错误信息（代理、防火墙、WAF 或网络认证页面），与 Key 无关 |
+| `detail` | 仅失败时：原始错误（Go 的错误信息，请求 URL 的查询参数与账号密码已去掉）或服务商返回的信息，Key 替换为 `***` |
+| `addrs` | 仅失败时：服务域名解析到的地址（请求未做解析时，如经代理访问或复用了连接，服务端会单独解析一次） |
+| `proxy_addrs` | 仅经代理访问失败时：代理主机名解析到的地址 |
+| `remote` | 仅失败时：已建立连接的对端地址（经代理时为代理的地址） |
+
+```json
+{
+  "amap": { "configured": true, "ok": false, "latency_ms": 12, "host": "restapi.amap.com", "layer": "proxy",
+            "message": "服务器无法连接高德（restapi.amap.com）：经代理 http://127.0.0.1:7890 连接失败：连接被拒绝（connection refused）（…）",
+            "detail": "Get \"https://restapi.amap.com/v3/place/text\": proxyconnect tcp: dial tcp 127.0.0.1:7890: connect: connection refused",
+            "proxy": { "https_proxy": "http://127.0.0.1:7890", "used": "http://127.0.0.1:7890" },
+            "key_hint": { "length": 32, "head": "c549", "tail": "bd36", "text": "长度 32 · c549…bd36" } }
+}
+```
+
+同样的检查也可以在服务器上运行：`docker compose exec app /triphub -diagnose`（见部署文档「常见问题」），它还会逐项测试 DNS、TCP 与 TLS，全部正常时退出码为 0，否则为 1。
 
 ## 用户等级
 

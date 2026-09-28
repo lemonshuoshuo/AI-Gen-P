@@ -459,7 +459,7 @@ func TestAIPlanStream(t *testing.T) {
 		t.Fatalf("error event: %v", events)
 	}
 	r := e.must(500, "POST", "/ai/plan", tok, body).obj(t)
-	if r["error"].(map[string]any)["message"] != "AI Key 无效或没有权限" {
+	if r["error"].(map[string]any)["message"] != "AI Key 无效或没有权限（HTTP 401：Authentication Fails）：请检查 .env 中的 AI_API_KEY 是否完整、没有多余的引号或空格" {
 		t.Fatalf("plain error: %v", r)
 	}
 }
@@ -511,18 +511,122 @@ func TestAdminDiagnostics(t *testing.T) {
 	}
 	d = raw.obj(t)
 	am, aiD, td = d["amap"].(map[string]any), d["ai"].(map[string]any), d["tianditu"].(map[string]any)
-	if am["configured"] != true || am["ok"] != false || am["infocode"] != "10009" || !strings.Contains(am["message"].(string), "Web服务") {
+	if am["configured"] != true || am["ok"] != false || am["infocode"] != "10009" || !strings.Contains(am["message"].(string), "Web服务") ||
+		am["layer"] != "api" || am["detail"] != "infocode 10009: USERKEY_PLAT_NOMATCH" ||
+		am["key_hint"].(map[string]any)["text"] != "长度 15 · se…ey（含非十六进制字符）" || am["key_hint"].(map[string]any)["warning"] == nil ||
+		am["host"] == nil {
 		t.Fatalf("amap diagnostics: %v", am)
 	}
-	if aiD["ok"] != false || aiD["message"] != "AI 账户余额不足" || aiD["base_url"] != aiSrv.URL || aiD["model"] != "deepseek-flash" {
+	if aiD["ok"] != false || aiD["message"] != "AI 账户余额或额度不足（HTTP 402），请到模型服务商的控制台充值" || aiD["base_url"] != aiSrv.URL ||
+		aiD["model"] != "deepseek-flash" || aiD["kind"] != "balance" || aiD["layer"] != "http" || num(aiD["status"]) != 402 ||
+		!strings.HasPrefix(aiD["detail"].(string), "Insufficient Balance") || aiD["key_hint"].(map[string]any)["text"] != "长度 9 · sk…et" {
 		t.Fatalf("ai diagnostics: %v", aiD)
 	}
-	if td["configured"] != true || td["ok"] != false || !strings.Contains(td["message"].(string), "服务端") {
+	if td["configured"] != true || td["ok"] != false || !strings.Contains(td["message"].(string), "服务端") ||
+		td["layer"] != "http" || num(td["status"]) != 403 {
 		t.Fatalf("tianditu diagnostics: %v", td)
+	}
+
+	// Unreachable services: the layer that failed and the Go error, never
+	// "Key 无效" or "换用更快的模型".
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closedURL := closed.URL
+	closed.Close()
+	am3 := amap.New("0123456789abcdef0123456789abcdef")
+	am3.SetBaseURL(closedURL)
+	e.svc.Amap = am3
+	e.svc.AI = ai.NewClient(ai.Config{BaseURL: closedURL, APIKey: "sk-0123456789abcdef0123456789abcdef", Model: "deepseek-flash"})
+	e.svc.Tianditu = tianditu.New("")
+	raw = e.must(200, "GET", "/admin/diagnostics", admin, nil)
+	for _, secret := range []string{"0123456789abcdef0123456789abcdef", "sk-0123456789abcdef0123456789abcdef"} {
+		if bytes.Contains(raw.body, []byte(secret)) {
+			t.Fatalf("a key leaked: %s", raw.body)
+		}
+	}
+	d = raw.obj(t)
+	am, aiD = d["amap"].(map[string]any), d["ai"].(map[string]any)
+	host := strings.TrimPrefix(closedURL, "http://")
+	if am["ok"] != false || am["layer"] != "connect" || !strings.Contains(am["detail"].(string), "connection refused") ||
+		am["message"] != "服务器无法连接高德（"+host+"）：TCP 连接 "+host+" 失败：连接被拒绝（connection refused）" ||
+		am["key_hint"].(map[string]any)["text"] != "长度 32 · 0123…cdef" || am["key_hint"].(map[string]any)["warning"] != nil {
+		t.Fatalf("unreachable amap: %v", am)
+	}
+	if aiD["ok"] != false || aiD["layer"] != "connect" || aiD["kind"] != "network" || !strings.Contains(aiD["detail"].(string), "connection refused") ||
+		strings.Contains(aiD["message"].(string), "Key 无效") || strings.Contains(aiD["message"].(string), "换用更快的模型") {
+		t.Fatalf("unreachable ai: %v", aiD)
+	}
+	if strings.Contains(fmt.Sprint(d["tianditu"]), "layer") {
+		t.Fatalf("an unconfigured service has no details: %v", d["tianditu"])
+	}
+
+	// A firewall / WAF page instead of the provider's answer: blocked, never
+	// "Key 无效".
+	wafSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`<html><head><title>Access Denied</title></head><body>blocked</body></html>`))
+	}))
+	t.Cleanup(wafSrv.Close)
+	td3 := tianditu.New("0123456789abcdef0123456789abcdef")
+	td3.SetBaseURL(wafSrv.URL)
+	e.svc.Tianditu = td3
+	e.svc.AI = ai.NewClient(ai.Config{BaseURL: wafSrv.URL, APIKey: "sk-0123456789abcdef0123456789abcdef", Model: "deepseek-flash"})
+	d = e.must(200, "GET", "/admin/diagnostics", admin, nil).obj(t)
+	aiD, td = d["ai"].(map[string]any), d["tianditu"].(map[string]any)
+	if td["ok"] != false || td["blocked"] != true || td["layer"] != "http" || num(td["status"]) != 403 ||
+		strings.Contains(td["message"].(string), "Key 无效") {
+		t.Fatalf("blocked tianditu: %v", td)
+	}
+	if aiD["ok"] != false || aiD["blocked"] != true || strings.Contains(aiD["message"].(string), "Key 无效") {
+		t.Fatalf("blocked ai: %v", aiD)
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	if len(amapQueries) != 1 || amapQueries[0] != "/v3/place/text?天安门" {
 		t.Fatalf("amap check: %v", amapQueries)
+	}
+}
+
+// seaRegeo is AMap's answer for a point in the sea off 台州: the country as
+// province and address, and a POI nearby.
+const seaRegeo = `{"status":"1","info":"OK","infocode":"10000","regeocode":{"formatted_address":"中华人民共和国",
+	"addressComponent":{"country":"中国","province":"中华人民共和国","city":[],"citycode":[],"district":[],"adcode":"100000",
+		"township":[],"towncode":[],"neighborhood":{"name":[],"type":[]},"building":{"name":[],"type":[]},
+		"streetNumber":{"street":[],"number":[],"direction":[],"distance":[]},"businessAreas":[]},
+	"pois":[{"id":"B0SEAWIND1","name":"海上观景平台","type":"风景名胜;风景名胜相关;旅游景点","distance":"150","location":"121.9075,28.4560","address":[]}],
+	"roads":[],"roadinters":[],"aois":[]}}`
+
+// A click in the sea: AMap knows no province; the offline atlas names the
+// province and city, nearby POIs are still offered, and "中华人民共和国" is
+// never shown as a place.
+func TestGeoPickSea(t *testing.T) {
+	e := setup(t)
+	tok, _, _ := e.register("sailor")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(seaRegeo))
+	}))
+	t.Cleanup(srv.Close)
+	am := amap.New("test-key")
+	am.SetBaseURL(srv.URL)
+	e.svc.Amap = am
+	raw := e.must(200, "GET", "/geo/pick?lng=121.9063&lat=28.4556", tok, nil)
+	if bytes.Contains(raw.body, []byte("中华人民共和国")) {
+		t.Fatalf("the country is shown as a place: %s", raw.body)
+	}
+	r := raw.obj(t)
+	addr := r["address"].(map[string]any)
+	if r["source"] != "amap" || addr["province"] != "浙江省" || addr["city"] != "台州市" || addr["address"] != "浙江省台州市" {
+		t.Fatalf("sea pick address: %v", r)
+	}
+	cs := r["candidates"].([]any)
+	if len(cs) != 2 || cs[0].(map[string]any)["name"] != "海上观景平台" || cs[0].(map[string]any)["kind"] != "poi" ||
+		cs[1].(map[string]any)["kind"] != "address" || cs[1].(map[string]any)["name"] != "台州市" {
+		t.Fatalf("sea pick candidates: %v", cs)
+	}
+	raw = e.must(200, "GET", "/geo/regeo?lng=121.9063&lat=28.4556", tok, nil)
+	if bytes.Contains(raw.body, []byte("中华人民共和国")) {
+		t.Fatalf("the country is shown as a place: %s", raw.body)
+	}
+	if r := raw.obj(t); r["province"] != "浙江省" || r["city"] != "台州市" || r["address"] != "浙江省台州市" {
+		t.Fatalf("sea regeo: %v", r)
 	}
 }

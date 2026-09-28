@@ -145,13 +145,16 @@ func TestFindPartialFailure(t *testing.T) {
 
 func TestErrorMessages(t *testing.T) {
 	for code, want := range map[string]string{
-		"10001": "高德 Key 无效，请检查 .env 中的 AMAP_KEY",
+		"10001": "高德 Key 无效（infocode 10001 INVALID_USER_KEY）：请检查 .env 中的 AMAP_KEY 是否完整、没有多余的引号、空格或注释",
 		"10009": "高德 Key 的服务平台不是「Web服务」：请在高德控制台为本站创建服务平台为「Web服务」的 Key",
-		"10005": "服务器 IP 不在高德 Key 的白名单中",
-		"10003": "高德调用额度已用完",
-		"10044": "高德调用额度已用完",
+		"10005": "服务器 IP 不在高德 Key 的白名单中（infocode 10005）：在高德控制台把服务器公网 IP 加入白名单，或清空白名单",
+		"10003": "高德调用额度已用完（infocode 10003），次日零点恢复，或在控制台提升配额",
+		"10044": "高德调用额度已用完（infocode 10044），次日零点恢复，或在控制台提升配额",
 		"10041": "高德调用额度已用完（或该接口的使用权限已过期）",
-		"10012": "该 Key 没有此接口权限",
+		"10007": "高德 Key 开启了数字签名（infocode 10007 INVALID_USER_SIGNATURE）：本站不支持签名，请在控制台关闭该 Key 的数字签名",
+		"10012": "该 Key 没有此接口权限（infocode 10012）",
+		"40000": "高德付费额度已用完（infocode 40000 QUOTA_PLAN_RUN_OUT），请在控制台续费或提升配额",
+		"30001": "高德服务内部错误（infocode 30001 UNKNOWN_ERROR），请稍后再试",
 		"20003": "高德接口返回错误（infocode 20003 UNKNOWN_ERROR）",
 	} {
 		info := "UNKNOWN_ERROR"
@@ -178,8 +181,11 @@ func TestErrorMessages(t *testing.T) {
 	c := New("k")
 	c.SetBaseURL("http://127.0.0.1:1")
 	_, err := c.Find(context.Background(), "x", "", 5)
-	if msg := ErrorMessage(err); msg != "服务器无法连接高德（127.0.0.1:1）" {
+	if msg := ErrorMessage(err); msg != "服务器无法连接高德（127.0.0.1:1）：TCP 连接 127.0.0.1:1 失败：连接被拒绝（connection refused）" {
 		t.Fatalf("network: %q", msg)
+	}
+	if d := Details(err); d.Layer != "connect" || !strings.Contains(d.Detail, "connection refused") || strings.Contains(d.Detail, "?") {
+		t.Fatalf("network details: %+v", d)
 	}
 	if strings.Contains(err.Error(), "key=k") {
 		t.Fatalf("the key leaked: %v", err)

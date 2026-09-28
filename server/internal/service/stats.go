@@ -498,10 +498,23 @@ const SpotPOIRadius = 30
 // Tianditu) is configured, i.e. whether Locate can fill district / address.
 func (s *Service) CanReverseGeocode() bool { return s.Amap.Enabled() || s.Tianditu.Enabled() }
 
+// LocateTimeout bounds each reverse geocoding call of Locate. It is short:
+// Locate fills in details while a waypoint or photo is saved, and the
+// offline atlas is the fallback. A call cut short by it does not count
+// towards pausing AMap (see amap.Client).
+const LocateTimeout = 3 * time.Second
+
 // Locate resolves province/city offline and, when detail is requested,
 // district / street / address and the spot at the point via reverse
-// geocoding (AMap, else Tianditu, when configured).
+// geocoding (AMap, else Tianditu, when configured), waiting at most
+// LocateTimeout for each.
 func (s *Service) Locate(ctx context.Context, lng, lat float64, detail bool) GeoInfo {
+	return s.LocateWithin(ctx, lng, lat, detail, LocateTimeout)
+}
+
+// LocateWithin is Locate waiting at most wait for each reverse geocoding
+// call (the /geo/regeo endpoint waits as long as AMap may take).
+func (s *Service) LocateWithin(ctx context.Context, lng, lat float64, detail bool, wait time.Duration) GeoInfo {
 	var info GeoInfo
 	if loc, ok := s.Atlas.LookupGCJ(lng, lat); ok {
 		info = GeoInfo{Province: loc.Province, ProvinceCode: loc.ProvinceCode, City: loc.City, CityCode: loc.CityCode, Found: true}
@@ -510,7 +523,7 @@ func (s *Service) Locate(ctx context.Context, lng, lat float64, detail bool) Geo
 		return info
 	}
 	if s.Amap.Enabled() {
-		cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		cctx, cancel := context.WithTimeout(ctx, wait)
 		r, err := s.Amap.RegeoDetail(cctx, lng, lat)
 		cancel()
 		if err == nil {
@@ -527,15 +540,18 @@ func (s *Service) Locate(ctx context.Context, lng, lat float64, detail bool) Geo
 		}
 	}
 	if s.Tianditu.Enabled() {
-		cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		cctx, cancel := context.WithTimeout(ctx, wait)
 		r, err := s.Tianditu.Regeo(cctx, lng, lat)
 		cancel()
 		if err == nil {
 			info.District, info.Street, info.Address = r.District, r.Town, r.Address
+			if amap.IsCountry(info.Address) {
+				info.Address = ""
+			}
 			if r.POI != "" && r.POIDistanceM >= 0 && r.POIDistanceM <= SpotPOIRadius {
 				info.Spot = r.POI
 			}
-			if !info.Found && r.Province != "" {
+			if !info.Found && r.Province != "" && !amap.IsCountry(r.Province) {
 				info.Province, info.City, info.Found = r.Province, r.City, true
 			}
 		}

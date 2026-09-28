@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"triphub/internal/geo"
 )
@@ -204,11 +205,47 @@ func TestErrorsAndBreaker(t *testing.T) {
 		}
 		srv.Close()
 	}
+	// A 401 / 403 / 418 that is not Tianditu's JSON error comes from a proxy,
+	// firewall or WAF: never "Key 无效", and no 10-minute key pause.
+	for _, tc := range []struct {
+		status int
+		body   string
+		want   string
+	}{
+		{403, `<html><head><title>403 Forbidden</title></head><body>nginx</body></html>`,
+			"天地图拒绝访问（HTTP 403），返回的不是天地图的错误信息：可能被代理、防火墙或网关拦截（HTML 页面「403 Forbidden」）"},
+		{403, `Host not in allowlist`, "天地图拒绝访问（HTTP 403），返回的不是天地图的错误信息：可能被代理、防火墙或网关拦截（Host not in allowlist）"},
+		{418, `<html><title>CloudWAF</title>waf block</html>`, "天地图拒绝访问（HTTP 418）"},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(tc.body))
+		}))
+		c := New("tk-test")
+		c.SetBaseURL(srv.URL)
+		_, err := c.Search(ctx, "x", SearchHint{AdminCode: "110000"}, 5)
+		msg := ErrorMessage(err)
+		var e *Error
+		if !strings.HasPrefix(msg, tc.want) || strings.Contains(msg, "Key 无效") || !errors.As(err, &e) || !e.Blocked || e.keyError() {
+			t.Errorf("%d %s: %q, want %q", tc.status, tc.body, msg, tc.want)
+		}
+		if d := Details(err); !d.Blocked || d.Layer != "http" || d.Status != tc.status {
+			t.Errorf("%d details: %+v", tc.status, d)
+		}
+		if until := time.Until(time.Unix(0, c.failUntil.Load())); until > 2*time.Minute {
+			t.Errorf("%d: paused for %v like a bad key", tc.status, until)
+		}
+		srv.Close()
+	}
 	// Unreachable.
 	c = New("tk-test")
 	c.SetBaseURL("http://127.0.0.1:1")
-	if _, err := c.Regeo(ctx, 120, 30); ErrorMessage(err) != "服务器无法连接天地图（127.0.0.1:1）" {
+	_, err = c.Regeo(ctx, 120, 30)
+	if ErrorMessage(err) != "服务器无法连接天地图（127.0.0.1:1）：TCP 连接 127.0.0.1:1 失败：连接被拒绝（connection refused）" {
 		t.Fatalf("network: %v", err)
+	}
+	if d := Details(err); d.Layer != "connect" || strings.Contains(d.Detail, "tk-test") || strings.Contains(d.Detail, "postStr") {
+		t.Fatalf("network details: %+v", d)
 	}
 	if _, err := New("").Search(ctx, "x", SearchHint{}, 5); !errors.Is(err, ErrUnavailable) || ErrorMessage(err) != "" {
 		t.Fatalf("disabled: %v", err)

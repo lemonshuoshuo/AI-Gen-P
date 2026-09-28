@@ -27,15 +27,18 @@ import (
 
 // Layers of a failed call, from the network up.
 const (
-	LayerDNS     = "dns"     // the host name did not resolve
-	LayerProxy   = "proxy"   // the HTTP(S)_PROXY could not be used
-	LayerConnect = "connect" // no TCP connection
-	LayerTLS     = "tls"     // TLS handshake or certificate
-	LayerTimeout = "timeout" // connected and sent, no answer in time
-	LayerNetwork = "network" // the connection broke, or an unknown network error
-	LayerHTTP    = "http"    // an HTTP error status
-	LayerAPI     = "api"     // the provider answered with an error code
-	LayerReply   = "response"
+	LayerDNS     = "dns"      // the host name did not resolve
+	LayerProxy   = "proxy"    // the HTTP(S)_PROXY could not be used
+	LayerConnect = "connect"  // no TCP connection
+	LayerTLS     = "tls"      // TLS handshake or certificate
+	LayerTimeout = "timeout"  // connected and sent, no answer in time
+	LayerNetwork = "network"  // the connection broke, or an unknown network error
+	LayerHTTP    = "http"     // an HTTP error status
+	LayerAPI     = "api"      // the provider answered with an error code
+	LayerReply   = "response" // an answer that is not the provider's (not JSON, not a usable result)
+	// LayerSlow: the answer had started but did not finish in time (a slow
+	// or busy model), not a network failure.
+	LayerSlow = "slow"
 )
 
 // IsNetwork reports whether layer is a network-level failure (the service
@@ -157,9 +160,12 @@ func (t *Trace) Info() TraceInfo {
 type Failure struct {
 	Layer  string   // one of the network layers (see IsNetwork)
 	Reason string   // what failed, in Chinese
-	Addrs  []string // addresses the host (or proxy) resolved to, if DNS ran
-	Remote string   // the address connected to, if any
-	Proxy  string   // the proxy used (redacted), "" for a direct connection
+	Addrs  []string // addresses the host resolved to, if DNS ran (direct connections only)
+	// ProxyAddrs are the addresses the proxy's host resolved to: through a
+	// proxy the client resolves the proxy, never the target host.
+	ProxyAddrs []string
+	Remote     string // the address connected to (the proxy's, through a proxy), if any
+	Proxy      string // the proxy used (redacted), "" for a direct connection
 }
 
 // ProxyOf returns the proxy client would use for req (nil: direct).
@@ -185,7 +191,8 @@ func Classify(err error, t *Trace, proxy *url.URL) *Failure {
 		f.Remote = in.ConnectAddr
 	}
 	if proxy != nil {
-		f.Proxy = RedactProxy(proxy.String())
+		// The lookups in the trace were of the proxy's host.
+		f.Proxy, f.ProxyAddrs, f.Addrs = RedactProxy(proxy.String()), f.Addrs, nil
 	}
 	cause := short(err)
 	var op *net.OpError
@@ -201,7 +208,11 @@ func Classify(err error, t *Trace, proxy *url.URL) *Failure {
 		case cause == "" && err != nil:
 			cause = lastPart(err)
 		}
-		f.Reason = fmt.Sprintf("经代理 %s 连接失败：%s（代理来自环境变量 HTTPS_PROXY / HTTP_PROXY，Docker 会把 ~/.docker/config.json 的 proxies 注入容器）", f.Proxy, cause)
+		name := f.Proxy
+		if name == "" {
+			name = "（环境变量中的代理）"
+		}
+		f.Reason = fmt.Sprintf("经代理 %s 连接失败：%s（代理来自环境变量 HTTPS_PROXY / HTTP_PROXY，Docker 会把 ~/.docker/config.json 的 proxies 注入容器）", name, cause)
 	case errors.As(err, &dnsErr):
 		f.Layer, f.Reason = LayerDNS, "域名解析失败："+dnsReason(dnsErr)
 	case in.DNSErr != nil && !in.Connected:
@@ -215,7 +226,8 @@ func Classify(err error, t *Trace, proxy *url.URL) *Failure {
 		f.Layer, f.Reason = LayerTLS, certError(err)
 	case in.TLSErr != nil && certError(in.TLSErr) != "":
 		f.Layer, f.Reason = LayerTLS, certError(in.TLSErr)
-	case strings.Contains(errText(err), "TLS handshake timeout") || (in.TLSStarted && !in.TLSDone && IsTimeout(err)):
+	case strings.Contains(errText(err), "TLS handshake timeout") ||
+		(in.TLSStarted && !in.GotConn && (!in.TLSDone || in.TLSErr != nil) && IsTimeout(err)):
 		f.Layer = LayerTLS
 		f.Reason = "TLS 握手超时：TCP 已连通但握手没有完成，常见于 MTU 不匹配（云服务器 / VPN 网卡 MTU 小于 1500）或防火墙拦截"
 	case in.TLSErr != nil || (in.TLSStarted && !in.TLSDone):
@@ -283,15 +295,15 @@ func lastPart(err error) string {
 func connectReason(cause string, in TraceInfo) string {
 	addr := in.ConnectAddr
 	if addr != "" {
-		addr = " " + addr
+		addr = " " + addr + " "
 	}
 	switch cause {
 	case "":
-		return "TCP 连接失败" + addr
+		return "TCP 连接" + addr + "失败"
 	case "超时":
-		return "TCP 连接超时" + addr + "：出站流量可能被防火墙、安全组或 Docker 的 NAT（iptables）规则拦截"
+		return "TCP 连接" + addr + "超时：出站流量可能被防火墙、安全组或 Docker 的 NAT（iptables）规则拦截"
 	}
-	return "TCP 连接失败" + addr + "：" + cause
+	return "TCP 连接" + addr + "失败：" + cause
 }
 
 // IsTimeout reports whether err is a timeout or a deadline.
@@ -396,19 +408,23 @@ func DNSReason(err error) string {
 
 // Details is what the admin diagnostics show about a failed check.
 type Details struct {
-	Layer  string   // see the Layer constants
-	Status int      // HTTP status, if any
-	Detail string   // the underlying error or the provider's message (keys redacted)
-	Addrs  []string // addresses the host resolved to
-	Remote string   // address connected to
-	Proxy  string   // proxy used (redacted)
+	Layer      string   // see the Layer constants
+	Status     int      // HTTP status, if any
+	Detail     string   // the underlying error or the provider's message (keys redacted)
+	Addrs      []string // addresses the host resolved to
+	ProxyAddrs []string // addresses the proxy's host resolved to
+	Remote     string   // address connected to
+	Proxy      string   // proxy used (redacted)
+	// Blocked: an error status whose body is not the provider's error (a
+	// proxy, firewall or WAF page), so not a verdict on the key.
+	Blocked bool
 }
 
 // FromFailure fills the network part of Details.
 func FromFailure(f *Failure, detail string) Details {
 	d := Details{Layer: LayerNetwork, Detail: detail}
 	if f != nil {
-		d.Layer, d.Addrs, d.Remote, d.Proxy = f.Layer, f.Addrs, f.Remote, f.Proxy
+		d.Layer, d.Addrs, d.ProxyAddrs, d.Remote, d.Proxy = f.Layer, f.Addrs, f.ProxyAddrs, f.Remote, f.Proxy
 	}
 	return d
 }

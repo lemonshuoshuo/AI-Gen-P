@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 
 	"triphub/internal/geo"
 	"triphub/internal/lru"
+	"triphub/internal/netdiag"
 )
 
 // ErrUnavailable means the API is not configured or temporarily disabled.
@@ -36,9 +38,24 @@ var ErrNoRoute = errors.New("amap: no route")
 // DefaultBaseURL is the AMap REST endpoint.
 const DefaultBaseURL = "https://restapi.amap.com"
 
-// RequestTimeout bounds a single request (callers usually pass a shorter
-// context deadline).
-const RequestTimeout = 6 * time.Second
+// RequestTimeout bounds a single request. Requests from servers in China
+// occasionally take several seconds; 10 s also fits the admin diagnostics.
+// Callers that pass a much shorter context deadline (background lookups
+// with a local fallback) get the failure, but it does not count towards
+// pausing AMap (see getWith).
+const RequestTimeout = 10 * time.Second
+
+// Network failures pause AMap (the shared breaker) only after netFailLimit
+// failures in a row (any answer resets the count), for netPause: a single
+// slow request must not switch AMap off for everyone. Failures of requests
+// started within netFailGap of the last counted one count once (Find's two
+// parallel requests, a burst of searches), so the limit takes failures at
+// distinct times.
+const (
+	netFailLimit = 3
+	netPause     = 20 * time.Second
+	netFailGap   = 2 * time.Second
+)
 
 // Client talks to the AMap web service API.
 type Client struct {
@@ -52,6 +69,8 @@ type Client struct {
 	pois     *lru.Cache[POI]          // POIs seen in search / around / detail results, by ID
 	dir      *lru.Cache[*Route]       // Direction results, by mode and end points
 	fail     breaker                  // after network / key errors
+	streak   netStreak                // network failures in a row
+	netGap   time.Duration            // netFailGap (tests shorten it)
 	lastWarn atomic.Int64             // unix nanos of the last throttled warning
 
 	// 路径规划 has a daily quota of its own: its key / quota errors pause
@@ -76,6 +95,7 @@ func New(key string) *Client {
 		around:  lru.New[[]POI](2000, 10*time.Minute),
 		pois:    lru.New[POI](20000, 24*time.Hour),
 		dir:     lru.New[*Route](20000, 7*24*time.Hour),
+		netGap:  netFailGap,
 		// About 3 requests a second: the QPS limit of a personal key is low.
 		dirGap:     300 * time.Millisecond,
 		dirMaxWait: 3 * time.Second,
@@ -84,6 +104,22 @@ func New(key string) *Client {
 
 // SetBaseURL overrides the API base URL (tests).
 func (c *Client) SetBaseURL(u string) { c.baseURL = strings.TrimRight(u, "/") }
+
+// BaseURL returns the API base URL.
+func (c *Client) BaseURL() string {
+	if c == nil {
+		return DefaultBaseURL
+	}
+	return c.baseURL
+}
+
+// KeyHint describes the configured key without revealing it.
+func (c *Client) KeyHint() netdiag.KeyHint {
+	if c == nil {
+		return netdiag.Fingerprint("", netdiag.HexKey)
+	}
+	return netdiag.Fingerprint(c.key, netdiag.HexKey)
+}
 
 // Enabled reports whether a key is configured.
 func (c *Client) Enabled() bool { return c != nil && c.key != "" }
@@ -197,40 +233,99 @@ func (c *Client) warnAllowed() bool {
 	return now-last >= int64(time.Minute) && c.lastWarn.CompareAndSwap(last, now)
 }
 
+// netStreak counts the network failures in a row that open the shared
+// breaker. A failure counts only when its request started at least gap
+// after the last counted one, and after the last answer from AMap or
+// breaker change (reset): requests already in flight then say nothing new.
+type netStreak struct {
+	mu    sync.Mutex
+	n     int
+	last  time.Time // start of the last counted failed request
+	since time.Time // requests started before this do not count
+}
+
+// reset restarts the count: AMap answered, or the breaker opened / closed.
+func (s *netStreak) reset() {
+	s.mu.Lock()
+	s.n, s.last, s.since = 0, time.Time{}, time.Now()
+	s.mu.Unlock()
+}
+
+// fail records a network failure of a request started at start and
+// returns the failures in a row and whether this one counted.
+func (s *netStreak) fail(start time.Time, gap time.Duration) (int, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if start.Before(s.since) {
+		return s.n, false
+	}
+	if d := start.Sub(s.last); s.n > 0 && d < gap && d > -gap {
+		return s.n, false
+	}
+	s.n++
+	s.last = start
+	return s.n, true
+}
+
+// maxBody bounds the answers read (a POI list is a few tens of KB).
+const maxBody = 4 << 20
+
 // fetch sends one request and decodes a successful answer into out, without
 // looking at or opening any breaker. Failures are *Error values, except a
-// cancelled caller (ErrUnavailable) and undecodable answers.
+// cancelled caller (ErrUnavailable) and results that do not decode.
 func (c *Client) fetch(ctx context.Context, path string, q url.Values, out any) error {
 	q.Set("key", c.key)
 	q.Set("output", "JSON")
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path+"?"+q.Encode(), nil)
+	tr := netdiag.NewTrace()
+	req, err := http.NewRequestWithContext(tr.Context(ctx), http.MethodGet, c.baseURL+path+"?"+q.Encode(), nil)
 	if err != nil {
 		return err
 	}
+	start := time.Now()
 	resp, err := c.http.Do(req)
 	if err != nil {
-		if errors.Is(ctx.Err(), context.Canceled) {
-			// The caller went away (browser abort, client disconnect): not
-			// an AMap failure.
-			return fmt.Errorf("%w: %v", ErrUnavailable, ctx.Err())
-		}
-		msg := strings.ReplaceAll(err.Error(), c.key, "***") // never log the key
-		return &Error{Network: true, Info: msg, Host: hostOf(c.baseURL)}
+		return c.transportError(ctx, err, start, tr, req)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return &Error{HTTPStatus: resp.StatusCode}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	if err != nil {
+		return c.transportError(ctx, err, start, tr, req)
 	}
-	raw := json.RawMessage{}
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return fmt.Errorf("amap decode: %w", err)
+	if resp.StatusCode != http.StatusOK {
+		return &Error{HTTPStatus: resp.StatusCode, Info: netdiag.Redact(netdiag.BodySnippet(body, 200), c.key)}
 	}
 	var br baseResp
-	_ = json.Unmarshal(raw, &br)
+	if err := json.Unmarshal(body, &br); err != nil {
+		// Not AMap's JSON: a captive portal, or a proxy / WAF page.
+		return &Error{BadReply: true, Info: netdiag.Redact(netdiag.BodySnippet(body, 200), c.key)}
+	}
 	if br.Status != "1" {
 		return &Error{Infocode: string(br.Infocode), Info: string(br.Info)}
 	}
-	return json.Unmarshal(raw, out)
+	if err := json.Unmarshal(body, out); err != nil {
+		return fmt.Errorf("amap decode: %w", err) // AMap's JSON, in a shape this client does not know
+	}
+	return nil
+}
+
+// transportError explains a failure to send a request or read its answer.
+// The caller going away is not an AMap failure (ErrUnavailable). When the
+// caller's own deadline, shorter than the client's timeout, ended the
+// request, the *Error is marked cut: AMap was not given the time a request
+// may take, so it does not count towards pausing AMap.
+func (c *Client) transportError(ctx context.Context, err error, start time.Time, tr *netdiag.Trace, req *http.Request) error {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		// The caller went away (browser abort, client disconnect).
+		return fmt.Errorf("%w: %v", ErrUnavailable, ctx.Err())
+	}
+	// The text drops the URL's query and never contains the key.
+	e := &Error{Network: true, Info: netdiag.ErrorText(err, c.key), Host: hostOf(c.baseURL),
+		Net: netdiag.Classify(err, tr, netdiag.ProxyOf(c.http, req))}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		dl, ok := ctx.Deadline()
+		e.cut = ok && c.http.Timeout > 0 && dl.Sub(start) < c.http.Timeout*4/5
+	}
+	return e
 }
 
 func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
@@ -241,10 +336,14 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 // errors open breaker instead of the shared one. Network errors still open
 // the shared breaker.
 //
-// Key and quota errors open the breaker (pausing its calls) for 10 minutes.
-// Other API errors only fail this request: QPS limits pass by themselves,
-// and per-request errors (2xxxx / 3xxxx, e.g. 20012 for a keyword with
-// illegal content) must not let crafted input disable AMap for everyone.
+// Network failures (HTTP error statuses and answers that are not AMap's
+// JSON too) open the shared breaker for netPause after netFailLimit of them
+// in a row (see netStreak); any answer from AMap resets the count, and a
+// request cut short by its caller's deadline does not count. Key and quota
+// errors open the breaker (pausing its calls) for 10 minutes. Other API
+// errors only fail this request: QPS limits pass by themselves, and
+// per-request errors (2xxxx / 3xxxx, e.g. 20012 for a keyword with illegal
+// content) must not let crafted input disable AMap for everyone.
 func (c *Client) getWith(ctx context.Context, b *breaker, path string, q url.Values, out any) error {
 	if err := c.available(); err != nil {
 		return err
@@ -252,29 +351,45 @@ func (c *Client) getWith(ctx context.Context, b *breaker, path string, q url.Val
 	if b.isOpen() {
 		return b.err()
 	}
+	start := time.Now()
 	err := c.fetch(ctx, path, q, out)
 	var e *Error
 	if !errors.As(err, &e) {
+		if err == nil {
+			c.streak.reset() // AMap answered
+		}
 		return err
 	}
 	switch {
-	case e.Network:
-		// Network failure or timeout: back off for a while so requests fail fast.
-		c.fail.open(60*time.Second, e)
-		slog.Warn("amap request failed, disabling for 60s", "path", path, "err", e.Info)
-	case e.HTTPStatus != 0:
-		c.fail.open(30*time.Second, e)
-		slog.Warn("amap returned an error status, disabling for 30s", "path", path, "status", e.HTTPStatus)
+	case e.cut:
+		if c.warnAllowed() {
+			slog.Warn("amap request cut short by the caller's deadline", "path", path, "layer", e.Layer(), "err", e.Info)
+		}
+	case e.Network || e.HTTPStatus != 0 || e.BadReply:
+		n, counted := c.streak.fail(start, c.netGap)
+		if n < netFailLimit || !counted {
+			slog.Warn("amap request failed", "path", path, "layer", e.Layer(), "status", e.HTTPStatus, "err", e.Info,
+				"consecutive", n, "counted", counted)
+			break
+		}
+		// Unreachable for a while: fail fast instead of making every user wait.
+		c.fail.open(netPause, e)
+		c.streak.reset()
+		slog.Warn("高德连续多次请求失败，暂停调用 20 秒", "path", path, "consecutive", n, "layer", e.Layer(),
+			"status", e.HTTPStatus, "err", e.Info, "hint", e.Message())
 	case keyErrors[e.Infocode]:
+		c.streak.reset() // AMap answered
 		b.open(10*time.Minute, e)
 		c.lastWarn.Store(time.Now().UnixNano())
 		slog.Warn("高德 Key 无效或调用额度已用尽，暂停调用 10 分钟", "path", path, "infocode", e.Infocode, "info", e.Info,
 			"hint", e.Message())
 	case qpsErrors[e.Infocode]:
+		c.streak.reset()
 		if c.warnAllowed() {
 			slog.Warn("高德接口调用超出 QPS 限制", "path", path, "infocode", e.Infocode, "info", e.Info)
 		}
 	default:
+		c.streak.reset()
 		if c.warnAllowed() {
 			slog.Warn("高德接口返回错误", "path", path, "infocode", e.Infocode, "info", e.Info)
 		}
@@ -302,6 +417,7 @@ func (c *Client) Check(ctx context.Context) error {
 		return err
 	}
 	c.fail.close()
+	c.streak.reset()
 	return nil
 }
 
@@ -527,10 +643,31 @@ type addressComponentJSON struct {
 	}] `json:"streetNumber"`
 }
 
+// IsCountry reports whether s names the whole country: AMap answers
+// "中华人民共和国" (adcode 100000) as the province and address of points in
+// the sea, which must not be taken for a place.
+func IsCountry(s string) bool {
+	switch strings.TrimSpace(s) {
+	case "中华人民共和国", "中国", "China", "People's Republic of China":
+		return true
+	}
+	return false
+}
+
 func (ac addressComponentJSON) regeo(formatted flexString) Regeo {
 	r := Regeo{
 		Province: string(ac.Province), City: string(ac.City), District: string(ac.District),
 		Township: string(ac.Township), FormattedAddress: string(formatted), Adcode: string(ac.Adcode),
+	}
+	if IsCountry(r.Province) || r.Adcode == "100000" {
+		// No province (a point in the sea): callers fall back to the atlas.
+		r.Province, r.Adcode = "", ""
+		if IsCountry(r.City) {
+			r.City = ""
+		}
+	}
+	if IsCountry(r.FormattedAddress) {
+		r.FormattedAddress = ""
 	}
 	if r.City == "" {
 		r.City = r.Province // municipalities

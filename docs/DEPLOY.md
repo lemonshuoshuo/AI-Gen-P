@@ -79,16 +79,17 @@ docker compose logs -f app
 
 搜索框会同时查询高德的关键字搜索和输入提示并合并结果，民宿、小店这类只出现在输入提示里的地点也能搜到。
 
-**配置了 Key 却搜不到具体店铺 / 民宿？** 多半是 Key 本身有问题：高德拒绝请求时，服务端会退回到只能搜省市名称的离线搜索（配置了天地图时退回天地图），同时暂停调用高德 10 分钟，并在搜索结果中带上原因（`amap_error`，网页上会显示给你）。系统诊断里会直接显示原因，常见的有：
+**配置了 Key 却搜不到具体店铺 / 民宿？** 高德拒绝请求时，服务端会退回到只能搜省市名称的离线搜索（配置了天地图时退回天地图），并在搜索结果中带上原因（`amap_error`，网页上会显示给你）。Key 或额度的错误会暂停调用高德 10 分钟；网络故障（单次请求最长等 10 秒）要在不同时刻**连续 3 次**才暂停 20 秒（同一次搜索并发的两个请求只算一次），偶尔一次超时不会影响其他人。系统诊断里会直接显示原因，常见的有：
 
 | 诊断信息 | 高德错误码 | 处理 |
 |---|---|---|
 | 高德 Key 的服务平台不是「Web服务」 | 10009 USERKEY_PLAT_NOMATCH | 在高德控制台为本站**新建**一个服务平台为「Web服务」的 Key，替换 `.env` 里的 `AMAP_KEY` |
-| 高德 Key 无效，请检查 .env 中的 AMAP_KEY | 10001 INVALID_USER_KEY | Key 复制错了（多了空格 / 少了字符）或已删除 |
+| 高德 Key 无效 | 10001 INVALID_USER_KEY | Key 复制错了（多了空格 / 少了字符）或已删除；对照系统诊断「技术细节」里 Key 的长度和首尾字符 |
 | 服务器 IP 不在高德 Key 的白名单中 | 10005 INVALID_USER_IP | 在高德控制台把服务器的公网 IP 加入白名单，或清空白名单 |
 | 高德调用额度已用完 | 10003 / 10044 / 10041 | 当日免费额度用完，次日恢复；或在高德控制台提升额度 |
 | 该 Key 没有此接口权限 | 10012 INSUFFICIENT_PRIVILEGES | 在高德控制台确认该 Key 开通了搜索、逆地理编码、输入提示、路径规划等 Web 服务 |
-| 服务器无法连接高德（restapi.amap.com） | – | 服务器不能访问外网，检查防火墙 / 出站规则 / DNS |
+| 高德 Key 开启了数字签名 | 10007 INVALID_USER_SIGNATURE | 本站不支持数字签名，在高德控制台关闭该 Key 的数字签名 |
+| 服务器无法连接高德（restapi.amap.com）：… / 高德接口响应超时 | – | 网络问题，与 Key 无关，见「常见问题 → 系统诊断显示异常，但 Key 确认无误」 |
 
 修改 `.env` 后执行 `docker compose up -d` 使其生效，再在系统诊断里确认。
 
@@ -118,7 +119,7 @@ docker compose logs -f app
 
 配置后，前端会出现「AI 帮我规划」，旅行中的「推荐下一站」也会由 AI 结合位置、时间和社区评价给出理由。
 未配置时，推荐功能会自动使用规则推荐（计划中的下一站 + 附近社区高分地点 + 避雷提醒）。
-配置完成后在「管理后台 → 系统诊断」查看「AI」一项：会实际向模型发一条消息，显示是否正常、用时，失败时给出原因（Key 无效、余额不足、模型不存在、超时、连不上等）。
+配置完成后在「管理后台 → 系统诊断」查看「AI」一项：会实际向模型发一条消息，显示是否正常、用时，失败时给出原因（Key 无效、余额不足、模型不存在、超时、连不上等）。DeepSeek 返回 HTTP 402 表示**账户余额不足**，要在 DeepSeek 开放平台充值，换一个 Key 没有用。
 
 ### 深度思考与超时
 
@@ -299,5 +300,19 @@ docker compose up -d --build       # 在服务器上编译前端和后端，自�
 - **app 启动后立即退出或反复重启**：执行 `docker compose logs app` 查看原因。常见原因：`.env` 中的 `ADMIN_PASSWORD` 仍是示例值或不足 8 位；`JWT_SECRET` 填了但不足 32 个字符（留空会自动生成）；`GOMEMLIMIT` 单位写错（日志出现 `malformed GOMEMLIMIT`，应写成 `800MiB`、`1500MiB` 这样）。
 - **普通用户忘记密码**：管理员在「管理后台 → 用户管理」中对该用户执行「重置密码」，会生成一个新密码（转告用户，用户登录后可在「账号设置」中修改），该用户在所有设备上的登录随之失效。
 - **修改 `.env` 后没生效**：要执行 `docker compose up -d` 重新创建容器；`docker compose restart` 不会重新读取 `.env`。
+- **系统诊断显示异常，但 Key 确认无误**：先看诊断里的「技术细节」——「失败环节」是 DNS 解析 / 代理 / TCP 连接 / TLS 握手 / 等待响应时，是服务器（容器）的网络问题，与 Key 无关；「原始错误」是 Go 的原始报错（Key 已隐藏），失败时也会写入 `docker compose logs app`（`diagnostics check failed`）。在部署目录运行自检，它在容器里逐项检查代理、DNS、TCP、TLS，并用与服务端相同的代码真实调用一次各服务（不连数据库，Key 只显示长度和首尾字符；全部正常时退出码为 0）：
+  ```bash
+  docker compose exec app /triphub -diagnose
+  # app 在反复重启时：docker compose run --rm --no-deps app -diagnose
+  ```
+  常见原因：
+  - **容器用的还是旧配置**：改了 `.env` 却只执行了 `docker compose restart`。执行 `docker compose up -d`，再对照诊断中 Key 的长度和首尾字符。
+  - **Key 里混入了多余字符**：引号、行尾注释、复制带来的零宽字符 / BOM、换行。服务端启动时会自动去掉并在日志中警告（`配置值含有多余字符`），但请改正 `.env`：每行写成 `AMAP_KEY=你的Key`，注释单独占一行。
+  - **Docker 注入了代理**：`~/.docker/config.json`（用 sudo 时是 `/root/.docker/config.json`）里的 `proxies` 会被注入每个容器（`HTTPS_PROXY`）。容器里的 `127.0.0.1` 是容器自己，连不到宿主机上的代理，诊断显示「代理」环节失败。删掉 `proxies`（或改成容器能访问的地址、加 `noProxy`），然后 `docker compose up -d --force-recreate app`。
+  - **容器 DNS 不通**：宿主机只配置了本机 DNS（如 `127.0.0.1` 上的 dnsmasq）、Docker 找不到可用的上游 DNS 时，会给容器改用 8.8.8.8，国内可能不通；使用 systemd-resolved（`127.0.0.53`，Ubuntu 默认）时 Docker 会读取 `/run/systemd/resolve/resolv.conf` 中的上游 DNS，也要确认那里的 DNS 可用。在 `/etc/docker/daemon.json` 写入 `{"dns": ["223.5.5.5", "119.29.29.29"]}`，`systemctl restart docker` 后 `docker compose up -d`。
+  - **防火墙 / 安全组**：`firewall-cmd --reload` 或改过 iptables 后要重启 Docker，否则容器出站的 NAT 规则会丢失；确认安全组放行出站 443；`daemon.json` 中不要设置 `"iptables": false`。
+  - **MTU**：TCP 能连上但 TLS 握手超时，而宿主机上 `curl` 正常，多半是云服务器 / VPN 网卡的 MTU 小于 1500。用 `ip link` 查看网卡 MTU（如 1450），在 `docker-compose.yml` 末尾加上 `networks: {default: {driver_opts: {com.docker.network.driver.mtu: "1450"}}}`，然后 `docker compose down && docker compose up -d`。
+  - **服务器时间不对**：TLS 证书校验失败（证书已过期或尚未生效）时用 `timedatectl` 检查时间。
+  - **DeepSeek 余额不足**：诊断显示「AI 账户余额不足」（HTTP 402）时到 DeepSeek 开放平台充值。
 - **修改数据库密码**：`DB_PASSWORD` 只在第一次启动（`data/postgres` 为空）时用来初始化数据库，之后直接改 `.env` 会导致 app 日志出现 `password authentication failed`。正确做法：先执行 `docker compose exec db psql -U triphub -d triphub -c "ALTER USER triphub PASSWORD '新密码'"`，再把 `.env` 的 `DB_PASSWORD` 改成同一个值，然后 `docker compose up -d`。（首次部署、还没有任何数据时，也可以 `docker compose down && rm -rf data/postgres` 后重新启动。）
 - **HTTPS 没生效**：Caddy 要等 app 显示 `(healthy)` 后才启动，先用 `docker compose ps` 确认 app 正常；再执行 `docker compose logs caddy` 查看原因（常见：`.env` 未设置 `DOMAIN`、域名未解析到本机、80/443 端口被占用或安全组未放行、国内服务器域名未备案）。
