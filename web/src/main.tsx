@@ -16,7 +16,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
-      <Toaster position="top-center" richColors closeButton />
+      <Toaster position="top-center" closeButton toastOptions={{ className: 'th-toast' }} />
       <ConfirmHost />
       <OutboxSync />
     </QueryClientProvider>

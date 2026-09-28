@@ -278,3 +278,33 @@
 .prose-trip img { border-radius: 6px; max-width: 100%; }
 .prose-trip code { background: var(--color-ink-100); padding: 0.1em 0.35em; border-radius: 3px; }
 .prose-trip hr { border: 0; border-top: 1px solid var(--color-line); margin: 2em 0; }
+
+/* 提示条（sonner）：暖白纸片 + 细线，状态只给图标上色 */
+[data-sonner-toaster] [data-sonner-toast].th-toast {
+  background: var(--color-white);
+  color: var(--color-ink-900);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  font-size: 0.875rem;
+}
+[data-sonner-toast].th-toast [data-description] {
+  color: var(--color-ink-500);
+}
+[data-sonner-toast].th-toast[data-type='success'] [data-icon] {
+  color: var(--color-emerald-500);
+}
+[data-sonner-toast].th-toast[data-type='error'] [data-icon] {
+  color: var(--color-brand-500);
+}
+[data-sonner-toast].th-toast[data-type='warning'] [data-icon] {
+  color: var(--color-amber-500);
+}
+[data-sonner-toast].th-toast[data-type='info'] [data-icon] {
+  color: var(--color-sky-500);
+}
+[data-sonner-toast].th-toast [data-close-button] {
+  background: var(--color-white);
+  border-color: var(--color-line);
+  color: var(--color-ink-500);
+}

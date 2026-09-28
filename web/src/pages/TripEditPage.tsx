@@ -832,8 +832,8 @@ export default function TripEditPage() {
   const canPreview = order.length >= 2
 
   return (
-    <div className="md:grid md:h-[calc(100dvh-3.5rem)] md:grid-cols-[minmax(400px,460px)_1fr]">
-      <div className="sticky top-14 z-20 border-b border-ink-200 md:static md:order-2 md:h-full md:border-b-0">
+    <div className="md:grid md:h-full md:grid-cols-[minmax(400px,460px)_1fr]">
+      <div className="sticky top-15 z-20 border-b border-ink-200 md:static md:order-2 md:h-full md:border-b-0">
         {/* 手机上展开编辑框时地图变矮，给表单留出空间 */}
         <BaseMap className={cn('md:h-full', editing !== null ? 'h-[22vh]' : 'h-[38vh]')} kindSwitcher locate>
           <RouteLines planned={planned} actual={trip.phase !== 'planning' ? actual : undefined} />

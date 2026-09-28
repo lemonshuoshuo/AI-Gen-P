@@ -181,10 +181,17 @@ function ForkDialog({ trip, onClose }: { trip: TripDetail; onClose: () => void }
 
 /** 大号统计：Fraunces 数字 + 小号单位与标签，多个之间用竖细线分隔 */
 function BigStat({ label, value, unit, sub }: { label: string; value: ReactNode; unit?: string; sub?: ReactNode }) {
+  // 「2,363 公里」这类长数字缩小一号，避免单位被挤到下一行
+  const long = (typeof value === 'string' || typeof value === 'number') && String(value).length >= 5
   return (
     <div className="min-w-0 px-2.5 first:pl-0 last:pr-0 sm:px-5">
       <div className="flex flex-wrap items-baseline gap-x-1">
-        <span className="font-num text-[1.55rem] leading-none font-[450] tracking-tight whitespace-nowrap text-ink-900 sm:text-[2.35rem]">
+        <span
+          className={cn(
+            'font-num leading-none font-[450] tracking-tight whitespace-nowrap text-ink-900',
+            long ? 'text-[1.3rem] sm:text-[1.85rem]' : 'text-[1.55rem] sm:text-[2.35rem]',
+          )}
+        >
           {value}
         </span>
         {unit && <span className="text-[11px] whitespace-nowrap text-ink-400 sm:text-xs">{unit}</span>}

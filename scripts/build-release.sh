@@ -40,7 +40,7 @@ find "$WEBUI" -mindepth 1 ! -name '.keep' -exec rm -rf {} +
 
 echo "==> 组装发布包"
 cp "$ROOT/deploy/Dockerfile" "$ROOT/deploy/.env.example" "$ROOT/deploy/Caddyfile" \
-   "$ROOT/deploy/nginx.conf.example" "$ROOT/LICENSE" "$OUT/"
+   "$ROOT/deploy/nginx.conf.example" "$ROOT/LICENSE" "$ROOT/CHANGELOG.md" "$OUT/"
 cp "$ROOT/docs/DEPLOY.md" "$OUT/README.md"
 cp "$ROOT/docs/API.md" "$OUT/API.md"
 # 镜像标签固定为本包的版本号：升级时沿用旧 .env 也不会覆盖旧版本的镜像，旧目录仍可用于回滚
