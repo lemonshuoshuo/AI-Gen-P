@@ -36,6 +36,8 @@ services:
     build:
       context: .
     image: triphub:${TRIPHUB_VERSION:-latest}
+    # 镜像由本目录的程序现场构建，不去镜像仓库拉取（仓库里没有这个镜像）
+    pull_policy: build
     restart: unless-stopped
     # 停止/升级时等待进行中的请求（如 AI 规划，默认最长 30 秒）完成后再退出；须大于服务端的优雅退出等待时间（40 秒）
     stop_grace_period: 45s
