@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Loader2, MapPin, Search, X } from 'lucide-react'
-import { api, errorMessage, isAvoided, type GeoSearchItem, type Place, type PlaceStats } from '@/api'
+import { api, errorMessage, isAvoided, type GeoSearchItem, type GeoSource, type Place, type PlaceStats } from '@/api'
 import { recommendRate } from '@/components/place/PlaceCard'
 import { PlaceStatsBadge } from '@/components/trip/WaypointItem'
 import { CategoryChip, confirmDialog } from '@/components/ui'
@@ -10,7 +10,7 @@ import { cn } from '@/lib/cn'
 import { isAdmin, useAuth } from '@/stores/auth'
 
 /** 结果来源：高德 / 离线城市列表（source=local）/ 社区里大家打卡过的地点 */
-export type PickSource = 'amap' | 'local' | 'community'
+export type PickSource = 'amap' | 'tianditu' | 'local' | 'community'
 
 export function PlaceSearch({
   onPick,
@@ -30,7 +30,7 @@ export function PlaceSearch({
   const [kw, setKw] = useState('')
   const [items, setItems] = useState<GeoSearchItem[]>([])
   const [community, setCommunity] = useState<Place[]>([])
-  const [source, setSource] = useState<'amap' | 'local' | null>(null)
+  const [source, setSource] = useState<GeoSource | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [loading, setLoading] = useState(false)

@@ -1,7 +1,8 @@
 // Package amap is a small client for the 高德 (AMap) Web Service API.
 // All methods degrade gracefully: when no key is configured or the service is
 // unreachable they return ErrUnavailable quickly, and callers fall back to
-// the offline atlas.
+// the offline atlas. Failures carry an *Error that explains them (see
+// ErrorMessage).
 package amap
 
 import (
@@ -18,6 +19,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"triphub/internal/lru"
 )
 
 // ErrUnavailable means the API is not configured or temporarily disabled.
@@ -32,27 +35,32 @@ var ErrNoRoute = errors.New("amap: no route")
 // DefaultBaseURL is the AMap REST endpoint.
 const DefaultBaseURL = "https://restapi.amap.com"
 
+// RequestTimeout bounds a single request (callers usually pass a shorter
+// context deadline).
+const RequestTimeout = 6 * time.Second
+
 // Client talks to the AMap web service API.
 type Client struct {
-	key       string
-	baseURL   string
-	http      *http.Client
-	regeo     *lru[*Regeo]
-	search    *lru[[]POI]  // Search results, by query
-	around    *lru[[]POI]  // Around results, by query at a point snapped to ~100 m
-	pois      *lru[POI]    // POIs seen in search / around / detail results, by ID
-	dir       *lru[*Route] // Direction results, by mode and end points
-	failUntil atomic.Int64 // unix nanos; circuit breaker after network / key errors
-	lastWarn  atomic.Int64 // unix nanos of the last throttled warning
+	key      string
+	baseURL  string
+	http     *http.Client
+	regeo    *lru.Cache[*Regeo]
+	detail   *lru.Cache[*RegeoDetail] // RegeoDetail results, by point
+	search   *lru.Cache[[]POI]        // Search / Find results, by query
+	around   *lru.Cache[[]POI]        // Around results, by query at a point snapped to ~100 m
+	pois     *lru.Cache[POI]          // POIs seen in search / around / detail results, by ID
+	dir      *lru.Cache[*Route]       // Direction results, by mode and end points
+	fail     breaker                  // after network / key errors
+	lastWarn atomic.Int64             // unix nanos of the last throttled warning
 
 	// 路径规划 has a daily quota of its own: its key / quota errors pause
-	// only Direction (dirFailUntil), not search. Its requests are spaced
+	// only Direction (dirFail), not search. Its requests are spaced
 	// dirGap apart; a caller whose turn is over dirMaxWait away gives up.
-	dirFailUntil atomic.Int64
-	dirMu        sync.Mutex
-	dirNext      time.Time
-	dirGap       time.Duration
-	dirMaxWait   time.Duration
+	dirFail    breaker
+	dirMu      sync.Mutex
+	dirNext    time.Time
+	dirGap     time.Duration
+	dirMaxWait time.Duration
 }
 
 // New creates a client. An empty key yields a disabled client.
@@ -60,12 +68,13 @@ func New(key string) *Client {
 	return &Client{
 		key:     key,
 		baseURL: DefaultBaseURL,
-		http:    &http.Client{Timeout: 3 * time.Second},
-		regeo:   newLRU[*Regeo](20000, 24*time.Hour),
-		search:  newLRU[[]POI](2000, 30*time.Minute),
-		around:  newLRU[[]POI](2000, 10*time.Minute),
-		pois:    newLRU[POI](20000, 24*time.Hour),
-		dir:     newLRU[*Route](20000, 7*24*time.Hour),
+		http:    &http.Client{Timeout: RequestTimeout},
+		regeo:   lru.New[*Regeo](20000, 24*time.Hour),
+		detail:  lru.New[*RegeoDetail](5000, 24*time.Hour),
+		search:  lru.New[[]POI](2000, 30*time.Minute),
+		around:  lru.New[[]POI](2000, 10*time.Minute),
+		pois:    lru.New[POI](20000, 24*time.Hour),
+		dir:     lru.New[*Route](20000, 7*24*time.Hour),
 		// About 3 requests a second: the QPS limit of a personal key is low.
 		dirGap:     300 * time.Millisecond,
 		dirMaxWait: 3 * time.Second,
@@ -78,37 +87,91 @@ func (c *Client) SetBaseURL(u string) { c.baseURL = strings.TrimRight(u, "/") }
 // Enabled reports whether a key is configured.
 func (c *Client) Enabled() bool { return c != nil && c.key != "" }
 
-func (c *Client) available() bool {
-	return c.Enabled() && time.Now().UnixNano() >= c.failUntil.Load()
+// available returns nil when calls may be sent: a key is configured and the
+// shared breaker is closed. Otherwise it returns the error to report.
+func (c *Client) available() error {
+	switch {
+	case !c.Enabled():
+		return ErrUnavailable
+	case c.fail.isOpen():
+		return c.fail.err()
+	}
+	return nil
 }
 
-// flexString decodes AMap's habit of returning [] instead of "" for empty values.
+// LastError returns the error that paused calls, while they are paused.
+func (c *Client) LastError() error {
+	if !c.Enabled() || !c.fail.isOpen() {
+		return nil
+	}
+	return c.fail.err()
+}
+
+// flexString decodes AMap's habit of returning [] instead of "" for empty
+// values; numbers are kept as their text.
 type flexString string
 
 func (f *flexString) UnmarshalJSON(b []byte) error {
-	if len(b) > 0 && b[0] == '"' {
+	if len(b) == 0 {
+		*f = ""
+		return nil
+	}
+	switch b[0] {
+	case '"':
 		var s string
 		if err := json.Unmarshal(b, &s); err != nil {
 			return err
 		}
 		*f = flexString(s)
 		return nil
-	}
-	if len(b) > 0 && b[0] == '[' {
+	case '[':
 		var arr []string
 		if err := json.Unmarshal(b, &arr); err == nil && len(arr) > 0 {
 			*f = flexString(strings.Join(arr, ""))
 			return nil
 		}
+	case '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		*f = flexString(b)
+		return nil
 	}
 	*f = ""
 	return nil
 }
 
+func (f flexString) float() (float64, bool) {
+	v, err := strconv.ParseFloat(strings.TrimSpace(string(f)), 64)
+	return v, err == nil && !math.IsNaN(v) && !math.IsInf(v, 0)
+}
+
+// flexObject decodes a JSON object into V and ignores anything else (AMap
+// sends [] for an empty object).
+type flexObject[V any] struct{ V V }
+
+func (f *flexObject[V]) UnmarshalJSON(b []byte) error {
+	if len(b) > 0 && b[0] == '{' {
+		return json.Unmarshal(b, &f.V)
+	}
+	return nil
+}
+
+// flexList decodes a JSON array and ignores anything else ("" or an object).
+type flexList[V any] []V
+
+func (f *flexList[V]) UnmarshalJSON(b []byte) error {
+	if len(b) > 0 && b[0] == '[' {
+		var v []V
+		if err := json.Unmarshal(b, &v); err != nil {
+			return err
+		}
+		*f = v
+	}
+	return nil
+}
+
 type baseResp struct {
-	Status   string `json:"status"`
-	Info     string `json:"info"`
-	Infocode string `json:"infocode"`
+	Status   flexString `json:"status"`
+	Info     flexString `json:"info"`
+	Infocode flexString `json:"infocode"`
 }
 
 // AMap infocodes (https://lbs.amap.com/api/webservice/guide/tools/info).
@@ -133,40 +196,10 @@ func (c *Client) warnAllowed() bool {
 	return now-last >= int64(time.Minute) && c.lastWarn.CompareAndSwap(last, now)
 }
 
-// apiError handles a response with status "0". Key and quota errors open
-// the breaker (pausing its calls) for 10 minutes. Other errors only fail this
-// request: QPS limits pass by themselves, and per-request errors (2xxxx /
-// 3xxxx, e.g. 20012 for a keyword with illegal content) must not let crafted
-// input disable AMap for everyone.
-func (c *Client) apiError(breaker *atomic.Int64, path string, br baseResp) error {
-	switch {
-	case keyErrors[br.Infocode]:
-		breaker.Store(time.Now().Add(10 * time.Minute).UnixNano())
-		c.lastWarn.Store(time.Now().UnixNano())
-		slog.Warn("高德 Key 无效或调用额度已用尽，暂停调用 10 分钟", "path", path, "infocode", br.Infocode, "info", br.Info)
-	case qpsErrors[br.Infocode]:
-		if c.warnAllowed() {
-			slog.Warn("高德接口调用超出 QPS 限制", "path", path, "infocode", br.Infocode, "info", br.Info)
-		}
-	default:
-		if c.warnAllowed() {
-			slog.Warn("高德接口返回错误", "path", path, "infocode", br.Infocode, "info", br.Info)
-		}
-	}
-	return fmt.Errorf("%w: amap error %s: %s", ErrUnavailable, br.Infocode, br.Info)
-}
-
-func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
-	return c.getWith(ctx, &c.failUntil, path, q, out)
-}
-
-// getWith is get for an API with a quota of its own: its key and quota
-// errors open breaker instead of the shared one. Network errors still open
-// the shared breaker.
-func (c *Client) getWith(ctx context.Context, breaker *atomic.Int64, path string, q url.Values, out any) error {
-	if !c.available() || time.Now().UnixNano() < breaker.Load() {
-		return ErrUnavailable
-	}
+// fetch sends one request and decodes a successful answer into out, without
+// looking at or opening any breaker. Failures are *Error values, except a
+// cancelled caller (ErrUnavailable) and undecodable answers.
+func (c *Client) fetch(ctx context.Context, path string, q url.Values, out any) error {
 	q.Set("key", c.key)
 	q.Set("output", "JSON")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path+"?"+q.Encode(), nil)
@@ -177,20 +210,15 @@ func (c *Client) getWith(ctx context.Context, breaker *atomic.Int64, path string
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			// The caller went away (browser abort, client disconnect): not
-			// an AMap failure, so the breaker stays closed.
+			// an AMap failure.
 			return fmt.Errorf("%w: %v", ErrUnavailable, ctx.Err())
 		}
-		// Network failure or timeout: back off for a while so requests fail fast.
-		c.failUntil.Store(time.Now().Add(60 * time.Second).UnixNano())
 		msg := strings.ReplaceAll(err.Error(), c.key, "***") // never log the key
-		slog.Warn("amap request failed, disabling for 60s", "path", path, "err", msg)
-		return fmt.Errorf("%w: %s", ErrUnavailable, msg)
+		return &Error{Network: true, Info: msg, Host: hostOf(c.baseURL)}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		c.failUntil.Store(time.Now().Add(30 * time.Second).UnixNano())
-		slog.Warn("amap returned an error status, disabling for 30s", "path", path, "status", resp.StatusCode)
-		return fmt.Errorf("%w: http %d", ErrUnavailable, resp.StatusCode)
+		return &Error{HTTPStatus: resp.StatusCode}
 	}
 	raw := json.RawMessage{}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
@@ -199,9 +227,81 @@ func (c *Client) getWith(ctx context.Context, breaker *atomic.Int64, path string
 	var br baseResp
 	_ = json.Unmarshal(raw, &br)
 	if br.Status != "1" {
-		return c.apiError(breaker, path, br)
+		return &Error{Infocode: string(br.Infocode), Info: string(br.Info)}
 	}
 	return json.Unmarshal(raw, out)
+}
+
+func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
+	return c.getWith(ctx, &c.fail, path, q, out)
+}
+
+// getWith is get for an API with a quota of its own: its key and quota
+// errors open breaker instead of the shared one. Network errors still open
+// the shared breaker.
+//
+// Key and quota errors open the breaker (pausing its calls) for 10 minutes.
+// Other API errors only fail this request: QPS limits pass by themselves,
+// and per-request errors (2xxxx / 3xxxx, e.g. 20012 for a keyword with
+// illegal content) must not let crafted input disable AMap for everyone.
+func (c *Client) getWith(ctx context.Context, b *breaker, path string, q url.Values, out any) error {
+	if err := c.available(); err != nil {
+		return err
+	}
+	if b.isOpen() {
+		return b.err()
+	}
+	err := c.fetch(ctx, path, q, out)
+	var e *Error
+	if !errors.As(err, &e) {
+		return err
+	}
+	switch {
+	case e.Network:
+		// Network failure or timeout: back off for a while so requests fail fast.
+		c.fail.open(60*time.Second, e)
+		slog.Warn("amap request failed, disabling for 60s", "path", path, "err", e.Info)
+	case e.HTTPStatus != 0:
+		c.fail.open(30*time.Second, e)
+		slog.Warn("amap returned an error status, disabling for 30s", "path", path, "status", e.HTTPStatus)
+	case keyErrors[e.Infocode]:
+		b.open(10*time.Minute, e)
+		c.lastWarn.Store(time.Now().UnixNano())
+		slog.Warn("高德 Key 无效或调用额度已用尽，暂停调用 10 分钟", "path", path, "infocode", e.Infocode, "info", e.Info,
+			"hint", e.Message())
+	case qpsErrors[e.Infocode]:
+		if c.warnAllowed() {
+			slog.Warn("高德接口调用超出 QPS 限制", "path", path, "infocode", e.Infocode, "info", e.Info)
+		}
+	default:
+		if c.warnAllowed() {
+			slog.Warn("高德接口返回错误", "path", path, "infocode", e.Infocode, "info", e.Info)
+		}
+	}
+	return err
+}
+
+// Check sends a live keyword search (天安门 in 北京), bypassing the caches
+// and the breaker, for the admin diagnostics. A success closes the shared
+// breaker.
+func (c *Client) Check(ctx context.Context) error {
+	if !c.Enabled() {
+		return ErrUnavailable
+	}
+	q := url.Values{}
+	q.Set("keywords", "天安门")
+	q.Set("city", "北京")
+	q.Set("offset", "1")
+	q.Set("page", "1")
+	q.Set("extensions", "base")
+	var resp struct {
+		Pois flexList[poiJSON] `json:"pois"`
+	}
+	if err := c.fetch(ctx, "/v3/place/text", q, &resp); err != nil {
+		return err
+	}
+	c.fail.close()
+	return nil
 }
 
 // POI is a place returned by search. Coordinates are GCJ-02.
@@ -216,13 +316,16 @@ type POI struct {
 	Category string
 	Tel      string
 	Lng, Lat float64
-	Distance float64 // metres, only for around-search
+	Distance float64 // metres, only for around-search and reverse geocoding
+	Rating   float64 // AMap's business rating (0–5), 0 if unknown (Find only)
+	Cost     float64 // AMap's average cost per person in yuan, 0 if unknown (Find only)
 }
 
 type poiJSON struct {
 	ID       flexString `json:"id"`
 	Name     flexString `json:"name"`
 	Type     flexString `json:"type"`
+	Typecode flexString `json:"typecode"`
 	Address  flexString `json:"address"`
 	Location flexString `json:"location"`
 	Pname    flexString `json:"pname"`
@@ -230,11 +333,15 @@ type poiJSON struct {
 	Adname   flexString `json:"adname"`
 	Tel      flexString `json:"tel"`
 	Distance flexString `json:"distance"`
+	BizExt   flexObject[struct {
+		Rating flexString `json:"rating"`
+		Cost   flexString `json:"cost"`
+	}] `json:"biz_ext"`
 }
 
 func (p poiJSON) toPOI() (POI, bool) {
 	lng, lat, ok := parseLocation(string(p.Location))
-	if !ok {
+	if !ok || strings.TrimSpace(string(p.Name)) == "" {
 		return POI{}, false
 	}
 	city := string(p.Cityname)
@@ -247,8 +354,17 @@ func (p poiJSON) toPOI() (POI, bool) {
 		Type: string(p.Type), Category: Category(string(p.Type)), Tel: string(p.Tel),
 		Lng: lng, Lat: lat,
 	}
-	if d, err := strconv.ParseFloat(string(p.Distance), 64); err == nil {
+	if out.Type == "" && p.Typecode != "" {
+		out.Category = CategoryFromTypecode(string(p.Typecode))
+	}
+	if d, ok := p.Distance.float(); ok {
 		out.Distance = d
+	}
+	if v, ok := p.BizExt.V.Rating.float(); ok && v > 0 && v <= 5 {
+		out.Rating = v
+	}
+	if v, ok := p.BizExt.V.Cost.float(); ok && v > 0 {
+		out.Cost = v
 	}
 	return out, true
 }
@@ -260,7 +376,7 @@ func parseLocation(s string) (float64, float64, bool) {
 	}
 	lng, err1 := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
 	lat, err2 := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
-	if err1 != nil || err2 != nil {
+	if err1 != nil || err2 != nil || lng < -180 || lng > 180 || lat < -90 || lat > 90 {
 		return 0, 0, false
 	}
 	return lng, lat, true
@@ -289,7 +405,7 @@ func (c *Client) Search(ctx context.Context, keyword, city string, cityLimit boo
 	q.Set("page", "1")
 	q.Set("extensions", "base")
 	var resp struct {
-		Pois []poiJSON `json:"pois"`
+		Pois flexList[poiJSON] `json:"pois"`
 	}
 	if err := c.get(ctx, "/v3/place/text", q, &resp); err != nil {
 		return nil, err
@@ -327,7 +443,7 @@ func (c *Client) Around(ctx context.Context, lng, lat float64, radius int, types
 	q.Set("page", "1")
 	q.Set("extensions", "base")
 	var resp struct {
-		Pois []poiJSON `json:"pois"`
+		Pois flexList[poiJSON] `json:"pois"`
 	}
 	if err := c.get(ctx, "/v3/place/around", q, &resp); err != nil {
 		return nil, err
@@ -365,7 +481,7 @@ func (c *Client) Detail(ctx context.Context, id string) (*POI, error) {
 	q := url.Values{}
 	q.Set("id", id)
 	var resp struct {
-		Pois []poiJSON `json:"pois"`
+		Pois flexList[poiJSON] `json:"pois"`
 	}
 	if err := c.get(ctx, "/v3/place/detail", q, &resp); err != nil {
 		return nil, err
@@ -398,6 +514,29 @@ type Regeo struct {
 	Adcode           string
 }
 
+type addressComponentJSON struct {
+	Province     flexString `json:"province"`
+	City         flexString `json:"city"`
+	District     flexString `json:"district"`
+	Township     flexString `json:"township"`
+	Adcode       flexString `json:"adcode"`
+	StreetNumber flexObject[struct {
+		Street flexString `json:"street"`
+		Number flexString `json:"number"`
+	}] `json:"streetNumber"`
+}
+
+func (ac addressComponentJSON) regeo(formatted flexString) Regeo {
+	r := Regeo{
+		Province: string(ac.Province), City: string(ac.City), District: string(ac.District),
+		Township: string(ac.Township), FormattedAddress: string(formatted), Adcode: string(ac.Adcode),
+	}
+	if r.City == "" {
+		r.City = r.Province // municipalities
+	}
+	return r
+}
+
 // Regeo reverse-geocodes a GCJ-02 point (cached).
 func (c *Client) Regeo(ctx context.Context, lng, lat float64) (*Regeo, error) {
 	key := fmt.Sprintf("%.5f,%.5f", lng, lat)
@@ -408,31 +547,139 @@ func (c *Client) Regeo(ctx context.Context, lng, lat float64) (*Regeo, error) {
 	q.Set("location", fmt.Sprintf("%.6f,%.6f", lng, lat))
 	q.Set("extensions", "base")
 	var resp struct {
-		Regeocode struct {
-			FormattedAddress flexString `json:"formatted_address"`
-			AddressComponent struct {
-				Province flexString `json:"province"`
-				City     flexString `json:"city"`
-				District flexString `json:"district"`
-				Township flexString `json:"township"`
-				Adcode   flexString `json:"adcode"`
-			} `json:"addressComponent"`
-		} `json:"regeocode"`
+		Regeocode flexObject[struct {
+			FormattedAddress flexString                       `json:"formatted_address"`
+			AddressComponent flexObject[addressComponentJSON] `json:"addressComponent"`
+		}] `json:"regeocode"`
 	}
 	if err := c.get(ctx, "/v3/geocode/regeo", q, &resp); err != nil {
 		return nil, err
 	}
-	ac := resp.Regeocode.AddressComponent
-	r := &Regeo{
-		Province: string(ac.Province), City: string(ac.City), District: string(ac.District),
-		Township: string(ac.Township), FormattedAddress: string(resp.Regeocode.FormattedAddress),
-		Adcode: string(ac.Adcode),
+	rc := resp.Regeocode.V
+	r := rc.AddressComponent.V.regeo(rc.FormattedAddress)
+	c.regeo.Put(key, &r)
+	return &r, nil
+}
+
+// AOI is an area of interest from reverse geocoding: a scenic area, campus,
+// mall, residential compound… Coordinates are GCJ-02.
+type AOI struct {
+	ID        string
+	Name      string
+	Typecode  string
+	Category  string
+	Lng, Lat  float64
+	AreaM2    float64
+	DistanceM float64 // 0: the point is inside the AOI
+}
+
+// RegeoDetail is a reverse-geocoding result with the areas and places
+// around the point.
+type RegeoDetail struct {
+	Regeo
+	Street string // street of the nearest door number
+	Number string // the door number
+	Road   string // nearest road
+	AOIs   []AOI  // as AMap orders them
+	POIs   []POI  // within 200 m, with Distance
+}
+
+// Spot returns the name of the place at the point, for naming it: the
+// (smallest) AOI containing the point, else the nearest POI within maxPOI
+// metres; "" when there is none.
+func (r *RegeoDetail) Spot(maxPOI float64) string {
+	best := -1
+	for i, a := range r.AOIs {
+		if a.DistanceM <= 0 && (best < 0 || (a.AreaM2 > 0 && a.AreaM2 < r.AOIs[best].AreaM2)) {
+			best = i
+		}
 	}
-	if r.City == "" {
-		r.City = r.Province // municipalities
+	if best >= 0 {
+		return r.AOIs[best].Name
 	}
-	c.regeo.Put(key, r)
-	return r, nil
+	name, nearest := "", maxPOI
+	for _, p := range r.POIs {
+		if p.Distance <= nearest {
+			name, nearest = p.Name, p.Distance
+		}
+	}
+	return name
+}
+
+// Max numbers of AOIs / POIs kept per RegeoDetail (they are cached).
+const (
+	maxDetailAOIs = 6
+	maxDetailPOIs = 15
+)
+
+// RegeoDetail reverse-geocodes a GCJ-02 point with extensions=all (AOIs,
+// POIs and roads within 200 m); results are cached for a day and shared
+// (must not be modified).
+func (c *Client) RegeoDetail(ctx context.Context, lng, lat float64) (*RegeoDetail, error) {
+	key := fmt.Sprintf("%.5f,%.5f", lng, lat)
+	if r, ok := c.detail.Get(key); ok {
+		return r, nil
+	}
+	q := url.Values{}
+	q.Set("location", fmt.Sprintf("%.6f,%.6f", lng, lat))
+	q.Set("extensions", "all")
+	q.Set("radius", "200")
+	q.Set("roadlevel", "0")
+	var resp struct {
+		Regeocode flexObject[struct {
+			FormattedAddress flexString                       `json:"formatted_address"`
+			AddressComponent flexObject[addressComponentJSON] `json:"addressComponent"`
+			Pois             flexList[poiJSON]                `json:"pois"`
+			Roads            flexList[struct {
+				Name     flexString `json:"name"`
+				Distance flexString `json:"distance"`
+			}] `json:"roads"`
+			Aois flexList[struct {
+				ID       flexString `json:"id"`
+				Name     flexString `json:"name"`
+				Location flexString `json:"location"`
+				Area     flexString `json:"area"`
+				Distance flexString `json:"distance"`
+				Type     flexString `json:"type"`
+			}] `json:"aois"`
+		}] `json:"regeocode"`
+	}
+	if err := c.get(ctx, "/v3/geocode/regeo", q, &resp); err != nil {
+		return nil, err
+	}
+	rc := resp.Regeocode.V
+	ac := rc.AddressComponent.V
+	out := &RegeoDetail{Regeo: ac.regeo(rc.FormattedAddress),
+		Street: string(ac.StreetNumber.V.Street), Number: string(ac.StreetNumber.V.Number)}
+	roadDist := math.Inf(1)
+	for _, r := range rc.Roads {
+		if d, ok := r.Distance.float(); ok && d < roadDist && r.Name != "" {
+			out.Road, roadDist = string(r.Name), d
+		}
+	}
+	for _, a := range rc.Aois {
+		lng, lat, ok := parseLocation(string(a.Location))
+		if !ok || strings.TrimSpace(string(a.Name)) == "" || len(out.AOIs) >= maxDetailAOIs {
+			continue
+		}
+		area, _ := a.Area.float()
+		dist, _ := a.Distance.float()
+		out.AOIs = append(out.AOIs, AOI{ID: string(a.ID), Name: string(a.Name), Typecode: string(a.Type),
+			Category: CategoryFromTypecode(string(a.Type)), Lng: lng, Lat: lat, AreaM2: area, DistanceM: dist})
+	}
+	for _, p := range convertPOIs(rc.Pois) {
+		if len(out.POIs) >= maxDetailPOIs {
+			break
+		}
+		// Regeo POIs carry no province / city of their own: they are the point's.
+		p.Province, p.City = out.Province, out.City
+		if p.District == "" {
+			p.District = out.District
+		}
+		out.POIs = append(out.POIs, p)
+	}
+	c.detail.Put(key, out)
+	return out, nil
 }
 
 // Route is a 路径规划 result.
@@ -469,8 +716,11 @@ func (c *Client) Direction(ctx context.Context, mode string, fromLng, fromLat, t
 	if r, ok := c.dir.Get(key); ok {
 		return r, nil
 	}
-	if !c.available() || time.Now().UnixNano() < c.dirFailUntil.Load() {
-		return nil, ErrUnavailable
+	if err := c.available(); err != nil {
+		return nil, err
+	}
+	if c.dirFail.isOpen() {
+		return nil, c.dirFail.err()
 	}
 	if err := c.throttle(ctx); err != nil {
 		return nil, err
@@ -482,25 +732,26 @@ func (c *Client) Direction(ctx context.Context, mode string, fromLng, fromLat, t
 		Duration flexString `json:"duration"`
 	}
 	var resp struct {
-		Route struct {
-			Distance flexString `json:"distance"`
-			Paths    []leg      `json:"paths"`
-			Transits []leg      `json:"transits"`
-		} `json:"route"`
+		Route flexObject[struct {
+			Distance flexString    `json:"distance"`
+			Paths    flexList[leg] `json:"paths"`
+			Transits flexList[leg] `json:"transits"`
+		}] `json:"route"`
 	}
-	if err := c.getWith(ctx, &c.dirFailUntil, path, q, &resp); err != nil {
+	if err := c.getWith(ctx, &c.dirFail, path, q, &resp); err != nil {
 		return nil, err
 	}
-	legs := resp.Route.Paths
+	route := resp.Route.V
+	legs := route.Paths
 	if mode == "transit" {
-		legs = resp.Route.Transits
+		legs = route.Transits
 	}
 	if len(legs) == 0 {
 		return nil, ErrNoRoute
 	}
 	dist, okDist := roundNumber(legs[0].Distance)
 	if !okDist && mode == "transit" {
-		dist, okDist = roundNumber(resp.Route.Distance)
+		dist, okDist = roundNumber(route.Distance)
 	}
 	dur, okDur := roundNumber(legs[0].Duration)
 	if !okDist || !okDur {
@@ -566,6 +817,34 @@ func Category(t string) string {
 		return "transport"
 	case strings.Contains(t, "休闲娱乐"), strings.Contains(t, "体育休闲"):
 		return "entertainment"
+	}
+	return "other"
+}
+
+// CategoryFromTypecode maps an AMap type code ("050100", or several joined
+// by "|") to a TripHub category, like Category does for type names.
+func CategoryFromTypecode(code string) string {
+	code, _, _ = strings.Cut(strings.TrimSpace(code), "|")
+	if len(code) < 4 {
+		return "other"
+	}
+	switch code[:2] {
+	case "05":
+		return "food"
+	case "10":
+		return "hotel"
+	case "11":
+		return "scenic" // 风景名胜 (incl. 公园广场)
+	case "06":
+		return "shopping"
+	case "15":
+		return "transport"
+	case "08":
+		return "entertainment" // 体育休闲服务
+	case "14":
+		if code[:4] == "1401" { // 博物馆
+			return "scenic"
+		}
 	}
 	return "other"
 }

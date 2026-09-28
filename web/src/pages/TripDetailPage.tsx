@@ -708,7 +708,7 @@ function TripDetailView() {
           onClose={() => setShareWp(null)}
           heading="分享打卡点"
           title={`${shareWp.name} · ${trip.title}`}
-          text={[shareWp.verdict && `${verdicts[shareWp.verdict].emoji} ${verdicts[shareWp.verdict].label}`, shareWp.note.slice(0, 60)].filter(Boolean).join(' · ') || undefined}
+          text={[shareWp.verdict && `${verdicts[shareWp.verdict].mark} ${verdicts[shareWp.verdict].label}`, shareWp.note.slice(0, 60)].filter(Boolean).join(' · ') || undefined}
           url={`${window.location.origin}${shareBase}?wp=${shareWp.id}`}
         />
       )}

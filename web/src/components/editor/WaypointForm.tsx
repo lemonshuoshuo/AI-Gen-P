@@ -116,7 +116,7 @@ export function WaypointForm({
                     f.verdict === v ? verdicts[v].cls + ' font-semibold ring-2' : 'bg-white text-ink-500 ring-ink-200',
                   )}
                 >
-                  {verdicts[v].emoji} {verdicts[v].label}
+                  {verdicts[v].mark} {verdicts[v].label}
                 </button>
               ))}
             </div>

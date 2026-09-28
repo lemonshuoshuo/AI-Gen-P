@@ -48,7 +48,7 @@ async function addAtlasFallback(map: MLMap, kind: () => BaseKind) {
         id: 'th-atlas-fill',
         type: 'fill',
         source: 'th-atlas',
-        paint: { 'fill-color': kind() === 'dark' ? '#161a33' : '#ffffff', 'fill-opacity': 0.9 },
+        paint: { 'fill-color': kind() === 'dark' ? '#131d1f' : '#faf7f0', 'fill-opacity': 0.9 },
       },
       'th-normal',
     )
@@ -57,7 +57,7 @@ async function addAtlasFallback(map: MLMap, kind: () => BaseKind) {
         id: 'th-atlas-line',
         type: 'line',
         source: 'th-atlas',
-        paint: { 'line-color': kind() === 'dark' ? '#323a6b' : '#c9c6d3', 'line-width': 0.8 },
+        paint: { 'line-color': kind() === 'dark' ? '#2c3d40' : '#cdc3b1', 'line-width': 0.8 },
       },
       'th-normal',
     )

@@ -70,21 +70,21 @@ export function RouteLines({
         type: 'line',
         source: `${P}-planned`,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#0ea5e9', 'line-width': 3, 'line-dasharray': [1.5, 1.5], 'line-opacity': 0.9 },
+        paint: { 'line-color': dark ? '#88a8b0' : '#3f6975', 'line-width': 2.25, 'line-dasharray': [2, 2], 'line-opacity': 0.9 },
       })
       map.addLayer({
         id: `${P}-track`,
         type: 'line',
         source: `${P}-track`,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#8b5cf6', 'line-width': 3.5, 'line-opacity': 0.85 },
+        paint: { 'line-color': '#b7832f', 'line-width': 2.75, 'line-opacity': 0.8 },
       })
       map.addLayer({
         id: `${P}-actual-casing`,
         type: 'line',
         source: `${P}-actual`,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': dark ? '#000' : '#fff', 'line-width': 7, 'line-opacity': 0.8 },
+        paint: { 'line-color': dark ? '#0c1314' : '#fffdf9', 'line-width': 6.5, 'line-opacity': 0.85 },
       })
       map.addLayer({
         id: `${P}-actual`,
@@ -92,8 +92,10 @@ export function RouteLines({
         source: `${P}-actual`,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-width': 4,
-          'line-gradient': ['interpolate', ['linear'], ['line-progress'], 0, '#ff5a5f', 1, '#ff9a44'],
+          'line-width': 3.25,
+          'line-gradient': dark
+            ? ['interpolate', ['linear'], ['line-progress'], 0, '#c9a868', 1, '#e8cf94']
+            : ['interpolate', ['linear'], ['line-progress'], 0, '#a53a22', 1, '#cf6b4e'],
         },
       })
     }
@@ -114,25 +116,35 @@ export function RouteLines({
 }
 
 /* ---------------- 打卡点标记 ---------------- */
-function markerHtml(w: Waypoint, label: string, selected: boolean) {
-  const c = categoryOf(w.category).color
+const INK = '#1b1a17'
+const PAPER = '#fffdf9'
+const VERMILION = '#bd462b'
+
+/**
+ * 印章式标记：已到达为墨色实心，计划中为虚线空心，跳过为淡灰；右下角小圆点是分类色，
+ * 踩雷在右上角加朱砂记号。数字用 Fraunces。
+ */
+export function markerHtml(w: Pick<Waypoint, 'category' | 'planned' | 'status' | 'verdict'>, label: string, selected: boolean) {
+  const cat = categoryOf(w.category).color
   const todo = w.planned && w.status === 'todo'
   const skipped = w.status === 'skipped'
-  const color = skipped ? '#9895a5' : c
+  const size = selected ? 32 : 26
+  const bg = skipped ? '#ece7dd' : todo ? PAPER : selected ? VERMILION : INK
+  const fg = skipped ? '#b9b1a2' : todo ? (selected ? VERMILION : INK) : PAPER
+  const border = skipped ? '1.5px solid #cdc3b1' : todo ? `1.5px dashed ${selected ? VERMILION : INK}` : `1.5px solid ${PAPER}`
   // anchor: 'bottom' 已经把元素底边（针尖）放在坐标上，内层不能再上移，否则标记会浮在路线顶点上方
   return `
     <div style="position:relative;display:flex;flex-direction:column;align-items:center">
       <div style="
-        min-width:${selected ? 34 : 28}px;height:${selected ? 34 : 28}px;padding:0 6px;border-radius:999px;
+        position:relative;min-width:${size}px;height:${size}px;padding:0 6px;border-radius:999px;
         display:flex;align-items:center;justify-content:center;
-        font:700 ${selected ? 14 : 12}px/1 system-ui,sans-serif;
-        color:${todo ? color : '#fff'};background:${todo ? '#fff' : color};
-        border:2.5px ${todo ? 'dashed' : 'solid'} ${todo ? color : '#fff'};
-        box-shadow:0 2px 8px rgba(0,0,0,.25);
-        ${selected ? 'outline:3px solid rgba(255,90,95,.45);' : ''}
-        opacity:${skipped ? 0.7 : 1};transition:all .15s">${label}</div>
-      ${w.verdict === 'avoid' ? '<div style="position:absolute;top:-6px;right:-8px;font-size:13px">⚠️</div>' : ''}
-      <div style="width:2px;height:8px;background:${color};margin-top:-1px;border-radius:1px"></div>
+        font:500 ${selected ? 15 : 13}px/1 'Fraunces Variable',Georgia,serif;font-variant-numeric:lining-nums;
+        color:${fg};background:${bg};border:${border};
+        box-shadow:0 1px 2px rgba(27,26,23,.18),0 4px 10px -2px rgba(27,26,23,.28);transition:all .15s">${label}
+        ${skipped ? '' : `<span style="position:absolute;right:-2px;bottom:-2px;width:8px;height:8px;border-radius:999px;background:${cat};box-shadow:0 0 0 1.5px ${PAPER}"></span>`}
+      </div>
+      ${w.verdict === 'avoid' ? `<div style="position:absolute;top:-5px;right:-6px;width:14px;height:14px;border-radius:999px;background:${VERMILION};color:${PAPER};font:600 9px/14px system-ui,sans-serif;text-align:center;box-shadow:0 0 0 1.5px ${PAPER}">✕</div>` : ''}
+      <div style="width:1.5px;height:7px;background:${skipped ? '#cdc3b1' : INK};opacity:.7"></div>
     </div>`
 }
 
@@ -208,8 +220,8 @@ export function UserDot({ position, accuracy }: { position: LngLat | null; accur
     if (!marker.current) {
       const el = document.createElement('div')
       el.innerHTML = `<div style="position:relative;width:18px;height:18px">
-        <span class="animate-pulse-ring" style="position:absolute;inset:0;border-radius:999px;background:rgba(14,165,233,.45)"></span>
-        <span style="position:absolute;inset:2px;border-radius:999px;background:#0ea5e9;border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.3)"></span>
+        <span class="animate-pulse-ring" style="position:absolute;inset:0;border-radius:999px;background:rgba(63,105,117,.4)"></span>
+        <span style="position:absolute;inset:2px;border-radius:999px;background:#3f6975;border:3px solid #fffdf9;box-shadow:0 1px 6px rgba(27,26,23,.3)"></span>
       </div>`
       el.title = accuracy ? `精度约 ${Math.round(accuracy)} 米` : '当前位置'
       marker.current = new Marker({ element: el }).setLngLat(position).addTo(map)

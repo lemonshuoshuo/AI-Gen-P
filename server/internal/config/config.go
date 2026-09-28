@@ -4,6 +4,7 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -42,6 +43,27 @@ type Config struct {
 	AIAPIKey  string
 	AIModel   string
 	AITimeout time.Duration
+	// AIThinking is the reasoning ("deep thinking") mode: off (default), on,
+	// low, high or max; see ai.Config.
+	AIThinking string
+	// AIExtraBody is merged into every chat completion request body
+	// (TRIPHUB_AI_EXTRA_BODY, a JSON object), for provider-specific options.
+	AIExtraBody map[string]any
+
+	// TiandituKey is the optional 天地图 服务端 key (free fallback for
+	// place search and reverse geocoding).
+	TiandituKey string
+}
+
+// DefaultAITimeout is the default TRIPHUB_AI_TIMEOUT: a multi-day plan from
+// a cloud model takes 20–60 s, longer with reasoning.
+const DefaultAITimeout = 120 * time.Second
+
+// aiThinkingModes are the accepted TRIPHUB_AI_THINKING values (and aliases).
+var aiThinkingModes = map[string]string{
+	"": "off", "off": "off", "false": "off", "0": "off", "no": "off", "disabled": "off", "disable": "off", "none": "off",
+	"on": "on", "true": "on", "1": "on", "yes": "on", "enabled": "on", "enable": "on",
+	"low": "low", "medium": "high", "high": "high", "max": "max",
 }
 
 // defaultTrustedProxies are loopback and private networks: a reverse proxy
@@ -97,7 +119,21 @@ func Load() (*Config, error) {
 		AIBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("TRIPHUB_AI_BASE_URL")), "/"),
 		AIAPIKey:  strings.TrimSpace(os.Getenv("TRIPHUB_AI_API_KEY")),
 		AIModel:   strings.TrimSpace(os.Getenv("TRIPHUB_AI_MODEL")),
-		AITimeout: 30 * time.Second,
+		AITimeout: DefaultAITimeout,
+
+		TiandituKey: strings.TrimSpace(os.Getenv("TRIPHUB_TIANDITU_KEY")),
+	}
+	mode, ok := aiThinkingModes[strings.ToLower(strings.TrimSpace(os.Getenv("TRIPHUB_AI_THINKING")))]
+	if !ok {
+		return nil, fmt.Errorf("invalid TRIPHUB_AI_THINKING %q (off / on / low / high / max)", os.Getenv("TRIPHUB_AI_THINKING"))
+	}
+	c.AIThinking = mode
+	if v := strings.TrimSpace(os.Getenv("TRIPHUB_AI_EXTRA_BODY")); v != "" {
+		var extra map[string]any
+		if err := json.Unmarshal([]byte(v), &extra); err != nil || extra == nil {
+			return nil, fmt.Errorf("invalid TRIPHUB_AI_EXTRA_BODY: must be a JSON object such as {\"enable_thinking\": false}")
+		}
+		c.AIExtraBody = extra
 	}
 	tp, err := trustedProxies(os.Getenv("TRIPHUB_TRUSTED_PROXIES"))
 	if err != nil {

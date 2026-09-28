@@ -14,21 +14,26 @@ export const defaultTiles: SiteConfig['map']['tiles'] = {
 /** 站点配置没有给出 map.attribution 时的底图版权；换了瓦片源或要显示审图号时由服务端配置 */
 export const defaultAttribution = '© 高德地图'
 
-// 用亮度反转 + 色相旋转把标准底图变成夜间风格，适合 3D 轨迹展示
+// 夜间：亮度反转 + 色相旋转 + 降饱和，叠在黛青底色上，适合 3D 轨迹展示
 const darkPaint = {
-  'raster-brightness-min': 0.9,
-  'raster-brightness-max': 0.06,
+  'raster-brightness-min': 0.86,
+  'raster-brightness-max': 0.05,
   'raster-hue-rotate': 180,
-  'raster-saturation': -0.45,
-  'raster-contrast': 0.12,
+  'raster-saturation': -0.72,
+  'raster-contrast': 0.1,
+  'raster-opacity': 0.9,
 }
+// 标准：降饱和、略透出暖色底，像一张旧纸地图，让路线和标记成为主角
 const normalPaint = {
-  'raster-brightness-min': 0,
-  'raster-brightness-max': 1,
+  'raster-brightness-min': 0.03,
+  'raster-brightness-max': 0.99,
   'raster-hue-rotate': 0,
-  'raster-saturation': 0,
-  'raster-contrast': 0,
+  'raster-saturation': -0.58,
+  'raster-contrast': -0.04,
+  'raster-opacity': 0.86,
 }
+
+export const MAP_BG = { light: '#e8dfcf', dark: '#0c1314' }
 
 export function buildStyle(
   tiles: SiteConfig['map']['tiles'],
@@ -46,7 +51,7 @@ export function buildStyle(
       {
         id: 'th-bg',
         type: 'background',
-        paint: { 'background-color': kind === 'dark' ? '#0b0d1a' : '#eef0f3' },
+        paint: { 'background-color': kind === 'dark' ? MAP_BG.dark : MAP_BG.light },
       },
       {
         id: 'th-normal',
@@ -75,18 +80,18 @@ export function buildStyle(
 function skyFor(kind: BaseKind) {
   return kind === 'dark'
     ? {
-        'sky-color': '#0b0d1a',
-        'horizon-color': '#1d2551',
-        'fog-color': '#0b0d1a',
+        'sky-color': '#0c1314',
+        'horizon-color': '#1d2c2e',
+        'fog-color': '#0c1314',
         'sky-horizon-blend': 0.6,
         'horizon-fog-blend': 0.6,
         'fog-ground-blend': 0.2,
         'atmosphere-blend': 0.6,
       }
     : {
-        'sky-color': '#9dd3ff',
-        'horizon-color': '#e8f3ff',
-        'fog-color': '#ffffff',
+        'sky-color': '#dce3df',
+        'horizon-color': '#efe9dd',
+        'fog-color': '#f4f1ea',
         'sky-horizon-blend': 0.5,
         'horizon-fog-blend': 0.6,
         'fog-ground-blend': 0.3,
@@ -102,10 +107,10 @@ export function setBaseKind(map: MLMap, kind: BaseKind) {
   map.setLayoutProperty('th-sat-label', 'visibility', kind === 'satellite' ? 'visible' : 'none')
   const paint = kind === 'dark' ? darkPaint : normalPaint
   for (const [k, v] of Object.entries(paint)) map.setPaintProperty('th-normal', k as 'raster-contrast', v)
-  map.setPaintProperty('th-bg', 'background-color', kind === 'dark' ? '#0b0d1a' : '#eef0f3')
+  map.setPaintProperty('th-bg', 'background-color', kind === 'dark' ? MAP_BG.dark : MAP_BG.light)
   if (map.getLayer('th-atlas-fill')) {
-    map.setPaintProperty('th-atlas-fill', 'fill-color', kind === 'dark' ? '#161a33' : '#ffffff')
-    map.setPaintProperty('th-atlas-line', 'line-color', kind === 'dark' ? '#323a6b' : '#c9c6d3')
+    map.setPaintProperty('th-atlas-fill', 'fill-color', kind === 'dark' ? '#131d1f' : '#faf7f0')
+    map.setPaintProperty('th-atlas-line', 'line-color', kind === 'dark' ? '#2c3d40' : '#cdc3b1')
   }
   map.setSky(skyFor(kind))
 }
