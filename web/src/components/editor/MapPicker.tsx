@@ -19,7 +19,9 @@ import { Button, CategoryChip, confirmDialog } from '@/components/ui'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { cn } from '@/lib/cn'
 import { formatDistance } from '@/lib/geo'
+import { isAdmin, useAuth } from '@/stores/auth'
 import { IndeterminateLine } from './Indeterminate'
+import { sentence } from './text'
 
 type LngLat = [number, number]
 
@@ -57,7 +59,8 @@ function toInput(c: GeoPickCandidate, r: GeoPickResult): WaypointInput {
         }
       : {}
   if (c.kind === 'address')
-    return { lng: c.lng, lat: c.lat, address: c.address || r.address.address || c.name || undefined, ...hint }
+    // 只提交真正的地址：没有地址时（如只识别到城市）由服务端按行政区命名，再在编辑框里改成真正的名字
+    return { lng: c.lng, lat: c.lat, address: c.address || r.address.address || undefined, ...hint }
   return {
     name: c.name,
     address: c.address || undefined,
@@ -85,6 +88,7 @@ export function MapPicker({
 }) {
   const map = useMap()
   const desktop = useIsDesktop()
+  const user = useAuth((s) => s.user)
   const titleId = useId()
   const [lng, lat] = point
   const [hover, setHover] = useState<GeoPickCandidate | null>(null)
@@ -261,13 +265,16 @@ export function MapPicker({
             {r.amap_error && (
               <p className="mx-4 mt-3 flex gap-2 border-l-2 border-amber-400 bg-amber-50/70 py-2 pr-2 pl-2.5 text-xs leading-relaxed text-amber-800">
                 <Info className="mt-px size-3.5 shrink-0" strokeWidth={1.75} />
-                <span>高德地点服务暂不可用：{r.amap_error}</span>
+                <span>高德地点服务暂不可用：{sentence(r.amap_error)}</span>
               </p>
             )}
             {named.length === 0 && (
               <p className="px-4 pt-3 text-xs leading-relaxed text-ink-400">
                 附近没有识别到景区或店铺。
                 {zoom < 13 ? '把地图放大到街道后再点，会更准确；' : ''}也可以直接用这个位置，稍后在编辑框里写上名字。
+                {r.source === 'local' && !r.amap_error && isAdmin(user) && (
+                  <span className="mt-1 block text-amber-700">管理员：配置高德「Web服务」Key 后，可以识别具体的景区和店铺。</span>
+                )}
               </p>
             )}
             <ul className="divide-y divide-ink-100 py-1" onMouseLeave={() => setHover(null)}>

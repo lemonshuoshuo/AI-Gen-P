@@ -182,7 +182,7 @@ function ForkDialog({ trip, onClose }: { trip: TripDetail; onClose: () => void }
 /** 大号统计：Fraunces 数字 + 小号单位与标签，多个之间用竖细线分隔 */
 function BigStat({ label, value, unit, sub }: { label: string; value: ReactNode; unit?: string; sub?: ReactNode }) {
   return (
-    <div className="min-w-0 px-3 first:pl-0 last:pr-0 sm:px-5">
+    <div className="min-w-0 px-2.5 first:pl-0 last:pr-0 sm:px-5">
       <div className="flex items-baseline gap-1">
         <span className="font-num text-[1.7rem] leading-none font-[450] tracking-tight text-ink-900 sm:text-[2.35rem]">
           {value}
@@ -482,7 +482,7 @@ function TripDetailView() {
             <img src={trip.cover_url} alt={trip.title} className="size-full object-cover" />
           </div>
           <div className="mx-auto max-w-7xl px-4 lg:px-10">
-            <div className="relative -mt-14 max-w-3xl bg-paper pt-5 pr-5 md:-mt-24 md:pt-8 md:pr-10">{titleBlock}</div>
+            <div className="relative -mt-14 -ml-4 max-w-3xl bg-paper pt-5 pr-5 pl-4 md:-mt-24 md:-ml-8 md:pt-8 md:pr-10 md:pl-8">{titleBlock}</div>
           </div>
         </div>
       ) : (

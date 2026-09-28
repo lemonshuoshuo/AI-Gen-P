@@ -193,21 +193,21 @@ export default function PlacePage() {
   return (
     <div className="mx-auto max-w-5xl px-4 pt-6 pb-16 md:px-6 md:pt-10">
       <div className="flex items-center justify-between gap-4">
-      <nav aria-label="位置" className="eyebrow flex flex-wrap items-center gap-2">
-        <Link to="/places" className="transition-colors hover:text-ink-900">
-          Places · 打卡地
-        </Link>
-        {place.city && (
-          <>
-            <span aria-hidden className="text-ink-300">
-              /
-            </span>
-            <Link to={`/places?city=${encodeURIComponent(place.city)}`} className="transition-colors hover:text-ink-900">
-              {place.city}
-            </Link>
-          </>
-        )}
-      </nav>
+        <nav aria-label="位置" className="eyebrow flex flex-wrap items-center gap-2">
+          <Link to="/places" className="transition-colors hover:text-ink-900">
+            Places · 打卡地
+          </Link>
+          {place.city && (
+            <>
+              <span aria-hidden className="text-ink-300">
+                /
+              </span>
+              <Link to={`/places?city=${encodeURIComponent(place.city)}`} className="transition-colors hover:text-ink-900">
+                {place.city}
+              </Link>
+            </>
+          )}
+        </nav>
         <button
           type="button"
           onClick={() => requireAuth(() => setReport({ type: 'place', id: place.id }))}

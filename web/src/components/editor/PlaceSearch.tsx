@@ -8,6 +8,7 @@ import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { useSite } from '@/hooks/useSite'
 import { cn } from '@/lib/cn'
 import { isAdmin, useAuth } from '@/stores/auth'
+import { sentence } from './text'
 
 /** 结果来源：高德 / 离线城市列表（source=local）/ 社区里大家打卡过的地点 */
 export type PickSource = 'amap' | 'tianditu' | 'local' | 'community'
@@ -81,7 +82,7 @@ export function PlaceSearch({
         if (g.status === 'fulfilled') {
           setItems(g.value.items)
           setSource(g.value.source)
-          setAmapError(g.value.amap_error?.trim() || null)
+          setAmapError(sentence(g.value.amap_error))
           setFailed(null)
         } else {
           setItems([])
