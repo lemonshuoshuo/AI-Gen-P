@@ -30,7 +30,7 @@ import { toast } from 'sonner'
 import { api, ApiError, errorMessage, isNotFound, type Recommendation, type Suggestion, type TripDetail, type Waypoint } from '@/api'
 import { useOutboxCount } from '@/components/OutboxSync'
 import { WaypointForm } from '@/components/editor/WaypointForm'
-import { BaseMap, useMap } from '@/components/map/BaseMap'
+import { BaseMap, mapChipClass, useMap } from '@/components/map/BaseMap'
 import { FitOnce, RouteLines, UserDot, WaypointMarkers, fitTo } from '@/components/map/layers'
 import { CheckinPicker, type PickedPlace } from '@/components/trip/CheckinPicker'
 import { NavigateMenu } from '@/components/trip/NavigateMenu'
@@ -609,20 +609,38 @@ export default function TravelModePage() {
   const elapsed = geo.startedAt ? Date.now() - geo.startedAt : 0
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-ink-900">
+    <div className="fixed inset-0 flex flex-col bg-paper">
       {/* 顶栏 */}
-      <div className="glass pb-2 pt-[max(env(safe-area-inset-top),0.5rem)] z-20 flex items-center gap-2 px-3 shadow-card">
-        <Link to={`/trips/${trip.id}`} className="rounded-full p-2 hover:bg-ink-100" aria-label="返回">
-          <ArrowLeft className="size-5" />
+      <div className="z-20 flex items-center gap-2 border-b border-ink-200 bg-paper/95 px-3 pt-[max(env(safe-area-inset-top),0.5rem)] pb-2 backdrop-blur">
+        <Link to={`/trips/${trip.id}`} className="rounded-lg p-2 text-ink-700 transition-colors hover:bg-ink-900/5" aria-label="返回">
+          <ArrowLeft className="size-5" strokeWidth={1.6} />
         </Link>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-bold">{trip.title}</div>
+          <p className="eyebrow !text-[10px] !leading-3">On the road · 旅行中</p>
+          <div className="font-display mt-0.5 truncate text-[16px] leading-snug text-ink-900">{trip.title}</div>
           {/* 窄屏放不下时换行：标题截断，位置公开状态不截断 */}
-          <div className="flex flex-wrap items-center gap-x-2 text-xs text-ink-500">
-            <span>{plannedTotal > 0 ? `计划 ${plannedDone}/${plannedTotal}` : `已打卡 ${visited}`}</span>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 text-xs text-ink-500">
+            <span>
+              {plannedTotal > 0 ? (
+                <>
+                  计划 <span className="font-num text-ink-800">{plannedDone}</span>
+                  <span className="font-num text-ink-400">/{plannedTotal}</span>
+                </>
+              ) : (
+                <>
+                  已打卡 <span className="font-num text-ink-800">{visited}</span>
+                </>
+              )}
+            </span>
             {geo.recording && (
-              <span className="text-red-600">
-                ● {fmtDuration(elapsed)} · {formatKm(geo.recordedKm)}
+              <span className="inline-flex items-center gap-1 text-brand-600">
+                <span className="relative flex size-1.5">
+                  <span className="absolute inset-0 animate-ping rounded-full bg-brand-500/60" />
+                  <span className="relative size-1.5 rounded-full bg-brand-500" />
+                </span>
+                <span className="font-num">{fmtDuration(elapsed)}</span>
+                <span className="text-brand-300">·</span>
+                <span className="font-num">{formatKm(geo.recordedKm)}</span>
               </span>
             )}
             {trip.is_owner && trip.visibility !== 'private' && trip.phase !== 'finished' && (
@@ -630,12 +648,12 @@ export default function TravelModePage() {
                 type="button"
                 onClick={toggleLiveShare}
                 className={cn(
-                  'inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap hover:underline',
-                  trip.live_share ? 'text-emerald-600' : 'text-ink-500',
+                  'inline-flex shrink-0 items-center gap-1 whitespace-nowrap underline-offset-2 hover:underline',
+                  trip.live_share ? 'text-emerald-700' : 'text-ink-500',
                 )}
                 title={trip.live_share ? '其他人可以实时看到你们的打卡、照片和轨迹，点击修改' : '其他人只能看到计划路线，点击修改'}
               >
-                {trip.live_share ? <Radio className="size-3 shrink-0" /> : <EyeOff className="size-3 shrink-0" />}
+                {trip.live_share ? <Radio className="size-3 shrink-0" strokeWidth={1.75} /> : <EyeOff className="size-3 shrink-0" strokeWidth={1.75} />}
                 {trip.live_share ? '实时公开位置中' : '位置仅同行可见'}
               </button>
             )}
@@ -647,14 +665,14 @@ export default function TravelModePage() {
             onClick={() => {
               if (me) void flushOutbox(me.id)
             }}
-            className="flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700"
+            className="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-amber-300 px-2 text-xs font-medium text-amber-700"
             title="联网后会自动同步，点击立即同步"
           >
-            <CloudUpload className="size-3.5" />
-            {pending} 条待同步
+            <CloudUpload className="size-3.5" strokeWidth={1.75} />
+            <span className="font-num">{pending}</span> 条待同步
           </button>
         )}
-        <Button size="sm" variant="outline" icon={<Flag className="size-4" />} onClick={finish}>
+        <Button size="sm" variant="outline" icon={<Flag className="size-3.5" strokeWidth={1.75} />} onClick={finish}>
           结束
         </Button>
       </div>
@@ -671,17 +689,15 @@ export default function TravelModePage() {
             m.on('dragstart', () => setFollow(false))
           }}
           overlay={
-            <div className="absolute top-14 right-3 z-10 flex flex-col gap-2">
+            <div className="absolute top-14 right-3 z-10 flex flex-col items-end gap-2">
               <button
                 type="button"
                 onClick={() => setFollow((v) => !v)}
-                className={cn(
-                  'glass flex size-9 items-center justify-center rounded-full shadow-card',
-                  follow ? 'text-sky-600' : 'text-ink-500',
-                )}
+                className={cn(mapChipClass, 'w-8 px-0', follow ? '!border-ink-900/30 !text-ink-900' : '!text-ink-400')}
                 title={follow ? '跟随中' : '不跟随'}
+                aria-pressed={follow}
               >
-                <Navigation className={cn('size-4', follow && 'fill-sky-600')} />
+                <Navigation className={cn('size-4', follow && 'fill-ink-900')} strokeWidth={1.6} />
               </button>
               <button
                 type="button"
@@ -690,7 +706,7 @@ export default function TravelModePage() {
                   setFollow(false)
                   if (mapRef.current) fitTo(mapRef.current, sorted.map((w) => [w.lng, w.lat] as [number, number]))
                 }}
-                className="glass flex h-9 items-center justify-center rounded-full px-3 text-xs font-medium text-ink-700 shadow-card disabled:opacity-50"
+                className={mapChipClass}
                 title="查看全程"
               >
                 全程
@@ -707,14 +723,14 @@ export default function TravelModePage() {
         {(stale || geo.error) && (
           <div className="absolute top-3 left-3 z-10 flex max-w-[70%] flex-col items-start gap-2">
             {stale && (
-              <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow-card">
-                <WifiOff className="mr-1 inline size-3.5" />
+              <div className="rounded-lg border border-amber-200 bg-amber-50/95 px-3 py-2 text-xs leading-relaxed text-amber-800 backdrop-blur">
+                <WifiOff className="mr-1 inline size-3.5" strokeWidth={1.75} />
                 {netDown ? '网络不佳，显示的是上次加载的数据' : `${errorMessage(error)}，显示的是上次加载的数据`}
               </div>
             )}
             {geo.error && (
-              <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow-card">
-                <TriangleAlert className="mr-1 inline size-3.5" />
+              <div className="rounded-lg border border-amber-200 bg-amber-50/95 px-3 py-2 text-xs leading-relaxed text-amber-800 backdrop-blur">
+                <TriangleAlert className="mr-1 inline size-3.5" strokeWidth={1.75} />
                 {geo.error}
                 {geo.blocked && <div className="mt-1 text-amber-700">仍可在「下一站」卡片点「已到达」手动打卡</div>}
               </div>
