@@ -7,6 +7,17 @@ import { useSite } from '@/hooks/useSite'
 import { loadAtlas } from '@/lib/atlas'
 import { cn } from '@/lib/cn'
 import { CHINA_CENTER, getCurrentPosition } from '@/lib/geo'
+
+/**
+ * 平面地图的可视范围：只做国内，限制在中国及周边，不再缩小到世界地图
+ * （世界级别的瓦片几乎全是海洋，标准底图一片漆黑，卫星图南极拉伸成一大块白色）。
+ * 地球（globe）模式不限制。
+ */
+const CHINA_BOUNDS: [[number, number], [number, number]] = [
+  [60, 2],
+  [150, 58],
+]
+const FLAT_MIN_ZOOM = 2.8
 import { atlasPaint, buildStyle, defaultAttribution, defaultTiles, setBaseKind, type BaseKind } from './style'
 import './maplibre.css'
 
@@ -117,6 +128,8 @@ export function BaseMap({
       pitch,
       bearing,
       maxPitch: 85,
+      ...(globe ? {} : { maxBounds: CHINA_BOUNDS, minZoom: FLAT_MIN_ZOOM }),
+      renderWorldCopies: false,
       interactive,
       attributionControl: false,
       dragRotate: true,
@@ -166,6 +179,15 @@ export function BaseMap({
   useEffect(() => {
     if (!map) return
     map.setProjection({ type: globe ? 'globe' : 'mercator' })
+    // 地球模式可以转到任意位置；回到平面地图时恢复国内范围（页面自己传了范围的除外）
+    if (globe) {
+      map.setMaxBounds(null)
+      map.setMinZoom(options?.minZoom ?? 0)
+    } else if (!options || !('maxBounds' in options)) {
+      map.setMaxBounds(CHINA_BOUNDS)
+      map.setMinZoom(Math.max(options?.minZoom ?? 0, FLAT_MIN_ZOOM))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, globe])
 
   const doLocate = async () => {
