@@ -32,6 +32,7 @@ type waypointInput struct {
 	Lat       *float64    `json:"lat"`
 	CoordType string      `json:"coord_type"`
 	Day       *int        `json:"day"`
+	Kind      *string     `json:"kind"`
 	Category  *string     `json:"category"`
 	Planned   *bool       `json:"planned"`
 	Status    *string     `json:"status"`
@@ -130,6 +131,18 @@ func (h *Handler) applyWaypoint(c *gin.Context, t *model.Trip, wp *model.Waypoin
 		}
 		wp.Day = *in.Day
 	}
+	if in.Kind != nil {
+		k := strings.TrimSpace(*in.Kind)
+		if k == "" {
+			k = model.KindStop
+		}
+		if k != model.KindStop && k != model.KindLodging {
+			return ch, errBad("kind 只能是 stop / lodging")
+		}
+		wp.Kind = k
+	} else if creating {
+		wp.Kind = model.KindStop
+	}
 	if in.Category != nil {
 		c := strings.TrimSpace(*in.Category)
 		if c == "" {
@@ -141,6 +154,9 @@ func (h *Handler) applyWaypoint(c *gin.Context, t *model.Trip, wp *model.Waypoin
 		wp.Category = c
 	} else if creating {
 		wp.Category = "other"
+		if wp.IsLodging() {
+			wp.Category = "hotel"
+		}
 	}
 
 	// Planned / status / times.
@@ -150,6 +166,9 @@ func (h *Handler) applyWaypoint(c *gin.Context, t *model.Trip, wp *model.Waypoin
 	}
 	if in.Planned != nil {
 		wp.Planned = *in.Planned
+	}
+	if wp.IsLodging() {
+		wp.Planned = true // where to sleep is part of the plan
 	}
 	if in.Status != nil {
 		s := strings.TrimSpace(*in.Status)
@@ -290,8 +309,83 @@ func (h *Handler) locateWaypoint(ctx context.Context, wp *model.Waypoint, ch wpC
 	}
 }
 
-// saveNewWaypoint inserts a prepared waypoint inside tx (trip must be locked).
+// checkLodging validates a lodging (the trip must be locked): its night is
+// 0 (the night before day 1) to the trip's days, and no other lodging has
+// it. Without dates the days are the planned ones or the latest day of the
+// trip's stops (also those just added by the same batch).
+func checkLodging(tx *gorm.DB, wp *model.Waypoint) error {
+	if !wp.IsLodging() {
+		return nil
+	}
+	var t model.Trip
+	if err := tx.Select("id", "start_date", "end_date", "plan_days").First(&t, wp.TripID).Error; err != nil {
+		return err
+	}
+	days := service.DateSpan(t.StartDate, t.EndDate)
+	if days == 0 {
+		var maxDay int
+		if err := tx.Model(&model.Waypoint{}).Where("trip_id = ? AND kind <> ?", wp.TripID, model.KindLodging).
+			Select("COALESCE(MAX(day), 0)").Scan(&maxDay).Error; err != nil {
+			return err
+		}
+		days = max(t.PlanDays, maxDay)
+	}
+	switch {
+	case days > 0 && wp.Day > days:
+		return errBad(fmt.Sprintf("住宿的 day 超出了旅程天数：共 %d 天，住宿的 day 取值 0–%d（第 N 天晚上住的地方，0 为出发前一晚）", days, days))
+	case days == 0 && wp.Day < 1:
+		return errBad("请先设置旅程天数，或指定住宿是第几天晚上（day ≥ 1）")
+	}
+	var n int64
+	if err := tx.Model(&model.Waypoint{}).Where("trip_id = ? AND kind = ? AND day = ? AND id <> ?", wp.TripID, model.KindLodging, wp.Day, wp.ID).
+		Count(&n).Error; err != nil {
+		return err
+	}
+	if n > 0 {
+		return errConflict(nightName(wp.Day) + "已有住宿，请先修改或删除原来的住宿")
+	}
+	return nil
+}
+
+// nightName names a lodging's night: 第 N 天晚上, or 出发前一晚 for night 0.
+func nightName(day int) string {
+	if day == 0 {
+		return "出发前一晚"
+	}
+	return fmt.Sprintf("第 %d 天晚上", day)
+}
+
+// tripOrder returns a trip's waypoint IDs in seq order and the day of each.
+func tripOrder(tx *gorm.DB, tripID int64) ([]int64, map[int64]int, error) {
+	var rows []struct {
+		ID  int64
+		Day int
+	}
+	if err := tx.Model(&model.Waypoint{}).Select("id", "day").Where("trip_id = ?", tripID).Order("seq, id").Scan(&rows).Error; err != nil {
+		return nil, nil, err
+	}
+	ids := make([]int64, len(rows))
+	dayOf := make(map[int64]int, len(rows))
+	for i, r := range rows {
+		ids[i], dayOf[r.ID] = r.ID, r.Day
+	}
+	return ids, dayOf, nil
+}
+
+// saveNewWaypoint inserts a prepared waypoint inside tx (trip must be
+// locked); a lodging without seq goes after its day (service.LodgingSeq).
 func (h *Handler) saveNewWaypoint(tx *gorm.DB, wp *model.Waypoint, seq *int) error {
+	if err := checkLodging(tx, wp); err != nil {
+		return err
+	}
+	if wp.IsLodging() && seq == nil {
+		ids, dayOf, err := tripOrder(tx, wp.TripID)
+		if err != nil {
+			return err
+		}
+		pos := service.LodgingSeq(ids, dayOf, wp.Day)
+		seq = &pos
+	}
 	pid, err := h.svc.ResolvePlace(tx, wp, !wp.AutoNamed, wp.CreatedByID)
 	if err != nil {
 		return err
@@ -306,6 +400,9 @@ func (h *Handler) saveNewWaypoint(tx *gorm.DB, wp *model.Waypoint, seq *int) err
 // createNewWaypoint is saveNewWaypoint for a waypoint whose Seq the caller
 // has already chosen (later waypoints are not shifted).
 func (h *Handler) createNewWaypoint(tx *gorm.DB, wp *model.Waypoint) error {
+	if err := checkLodging(tx, wp); err != nil {
+		return err
+	}
 	pid, err := h.svc.ResolvePlace(tx, wp, !wp.AutoNamed, wp.CreatedByID)
 	if err != nil {
 		return err
@@ -412,8 +509,8 @@ func (h *Handler) batchWaypoints(c *gin.Context) error {
 		// Positions are chosen in memory as sequential single creates would
 		// (service.InsertWaypoint: a seq outside 0..n-1 appends) and written
 		// once at the end, instead of shifting the later rows for every item.
-		var order []int64
-		if err := tx.Model(&model.Waypoint{}).Where("trip_id = ?", t.ID).Order("seq, id").Pluck("id", &order).Error; err != nil {
+		order, dayOf, err := tripOrder(tx, t.ID)
+		if err != nil {
 			return err
 		}
 		reordered := false
@@ -422,11 +519,19 @@ func (h *Handler) batchWaypoints(c *gin.Context) error {
 			pos := len(order)
 			if s := req.Items[i].Seq; s != nil && *s >= 0 && *s < pos {
 				pos, reordered = *s, true
+			} else if wps[i].IsLodging() && req.Items[i].Seq == nil {
+				if pos = service.LodgingSeq(order, dayOf, wps[i].Day); pos < len(order) {
+					reordered = true
+				}
 			}
 			wps[i].Seq = pos
 			if err := h.createNewWaypoint(tx, &wps[i]); err != nil {
+				if ae, ok := err.(*apiError); ok && len(wps) > 1 {
+					return &apiError{ae.Status, ae.Code, fmt.Sprintf("第 %d 项：%s", i+1, ae.Message)}
+				}
 				return err
 			}
+			dayOf[wps[i].ID] = wps[i].Day
 			order = slices.Insert(order, pos, wps[i].ID)
 			placeIDs = append(placeIDs, service.PlaceIDs(wps[i].PlaceID)...)
 		}
@@ -509,6 +614,7 @@ func changedWaypointColumns(a, b *model.Waypoint) []string {
 	sameTime := func(x, y *time.Time) bool { return x == nil && y == nil || x != nil && y != nil && x.Equal(*y) }
 	sameID := func(x, y *int64) bool { return x == nil && y == nil || x != nil && y != nil && *x == *y }
 	add(a.Day != b.Day, "day")
+	add(a.Kind != b.Kind, "kind")
 	add(a.Planned != b.Planned, "planned")
 	add(a.Status != b.Status, "status")
 	add(!sameTime(a.PlannedAt, b.PlannedAt), "planned_at")
@@ -543,6 +649,11 @@ func (h *Handler) saveWaypointChanges(ctx context.Context, wp, orig *model.Waypo
 		cur := *wp
 		if err := lockWaypoint(tx, &cur); err != nil {
 			return err
+		}
+		if wp.Kind != orig.Kind || wp.Day != orig.Day {
+			if err := checkLodging(tx, wp); err != nil {
+				return err
+			}
 		}
 		if relink {
 			pid, err := h.svc.ResolvePlace(tx, wp, !wp.AutoNamed, actorID)
@@ -585,25 +696,34 @@ func (h *Handler) updateWaypoint(c *gin.Context) error {
 	if err := h.saveWaypointChanges(c.Request.Context(), wp, &orig, ch.relink, currentUserID(c)); err != nil {
 		return err
 	}
-	if in.Seq != nil && *in.Seq != wp.Seq {
+	switch {
+	case in.Seq != nil && *in.Seq != wp.Seq:
 		if err := h.moveWaypoint(c.Request.Context(), wp, *in.Seq); err != nil {
+			return err
+		}
+	case wp.IsLodging() && (wp.Kind != orig.Kind || wp.Day != orig.Day):
+		if err := h.moveWaypoint(c.Request.Context(), wp, -1); err != nil { // after its day
 			return err
 		}
 	}
 	return h.respondWaypoint(c, wp.ID)
 }
 
-// moveWaypoint moves a waypoint to position seq within its trip.
+// moveWaypoint moves a waypoint to position seq within its trip; -1 moves
+// a lodging to the place of its night (service.LodgingSeq).
 func (h *Handler) moveWaypoint(ctx context.Context, wp *model.Waypoint, seq int) error {
 	return h.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := service.LockTrip(tx, wp.TripID); err != nil {
 			return err
 		}
-		var ids []int64
-		if err := tx.Model(&model.Waypoint{}).Where("trip_id = ?", wp.TripID).Order("seq, id").Pluck("id", &ids).Error; err != nil {
+		ids, dayOf, err := tripOrder(tx, wp.TripID)
+		if err != nil {
 			return err
 		}
 		ids = slices.DeleteFunc(ids, func(id int64) bool { return id == wp.ID })
+		if seq == -1 && wp.IsLodging() {
+			seq = service.LodgingSeq(ids, dayOf, wp.Day)
+		}
 		if seq < 0 {
 			seq = 0
 		}

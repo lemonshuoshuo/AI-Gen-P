@@ -70,11 +70,20 @@ func nearestTodo(wps []model.Waypoint, lng, lat, radius float64) *model.Waypoint
 	}
 	var best *model.Waypoint
 	for _, c := range cs {
-		if c.d <= minD+checkinTieMeters && (best == nil || c.w.Seq < best.Seq) {
+		if c.d <= minD+checkinTieMeters && (best == nil || earlierStop(c.w, best)) {
 			best = c.w
 		}
 	}
 	return best
+}
+
+// earlierStop reports whether a comes before b in the plan: the lodging of
+// an earlier night (several nights at one hotel), else the lower seq.
+func earlierStop(a, b *model.Waypoint) bool {
+	if a.IsLodging() && b.IsLodging() && a.Day != b.Day {
+		return a.Day < b.Day
+	}
+	return a.Seq < b.Seq
 }
 
 // checkinTarget picks the waypoint a location check-in at (lng, lat) and
@@ -453,7 +462,7 @@ func (h *Handler) compare(c *gin.Context) error {
 	}
 	planned := service.PlannedRoute(wps)
 	actual := service.ActualRoute(wps)
-	visited, skipped, todo, extra := []model.Waypoint{}, []model.Waypoint{}, []model.Waypoint{}, []model.Waypoint{}
+	visited, skipped, todo, extra, lodging := []model.Waypoint{}, []model.Waypoint{}, []model.Waypoint{}, []model.Waypoint{}, []model.Waypoint{}
 	type dayStat struct {
 		Day     int `json:"day"`
 		Planned int `json:"planned"`
@@ -476,6 +485,10 @@ func (h *Handler) compare(c *gin.Context) error {
 	}
 	diffs := []timeDiff{}
 	for _, w := range wps {
+		if w.IsLodging() { // not a stop: no part of the completion
+			lodging = append(lodging, w)
+			continue
+		}
 		if !w.Planned {
 			extra = append(extra, w)
 			stat(w.Day).Extra++
@@ -507,32 +520,53 @@ func (h *Handler) compare(c *gin.Context) error {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"planned": gin.H{"count": len(planned), "distance_km": service.RouteKm(planned), "path": service.RoutePath(planned)},
-		"actual": gin.H{"count": len(actual), "distance_km": service.RouteKm(actual),
+		"actual": gin.H{"count": service.CountStops(actual), "distance_km": service.RouteKm(actual),
 			"track_distance_km": geo.Round(trackKm, 2), "path": service.RoutePath(actual)},
 		"completion_rate": rate,
 		"visited":         h.waypointDTOs(visited), "skipped": h.waypointDTOs(skipped),
-		"todo": h.waypointDTOs(todo), "extra": h.waypointDTOs(extra),
+		"todo": h.waypointDTOs(todo), "extra": h.waypointDTOs(extra), "lodging": h.waypointDTOs(lodging),
 		"days": dayList, "time_diffs": diffs,
 	})
 	return nil
 }
 
-// legs returns the way and travel time between consecutive planned stops of
-// each day, planned by 高德 or estimated (see service.TripLegs).
+// legs returns the way and travel time of each day's planned route (from
+// the lodging of the night before through the day's stops to the night's
+// lodging), planned by 高德 or estimated (see service.TripLegs). Anyone who
+// may view the trip may ask; viewers who are not members only get routes
+// 高德 planned already (cached) and estimates once they have used up
+// h.legsLimit, so that visitors cannot spend the site's 高德 quota.
 func (h *Handler) legs(c *gin.Context) error {
-	t, _, err := h.tripForView(c)
+	t, a, err := h.tripForView(c)
 	if err != nil {
 		return err
 	}
-	mode := c.DefaultQuery("mode", "transit")
+	mode := c.Query("mode")
+	if mode == "" {
+		mode = t.TravelMode
+	}
+	if mode == "" {
+		mode = model.TravelAuto
+	}
 	if !slices.Contains(service.LegModes, mode) {
-		return errBad("mode 取值 walking / transit / driving")
+		return errBad("mode 取值 auto / walking / riding / driving / transit")
 	}
 	var wps []model.Waypoint
-	if err := h.db.WithContext(c.Request.Context()).Select("id", "seq", "day", "planned", "city", "lng", "lat").
+	if err := h.db.WithContext(c.Request.Context()).Select("id", "seq", "day", "kind", "planned", "city", "lng", "lat").
 		Where("trip_id = ? AND planned", t.ID).Order("seq, id").Find(&wps).Error; err != nil {
 		return err
 	}
-	c.JSON(http.StatusOK, h.svc.TripLegs(c.Request.Context(), wps, mode))
+	network := a.Member
+	if !network {
+		key := "ip:" + c.ClientIP()
+		if a.UserID != 0 {
+			key = fmt.Sprintf("u%d", a.UserID)
+		}
+		network = h.legsLimit.Allow(key)
+	}
+	c.JSON(http.StatusOK, h.svc.TripLegs(c.Request.Context(), wps, service.LegsOptions{
+		Mode: mode, Transit: t.TravelMode == "transit",
+		Geometry: queryBool(c, "geometry"), Network: network,
+	}))
 	return nil
 }

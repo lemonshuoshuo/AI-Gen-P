@@ -146,7 +146,7 @@ func (s *Service) Recommend(ctx context.Context, trip *model.Trip, pos *geo.Poin
 	if err := s.DB.WithContext(ctx).Where("trip_id = ?", trip.ID).Order("seq, id").Find(&wps).Error; err != nil {
 		return nil, err
 	}
-	todo, ahead := PendingPlan(wps)
+	todo, ahead := PendingPlanAt(wps, DayOfTrip(trip.StartDate, &now, s.Loc))
 	actual := ActualRoute(wps)
 	if pos == nil {
 		switch {
@@ -181,9 +181,12 @@ func (s *Service) Recommend(ctx context.Context, trip *model.Trip, pos *geo.Poin
 		}
 		d := dist(w.Lng, w.Lat)
 		reason := "计划中的下一站"
-		if i >= ahead {
+		switch {
+		case w.IsLodging():
+			reason = "今晚的住宿"
+		case i >= ahead:
 			reason = "计划中尚未去的站点"
-		} else if i > 0 {
+		case i > 0:
 			reason = "计划中的后续站点"
 		}
 		if w.Note != "" {
@@ -304,25 +307,34 @@ func (s *Service) Recommend(ctx context.Context, trip *model.Trip, pos *geo.Poin
 	return res, nil
 }
 
-// PendingPlan returns the planned todo waypoints of wps (ordered by seq, id):
-// first those after the last visited planned waypoint, then the earlier ones
-// the traveller passed without checking in. ahead is how many come after the
-// last visited stop. Unplanned and skipped waypoints never move progress.
+// PendingPlan returns the planned todo waypoints of wps in the order of the
+// plan (see PlanOrder: each night's lodging after that day's stops): first
+// those after the last visited planned waypoint, then the earlier stops the
+// traveller passed without checking in. ahead is how many come after the
+// last visited one. Unplanned and skipped waypoints never move progress.
 func PendingPlan(wps []model.Waypoint) (todo []model.Waypoint, ahead int) {
+	return PendingPlanAt(wps, 0)
+}
+
+// PendingPlanAt is PendingPlan on day today of the trip (0: unknown): the
+// lodging of nights before today are over, pending or not. A lodging passed
+// without checking in is never pending (the night is over too).
+func PendingPlanAt(wps []model.Waypoint, today int) (todo []model.Waypoint, ahead int) {
+	order := PlanOrder(wps)
 	last := -1
-	for i, w := range wps {
-		if w.Planned && w.Status == model.WPVisited {
+	for i, w := range order {
+		if w.Status == model.WPVisited {
 			last = i
 		}
 	}
 	var behind []model.Waypoint
-	for i, w := range wps {
-		if !w.Planned || w.Status != model.WPTodo {
+	for i, w := range order {
+		if w.Status != model.WPTodo || (w.IsLodging() && today > 0 && w.Day < today) {
 			continue
 		}
 		if i > last {
 			todo = append(todo, w)
-		} else {
+		} else if !w.IsLodging() {
 			behind = append(behind, w)
 		}
 	}

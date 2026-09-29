@@ -310,9 +310,10 @@ func (c *Client) Geocode(ctx context.Context, address string) (*POI, error) {
 // NameSimilarity rates how well a place name found on the map matches the
 // name asked for, from 0 (unrelated) to 1 (the same name, ignoring case,
 // spaces, punctuation and a branch in brackets such as "（椒江店）"). A name
-// contained in the other scores 0.7–1 by how much of it they share (the
-// asked name may start with the city: "台州府城" for "府城"); others score
-// by their common character pairs (Dice coefficient).
+// contained in the other scores 0.6–1 by how much of it they share
+// ("神仙居" in "神仙居景区" or "神仙居农家乐": callers tell those apart by
+// category); other names score by their common character pairs, or 0.8
+// times their common characters ("灵隐寺" / "灵隐禅寺"), whichever is more.
 func NameSimilarity(asked, found string) float64 {
 	a, b := normName(stripBranch(asked)), normName(stripBranch(found))
 	if a == "" || b == "" {
@@ -324,25 +325,33 @@ func NameSimilarity(asked, found string) float64 {
 	ra, rb := []rune(a), []rune(b)
 	if strings.Contains(a, b) || strings.Contains(b, a) {
 		short, long := min(len(ra), len(rb)), max(len(ra), len(rb))
-		return 0.7 + 0.3*float64(short)/float64(long)
+		return 0.6 + 0.4*float64(short)/float64(long)
 	}
-	pairs := func(r []rune) map[[2]rune]int {
-		m := map[[2]rune]int{}
-		for i := 1; i < len(r); i++ {
-			m[[2]rune{r[i-1], r[i]}]++
+	dice := func(ka, kb []string) float64 {
+		if len(ka)+len(kb) == 0 {
+			return 0
 		}
-		return m
+		count := map[string]int{}
+		for _, k := range kb {
+			count[k]++
+		}
+		common := 0
+		for _, k := range ka {
+			if count[k] > 0 {
+				count[k]--
+				common++
+			}
+		}
+		return 2 * float64(common) / float64(len(ka)+len(kb))
 	}
-	pa, pb := pairs(ra), pairs(rb)
-	common := 0
-	for k, n := range pa {
-		common += min(n, pb[k])
+	grams := func(r []rune, n int) []string {
+		var out []string
+		for i := n; i <= len(r); i++ {
+			out = append(out, string(r[i-n:i]))
+		}
+		return out
 	}
-	total := len(ra) - 1 + len(rb) - 1
-	if total <= 0 {
-		return 0
-	}
-	return 2 * float64(common) / float64(total)
+	return max(dice(grams(ra, 2), grams(rb, 2)), 0.8*dice(grams(ra, 1), grams(rb, 1)))
 }
 
 // stripBranch drops a trailing bracketed part ("楼外楼(孤山路店)" → "楼外楼")

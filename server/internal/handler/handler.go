@@ -29,6 +29,7 @@ type Handler struct {
 	aiLimit      *auth.Limiter // AI calls per user
 	commentLimit *auth.Limiter // comments per user
 	geoLimit     *auth.Limiter // geo search / regeo per user
+	legsLimit    *auth.Limiter // legs planned by 高德 for non-members, per user / IP
 	views        *auth.Limiter // view-count de-duplication
 
 	trackCache *trackCache // rendered GET /trips/:id/track payloads
@@ -56,6 +57,7 @@ func New(svc *service.Service, webui fs.FS) *Handler {
 		aiLimit:      auth.NewLimiter(30, time.Hour),
 		commentLimit: auth.NewLimiter(30, 10*time.Minute),
 		geoLimit:     auth.NewLimiter(120, 10*time.Minute),
+		legsLimit:    auth.NewLimiter(20, 10*time.Minute),
 		views:        auth.NewLimiter(1, 30*time.Minute),
 		trackCache:   newTrackCache(trackCacheBytes),
 		webui:        webui,
@@ -64,7 +66,7 @@ func New(svc *service.Service, webui fs.FS) *Handler {
 
 // Cleanup purges expired limiter state and refresh tokens; call periodically.
 func (h *Handler) Cleanup() {
-	for _, l := range []*auth.Limiter{h.loginAccount, h.loginIP, h.register, h.aiLimit, h.commentLimit, h.geoLimit, h.views} {
+	for _, l := range []*auth.Limiter{h.loginAccount, h.loginIP, h.register, h.aiLimit, h.commentLimit, h.geoLimit, h.legsLimit, h.views} {
 		l.Cleanup()
 	}
 	h.db.Exec("DELETE FROM refresh_tokens WHERE expires_at < now()")
@@ -141,6 +143,8 @@ func (h *Handler) Router() *gin.Engine {
 
 	api.POST("/trips/:id/waypoints", user, w(h.createWaypoint))
 	api.POST("/trips/:id/waypoints/batch", user, w(h.batchWaypoints))
+	api.POST("/trips/:id/lodging", user, w(h.createLodging))
+	api.POST("/trips/:id/arrange", user, w(h.arrange))
 	api.PUT("/trips/:id/waypoints/order", user, w(h.orderWaypoints))
 	api.PATCH("/waypoints/:id", user, w(h.updateWaypoint))
 	api.DELETE("/waypoints/:id", user, w(h.deleteWaypoint))
@@ -151,10 +155,11 @@ func (h *Handler) Router() *gin.Engine {
 	api.POST("/waypoints/:id/reset", user, w(h.waypointReset))
 	api.GET("/trips/:id/recommend", user, w(h.recommend))
 	api.GET("/trips/:id/compare", w(h.compare))
-	// Legs spend the operator's AMap quota: users only.
-	api.GET("/trips/:id/legs", user, w(h.legs))
+	// Legs spend the operator's AMap quota: rate-limited for non-members (see legs).
+	api.GET("/trips/:id/legs", w(h.legs))
 	api.POST("/ai/plan", user, w(h.aiPlan))
 	api.POST("/ai/plan/stream", user, w(h.aiPlanStream))
+	api.POST("/ai/preferences", user, w(h.aiPreferences))
 
 	api.POST("/trips/:id/photos", user, w(h.uploadPhoto))
 	api.PATCH("/photos/:id", user, w(h.updatePhoto))

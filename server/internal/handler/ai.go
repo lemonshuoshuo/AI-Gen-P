@@ -193,3 +193,51 @@ func (h *Handler) aiPlanStream(c *gin.Context) error {
 		}
 	}
 }
+
+// aiPreferences suggests sentences for the 偏好和要求 of an AI plan:
+// POST /ai/preferences {destination, days?, start_date?, together?, draft?}
+// → {suggestions: [string], text: string}. It takes one call from the
+// user's AI quota, like /ai/plan.
+func (h *Handler) aiPreferences(c *gin.Context) error {
+	if !h.svc.AI.Enabled() {
+		return errBad("未配置 AI 服务")
+	}
+	var req struct {
+		Destination string `json:"destination"`
+		Days        int    `json:"days"`
+		StartDate   string `json:"start_date"`
+		Together    bool   `json:"together"`
+		Draft       string `json:"draft"`
+	}
+	if err := bindJSON(c, &req); err != nil {
+		return err
+	}
+	dest, err := clean(req.Destination, "目的地", 30, true)
+	if err != nil {
+		return err
+	}
+	if req.Days < 0 || req.Days > 15 {
+		return errBad("天数范围为 1–15 天")
+	}
+	draft, err := clean(req.Draft, "偏好", 300, false)
+	if err != nil {
+		return err
+	}
+	if _, err := parseDate(req.StartDate, "start_date"); err != nil {
+		return err
+	}
+	if !h.aiLimit.Allow(fmt.Sprintf("u%d", currentUserID(c))) {
+		return errTooMany("AI 使用过于频繁，请稍后再试")
+	}
+	res, err := h.svc.AIPreferences(c.Request.Context(), service.PreferencesRequest{Destination: dest, Days: req.Days,
+		StartDate: strings.TrimSpace(req.StartDate), Together: req.Together, Draft: draft})
+	if err != nil {
+		msg := "AI 没有给出建议，请重试"
+		if !errors.Is(err, service.ErrNoSuggestions) {
+			msg = aiPlanError(err)
+		}
+		return &apiError{http.StatusInternalServerError, "internal", msg}
+	}
+	c.JSON(http.StatusOK, res)
+	return nil
+}

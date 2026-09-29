@@ -85,17 +85,26 @@ func TestChronoInsertSeq(t *testing.T) {
 func TestTripDays(t *testing.T) {
 	loc, _ := time.LoadLocation("Asia/Shanghai")
 	d := func(s string) *time.Time { v, _ := time.Parse("2006-01-02", s); return &v }
-	if n := TripDays(d("2026-05-01"), d("2026-05-03"), nil, loc); n != 3 {
+	if n := TripDays(d("2026-05-01"), d("2026-05-03"), 0, nil, loc); n != 3 {
 		t.Errorf("dates: %d", n)
 	}
-	if n := TripDays(nil, nil, []model.Waypoint{{Day: 2}, {Day: 4}}, loc); n != 4 {
+	if n := TripDays(d("2026-05-01"), d("2026-05-03"), 5, []model.Waypoint{{Day: 4}}, loc); n != 3 {
+		t.Errorf("dates win over planned days and waypoint days: %d", n)
+	}
+	if n := TripDays(nil, nil, 0, []model.Waypoint{{Day: 2}, {Day: 4}}, loc); n != 4 {
 		t.Errorf("max day: %d", n)
+	}
+	if n := TripDays(nil, nil, 5, []model.Waypoint{{Day: 2}}, loc); n != 5 {
+		t.Errorf("planned days: %d", n)
+	}
+	if n := TripDays(nil, nil, 2, []model.Waypoint{{Day: 3, Kind: model.KindLodging}}, loc); n != 3 {
+		t.Errorf("planned days grow with a later waypoint: %d", n)
 	}
 	wps := []model.Waypoint{
 		{Status: model.WPVisited, ArrivedAt: tp("2026-05-01T23:30:00+08:00")},
 		{Status: model.WPVisited, ArrivedAt: tp("2026-05-02T00:30:00+08:00")},
 	}
-	if n := TripDays(nil, nil, wps, loc); n != 2 {
+	if n := TripDays(nil, nil, 0, wps, loc); n != 2 {
 		t.Errorf("arrival span (local dates): %d", n)
 	}
 	if n := DayOfTrip(d("2026-05-01"), tp("2026-05-02T01:00:00+08:00"), loc); n != 2 {
@@ -294,19 +303,34 @@ func checkDayTotals(t *testing.T, res TripLegsResult) {
 	}
 }
 
+// legsOf plans the legs of wps in mode (高德 may be asked).
+func legsOf(s *Service, wps []model.Waypoint, mode string) TripLegsResult {
+	return s.TripLegs(context.Background(), wps, LegsOptions{Mode: mode, Network: true})
+}
+
 func TestTripLegsEstimated(t *testing.T) {
 	s := &Service{Amap: amap.New("")}
 	for _, mode := range LegModes {
-		res := s.TripLegs(context.Background(), legsTrip(), mode)
+		res := legsOf(s, legsTrip(), mode)
 		var pairs []string
 		for _, l := range res.Legs {
 			pairs = append(pairs, fmt.Sprintf("%d-%d@%d", l.FromID, l.ToID, l.Day))
-			if !l.Estimated || l.DistanceM < l.StraightM || l.DurationS <= 0 {
+			if !l.Estimated || l.DistanceM < l.StraightM || l.DurationS <= 0 || l.Polyline != nil {
 				t.Errorf("%s: leg %+v", mode, l)
 			}
-			if want := mode; l.Mode != want && !(mode == "transit" && l.Mode == "walking" && l.StraightM <= 1000) {
-				t.Errorf("%s: leg %d-%d mode %s", mode, l.FromID, l.ToID, l.Mode)
+			want := mode
+			switch {
+			case mode == "auto":
+				want = RecommendMode(float64(l.StraightM), false)
+			case mode == "transit" && l.StraightM <= 1000:
+				want = "walking"
 			}
+			if l.Mode != want || l.RecommendedMode != RecommendMode(float64(l.StraightM), false) {
+				t.Errorf("%s: leg %d-%d mode %s (recommended %s)", mode, l.FromID, l.ToID, l.Mode, l.RecommendedMode)
+			}
+		}
+		if res.Pending != 0 {
+			t.Errorf("%s: pending %d without 高德", mode, res.Pending)
 		}
 		// No legs across days or to unplanned stops.
 		if got := strings.Join(pairs, ","); res.Mode != mode || got != "1-2@1,2-3@1,3-4@1,5-6@2" {
@@ -317,7 +341,7 @@ func TestTripLegsEstimated(t *testing.T) {
 		}
 		checkDayTotals(t, res)
 	}
-	if res := s.TripLegs(context.Background(), nil, "walking"); res.Legs == nil || res.Days == nil || len(res.Legs)+len(res.Days) != 0 {
+	if res := legsOf(s, nil, "walking"); res.Legs == nil || res.Days == nil || len(res.Legs)+len(res.Days) != 0 {
 		t.Fatalf("empty trip: %+v", res)
 	}
 }
@@ -347,12 +371,12 @@ func TestTripLegsAmap(t *testing.T) {
 	c := amap.New("k")
 	c.SetBaseURL(srv.URL)
 	s := &Service{Amap: c}
-	res := s.TripLegs(context.Background(), legsTrip(), "transit")
+	res := legsOf(s, legsTrip(), "transit")
 	var got []string
 	for _, l := range res.Legs {
 		got = append(got, fmt.Sprintf("%s %d/%d %v", l.Mode, l.DistanceM, l.DurationS, l.Estimated))
 	}
-	est := (&Service{Amap: amap.New("")}).TripLegs(context.Background(), legsTrip(), "transit").Legs[3]
+	est := legsOf(&Service{Amap: amap.New("")}, legsTrip(), "transit").Legs[3]
 	want := []string{
 		"walking 1100/900 false",  // short: walked
 		"transit 3000/1500 false", // planned by 高德
@@ -395,9 +419,12 @@ func TestTripLegsBudget(t *testing.T) {
 	defer func(d time.Duration) { legsBudget = d }(legsBudget)
 	legsBudget = 500 * time.Millisecond
 	start := time.Now()
-	res := s.TripLegs(context.Background(), legsTrip(), "transit")
+	res := legsOf(s, legsTrip(), "transit")
 	if d := time.Since(start); d > 2*time.Second {
 		t.Fatalf("TripLegs took %v", d)
+	}
+	if res.Pending != 3 { // all but the leg without a known city
+		t.Errorf("pending %d, want 3", res.Pending)
 	}
 	for _, l := range res.Legs {
 		if !l.Estimated {

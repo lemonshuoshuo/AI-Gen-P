@@ -7,6 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+
+	"triphub/internal/service"
 )
 
 // apiError is an error with an HTTP status and a user-facing Chinese message.
@@ -47,9 +49,12 @@ func abortJSON(c *gin.Context, status int, code, msg string) {
 func writeError(c *gin.Context, err error) {
 	var ae *apiError
 	var mbe *http.MaxBytesError
+	var ie *service.InputError
 	switch {
 	case errors.As(err, &ae):
 		abortJSON(c, ae.Status, ae.Code, ae.Message)
+	case errors.As(err, &ie):
+		abortJSON(c, http.StatusBadRequest, "bad_request", ie.Msg)
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		abortJSON(c, http.StatusNotFound, "not_found", "资源不存在")
 	case errors.As(err, &mbe):

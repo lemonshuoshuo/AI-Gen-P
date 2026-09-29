@@ -124,6 +124,7 @@ type WaypointDTO struct {
 	TripID    int64   `json:"trip_id"`
 	Seq       int     `json:"seq"`
 	Day       int     `json:"day"`
+	Kind      string  `json:"kind"` // stop | lodging (the hotel of the night after day)
 	Planned   bool    `json:"planned"`
 	Status    string  `json:"status"`
 	PlannedAt *string `json:"planned_at"`
@@ -149,8 +150,12 @@ type WaypointDTO struct {
 }
 
 func (h *Handler) waypointDTO(w *model.Waypoint) WaypointDTO {
+	kind := w.Kind
+	if kind == "" {
+		kind = model.KindStop
+	}
 	return WaypointDTO{
-		ID: w.ID, TripID: w.TripID, Seq: w.Seq, Day: w.Day, Planned: w.Planned, Status: w.Status,
+		ID: w.ID, TripID: w.TripID, Seq: w.Seq, Day: w.Day, Kind: kind, Planned: w.Planned, Status: w.Status,
 		PlannedAt: h.tsp(w.PlannedAt), Name: w.Name, Address: w.Address, Province: w.Province, City: w.City,
 		District: w.District, Lng: geo.Round(w.Lng, 6), Lat: geo.Round(w.Lat, 6), Category: w.Category,
 		ArrivedAt: h.tsp(w.ArrivedAt), Note: w.Note, Verdict: w.Verdict, Rating: w.Rating, Cost: w.Cost,
@@ -416,7 +421,7 @@ func (h *Handler) tripCards(ctx context.Context, trips []model.Trip, viewer *mod
 		ids = append(ids, id)
 	}
 	var wps []model.Waypoint
-	if err := h.db.WithContext(ctx).Select("id", "trip_id", "seq", "day", "planned", "status", "lng", "lat", "province", "city").
+	if err := h.db.WithContext(ctx).Select("id", "trip_id", "seq", "day", "kind", "planned", "status", "lng", "lat", "province", "city").
 		Where("trip_id IN ? AND planned", ids).Find(&wps).Error; err != nil {
 		return nil, err
 	}
@@ -475,7 +480,7 @@ func (h *Handler) liveHiddenTrips(ctx context.Context, trips []model.Trip, viewe
 // check-ins (unplanned ones too), arrival times, photos and the GPS track.
 // wps are the trip's waypoints; only the planned ones are used.
 func (h *Handler) maskLive(card *TripCard, t *model.Trip, wps []model.Waypoint) {
-	ps := service.TripPlanStats(t.StartDate, t.EndDate, wps, h.loc)
+	ps := service.TripPlanStats(t.StartDate, t.EndDate, t.PlanDays, wps, h.loc)
 	card.WaypointCount, card.PlannedCount, card.VisitedCount, card.PhotoCount = ps.Count, ps.Count, 0, 0
 	card.DistanceKm, card.Days = geo.Round(ps.DistanceKm, 1), ps.Days
 	card.Cities, card.Provinces = ps.Cities, ps.Provinces
@@ -572,6 +577,9 @@ type TripDetail struct {
 	Photos        []PhotoDTO    `json:"photos"`
 	HasTrack      bool          `json:"has_track"`
 	LiveShare     bool          `json:"live_share"`
+	// TravelMode is the trip's preferred travel mode (the default of GET
+	// /trips/:id/legs).
+	TravelMode string `json:"travel_mode"`
 }
 
 // redactLive keeps only the planned waypoints, as they were planned: what a
@@ -597,7 +605,10 @@ func (h *Handler) tripDetail(ctx context.Context, t *model.Trip, a service.Acces
 	}
 	hide := a.HideLive(t)
 	d := &TripDetail{TripCard: cards[0], Content: t.Content, CanEdit: a.CanEdit(), IsOwner: a.Owner,
-		InvitePending: a.Pending, HasTrack: t.TrackPointCount > 0 && !hide, LiveShare: t.LiveShare}
+		InvitePending: a.Pending, HasTrack: t.TrackPointCount > 0 && !hide, LiveShare: t.LiveShare, TravelMode: t.TravelMode}
+	if d.TravelMode == "" {
+		d.TravelMode = model.TravelAuto
+	}
 	d.Summary = t.Summary // the raw summary (cards derive one from content when empty)
 	if a.Member {
 		code := t.ShareCode

@@ -287,3 +287,65 @@ func TestRegeoDetail(t *testing.T) {
 		t.Fatalf("nothing close: %q", s)
 	}
 }
+
+func TestNameSimilarity(t *testing.T) {
+	cases := []struct {
+		a, b   string
+		lo, hi float64
+	}{
+		{"楼外楼", "楼外楼(孤山路店)", 1, 1},
+		{"那海 民宿", "那海民宿（椒江店）", 1, 1},
+		{"神仙居", "神仙居景区", 0.8, 0.9},
+		{"神仙居", "神仙居农家乐", 0.75, 0.85},
+		{"灵隐寺", "灵隐禅寺", 0.65, 0.75},
+		{"台州府城墙", "台州府城墙停车场", 0.8, 0.9},
+		{"西湖", "千岛湖", 0, 0.4},
+		{"", "西湖", 0, 0},
+	}
+	for _, c := range cases {
+		if got := NameSimilarity(c.a, c.b); got < c.lo || got > c.hi {
+			t.Errorf("NameSimilarity(%q, %q) = %.3f, want %.2f–%.2f", c.a, c.b, got, c.lo, c.hi)
+		}
+	}
+}
+
+func TestTipsAndGeocode(t *testing.T) {
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.Path+"?"+r.URL.Query().Get("keywords")+r.URL.Query().Get("address")+"|"+
+			r.URL.Query().Get("city")+"|"+r.URL.Query().Get("citylimit"))
+		switch r.URL.Path {
+		case "/v3/assistant/inputtips":
+			_, _ = w.Write([]byte(`{"status":"1","tips":[{"id":"B0ZY","name":"紫阳街","district":"浙江省台州市临海市","adcode":"331082",
+				"location":"121.125,28.858","address":"古城街道","typecode":"061001"},{"id":[],"name":"紫阳街美食","district":[],"location":[]}]}`))
+		case "/v3/geocode/geo":
+			if r.URL.Query().Get("address") == "不存在" {
+				_, _ = w.Write([]byte(`{"status":"1","count":"0","geocodes":[]}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"status":"1","geocodes":[{"formatted_address":"广西壮族自治区桂林市阳朔县","province":"广西壮族自治区",
+				"city":"桂林市","district":"阳朔县","adcode":"450321","location":"110.496593,24.778481","level":"区县"}]}`))
+		}
+	}))
+	defer srv.Close()
+	c := New("k")
+	c.SetBaseURL(srv.URL)
+	ctx := context.Background()
+	tips, err := c.Tips(ctx, "紫阳街", "331000", true)
+	if err != nil || len(tips) != 1 || tips[0].ID != "B0ZY" || tips[0].District != "临海市" || tips[0].Adcode != "331082" || tips[0].Category != "shopping" {
+		t.Fatalf("tips: %+v %v", tips, err)
+	}
+	if _, err := c.Tips(ctx, "紫阳街", "331000", true); err != nil || len(queries) != 1 {
+		t.Fatalf("tips not cached: %v", queries)
+	}
+	g, err := c.Geocode(ctx, "阳朔")
+	if err != nil || g.City != "桂林市" || g.Adcode != "450321" || g.Lng != 110.496593 {
+		t.Fatalf("geocode: %+v %v", g, err)
+	}
+	if _, err := c.Geocode(ctx, "不存在"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("geocode of nothing: %v", err)
+	}
+	if queries[0] != "/v3/assistant/inputtips?紫阳街|331000|true" {
+		t.Fatalf("tips query: %v", queries)
+	}
+}

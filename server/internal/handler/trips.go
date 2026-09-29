@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -161,6 +162,9 @@ func jsonArray(s string) string {
 	return string(b)
 }
 
+// maxTripDays bounds a trip's planned days (a year, as its dates).
+const maxTripDays = 365
+
 // tripInput is the create/update request body.
 type tripInput struct {
 	Title       *string     `json:"title"`
@@ -174,6 +178,9 @@ type tripInput struct {
 	Tags        *[]string   `json:"tags"`
 	LiveShare   *bool       `json:"live_share"`
 	WithPartner bool        `json:"with_partner"`
+	// Days planned (0 clears): with a start date it sets the end date.
+	Days       Opt[int] `json:"days"`
+	TravelMode *string  `json:"travel_mode"`
 }
 
 // apply validates the input and writes changes into t, returning the
@@ -237,6 +244,38 @@ func (in *tripInput) apply(t *model.Trip, creating bool) (map[string]any, error)
 			return nil, err
 		}
 		t.EndDate, upd["end_date"] = d, d
+	}
+	switch {
+	case in.Days.Set && !in.Days.Null:
+		n := in.Days.V
+		if n < 0 || n > maxTripDays {
+			return nil, errBad(fmt.Sprintf("天数范围为 1–%d 天", maxTripDays))
+		}
+		if n > 0 && t.StartDate != nil { // the dates follow the days
+			end := t.StartDate.AddDate(0, 0, n-1)
+			if in.EndDate.Set && t.EndDate != nil && !t.EndDate.Equal(end) {
+				return nil, errBad("天数与起止日期不一致")
+			}
+			t.EndDate, upd["end_date"] = &end, &end
+		}
+		t.PlanDays, upd["plan_days"] = n, n
+	case in.Days.Null:
+		t.PlanDays, upd["plan_days"] = 0, 0
+	case (in.StartDate.Set || in.EndDate.Set) && t.StartDate != nil && t.EndDate != nil:
+		// The days follow the dates, and stay when the dates are cleared later.
+		if n := service.DateSpan(t.StartDate, t.EndDate); n > 0 && n <= maxTripDays {
+			t.PlanDays, upd["plan_days"] = n, n
+		}
+	}
+	if in.TravelMode != nil {
+		m := strings.TrimSpace(*in.TravelMode)
+		if m == "" {
+			m = model.TravelAuto
+		}
+		if !slices.Contains(model.TravelModes, m) {
+			return nil, errBad("travel_mode 只能是 auto / walking / riding / driving / transit")
+		}
+		t.TravelMode, upd["travel_mode"] = m, m
 	}
 	if t.StartDate != nil && t.EndDate != nil {
 		if t.EndDate.Before(*t.StartDate) {
@@ -322,7 +361,7 @@ func (h *Handler) createTrip(c *gin.Context) error {
 	}
 	u := currentUser(c)
 	t := model.Trip{OwnerID: u.ID, Phase: model.PhasePlanning, Visibility: model.VisPrivate, Status: model.TripNormal,
-		Tags: []string{}, Cities: []string{}, Provinces: []string{}}
+		Tags: []string{}, Cities: []string{}, Provinces: []string{}, TravelMode: model.TravelAuto}
 	if _, err := in.apply(&t, true); err != nil {
 		return err
 	}
@@ -332,9 +371,7 @@ func (h *Handler) createTrip(c *gin.Context) error {
 	if t.Visibility == model.VisPublic && h.svc.Settings.Get().ReviewPublicTrips && !u.IsAdmin() {
 		t.Status = model.TripPending // public once an admin approves it
 	}
-	if t.StartDate != nil && t.EndDate != nil {
-		t.Days = service.TripDays(t.StartDate, t.EndDate, nil, h.loc)
-	}
+	t.Days = service.TripDays(t.StartDate, t.EndDate, t.PlanDays, nil, h.loc)
 	now := time.Now()
 	if t.Visibility == model.VisPublic {
 		t.PublishedAt = &now
@@ -455,7 +492,7 @@ func (h *Handler) updateTrip(c *gin.Context) error {
 	if err := bindJSON(c, &in); err != nil {
 		return err
 	}
-	oldVis, oldPhase, oldLive := t.Visibility, t.Phase, t.LiveShare
+	oldVis, oldPhase, oldLive, oldDays := t.Visibility, t.Phase, t.LiveShare, t.Days
 	if in.Visibility != nil && *in.Visibility != t.Visibility && !a.Owner {
 		return errForbidden("只有作者可以修改可见性")
 	}
@@ -489,15 +526,35 @@ func (h *Handler) updateTrip(c *gin.Context) error {
 	if firstPublic {
 		upd["published_at"] = time.Now()
 	}
+	_, datesChanged := upd["start_date"]
+	for _, col := range []string{"end_date", "plan_days"} {
+		if _, ok := upd[col]; ok {
+			datesChanged = true
+		}
+	}
 	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		if datesChanged { // days may shrink: waypoints move (see service.ShrinkDays)
+			if err := service.LockTrip(tx, t.ID); err != nil {
+				return err
+			}
+		}
 		if err := tx.Model(&model.Trip{}).Where("id = ?", t.ID).Updates(upd).Error; err != nil {
 			return err
 		}
-		if _, ok := upd["start_date"]; ok {
-			if err := h.svc.RecomputeTrip(tx, t.ID); err != nil {
-				return err
+		if datesChanged {
+			days := service.DateSpan(t.StartDate, t.EndDate)
+			if days == 0 {
+				days = t.PlanDays
 			}
-		} else if _, ok := upd["end_date"]; ok {
+			if days > 0 && days < oldDays {
+				ids, err := service.ShrinkDays(tx, t.ID, days)
+				if err != nil {
+					return err
+				}
+				if err := h.svc.RecomputePlaces(tx, ids); err != nil {
+					return err
+				}
+			}
 			if err := h.svc.RecomputeTrip(tx, t.ID); err != nil {
 				return err
 			}
@@ -565,7 +622,10 @@ func (h *Handler) forkTrip(c *gin.Context) error {
 	srcID := src.ID
 	nt := model.Trip{OwnerID: u.ID, Title: title, Summary: src.Summary, Phase: model.PhasePlanning,
 		Visibility: model.VisPrivate, Status: model.TripNormal, Tags: nonNil(src.Tags), Cities: []string{}, Provinces: []string{},
-		ForkedFromID: &srcID}
+		ForkedFromID: &srcID, PlanDays: src.Days, TravelMode: src.TravelMode}
+	if nt.TravelMode == "" {
+		nt.TravelMode = model.TravelAuto
+	}
 	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
 		if err := createTripRecord(tx, &nt); err != nil {
 			return err
@@ -585,6 +645,12 @@ func (h *Handler) forkTrip(c *gin.Context) error {
 		if err := q.Order("seq, id").Find(&wps).Error; err != nil {
 			return err
 		}
+		if hide { // the days as planned (the stored ones may count arrival dates)
+			nt.PlanDays = service.TripPlanStats(src.StartDate, src.EndDate, src.PlanDays, wps, h.loc).Days
+			if err := tx.Model(&model.Trip{}).Where("id = ?", nt.ID).Update("plan_days", nt.PlanDays).Error; err != nil {
+				return err
+			}
+		}
 		copies := make([]model.Waypoint, 0, len(wps))
 		for i, w := range wps {
 			// Verdicts are not copied (they would be the copier's reviews), but a
@@ -596,8 +662,12 @@ func (h *Handler) forkTrip(c *gin.Context) error {
 					note = "⚠️ 原作者踩雷：" + w.Note
 				}
 			}
+			kind := w.Kind
+			if kind == "" {
+				kind = model.KindStop
+			}
 			copies = append(copies, model.Waypoint{
-				TripID: nt.ID, Seq: i, Day: w.Day, Planned: true, Status: model.WPTodo,
+				TripID: nt.ID, Seq: i, Day: w.Day, Kind: kind, Planned: true, Status: model.WPTodo,
 				Name: w.Name, Address: w.Address, Province: w.Province, ProvinceCode: w.ProvinceCode,
 				City: w.City, CityCode: w.CityCode, District: w.District, Lng: w.Lng, Lat: w.Lat,
 				Category: w.Category, Note: note, Cost: w.Cost, AmapID: w.AmapID, PlaceID: w.PlaceID,

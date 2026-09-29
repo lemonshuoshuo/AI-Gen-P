@@ -1738,12 +1738,16 @@ func TestLoadUsersBrief(t *testing.T) {
 }
 
 // Legs between the planned stops of each day: estimated from the straight
-// line when 高德 is not configured, for logged-in viewers of the trip only.
+// line when 高德 is not configured, for everyone who may view the trip.
 func TestTripLegs(t *testing.T) {
 	e := setup(t)
 	alice, _, _ := e.register("alice")
 	bob, _, _ := e.register("bob")
-	tripID := id(e.must(200, "POST", "/trips", alice, map[string]any{"title": "杭州两日"}).obj(t))
+	trip := e.must(200, "POST", "/trips", alice, map[string]any{"title": "杭州两日"}).obj(t)
+	tripID := id(trip)
+	if trip["travel_mode"] != "auto" {
+		t.Fatalf("travel_mode %v", trip["travel_mode"])
+	}
 	stops := e.must(200, "POST", fmt.Sprintf("/trips/%d/waypoints/batch", tripID), alice, map[string]any{"items": []any{
 		map[string]any{"name": "断桥残雪", "lng": 120.1513, "lat": 30.2610, "day": 1},
 		map[string]any{"name": "楼外楼", "lng": 120.1437, "lat": 30.2556, "day": 1},
@@ -1755,20 +1759,20 @@ func TestTripLegs(t *testing.T) {
 	}}).arr(t)
 	sid := func(i int) int64 { return id(stops[i].(map[string]any)) }
 	path := fmt.Sprintf("/trips/%d/legs", tripID)
-	e.must(401, "GET", path, "", nil)
+	e.must(404, "GET", path, "", nil)  // private trip
 	e.must(404, "GET", path, bob, nil) // private trip
 	e.must(400, "GET", path+"?mode=cycling", alice, nil)
 
-	for _, mode := range []string{"", "walking", "transit", "driving"} {
+	for _, mode := range []string{"", "auto", "walking", "riding", "transit", "driving"} {
 		q := path
 		if mode != "" {
 			q += "?mode=" + mode
 		} else {
-			mode = "transit"
+			mode = "auto" // the trip's travel_mode
 		}
 		res := e.must(200, "GET", q, alice, nil).obj(t)
-		if res["mode"] != mode {
-			t.Fatalf("mode %v, want %s", res["mode"], mode)
+		if res["mode"] != mode || num(res["pending"]) != 0 {
+			t.Fatalf("mode %v, want %s: %v", res["mode"], mode, res)
 		}
 		legs := res["legs"].([]any)
 		want := [][3]int64{{sid(0), sid(1), 1}, {sid(1), sid(3), 1}, {sid(4), sid(5), 2}} // not across days nor via unplanned stops
@@ -1779,15 +1783,19 @@ func TestTripLegs(t *testing.T) {
 		for i, l := range legs {
 			m := l.(map[string]any)
 			if int64(num(m["from_id"])) != want[i][0] || int64(num(m["to_id"])) != want[i][1] || int64(num(m["day"])) != want[i][2] ||
-				m["estimated"] != true || num(m["distance_m"]) < num(m["straight_m"]) || num(m["duration_s"]) <= 0 {
+				m["estimated"] != true || num(m["distance_m"]) < num(m["straight_m"]) || num(m["duration_s"]) <= 0 || m["polyline"] != nil {
 				t.Fatalf("%s: leg %d: %v", mode, i, m)
 			}
+			rec := service.RecommendMode(num(m["straight_m"]), false)
 			legMode := mode
-			if mode == "transit" && i == 0 { // under 1 km: walked
+			switch {
+			case mode == "auto":
+				legMode = rec
+			case mode == "transit" && i == 0: // under 1 km: walked
 				legMode = "walking"
 			}
-			if m["mode"] != legMode {
-				t.Fatalf("%s: leg %d mode %v", mode, i, m["mode"])
+			if m["mode"] != legMode || m["recommended_mode"] != rec {
+				t.Fatalf("%s: leg %d mode %v (recommended %v)", mode, i, m["mode"], m["recommended_mode"])
 			}
 			d := int(num(m["day"]))
 			daySum[d] = [2]float64{daySum[d][0] + num(m["distance_m"]), daySum[d][1] + num(m["duration_s"])}
@@ -1801,13 +1809,39 @@ func TestTripLegs(t *testing.T) {
 			m := d.(map[string]any)
 			day := int(num(m["day"]))
 			if day != wantDays[i][0] || int(num(m["stops"])) != wantDays[i][1] ||
-				num(m["distance_m"]) != daySum[day][0] || num(m["duration_s"]) != daySum[day][1] || m["estimated"] != (day != 0) {
+				num(m["distance_m"]) != daySum[day][0] || num(m["duration_s"]) != daySum[day][1] || m["estimated"] != (day != 0) ||
+				m["start_lodging_id"] != nil || m["end_lodging_id"] != nil {
 				t.Fatalf("%s: day %d: %v (legs sum %v)", mode, i, m, daySum[day])
 			}
 		}
 	}
+	// The trip's travel mode is the default.
+	e.must(400, "PATCH", fmt.Sprintf("/trips/%d", tripID), alice, map[string]any{"travel_mode": "flying"})
+	if d := e.must(200, "PATCH", fmt.Sprintf("/trips/%d", tripID), alice, map[string]any{"travel_mode": "transit"}).obj(t); d["travel_mode"] != "transit" {
+		t.Fatalf("travel_mode %v", d["travel_mode"])
+	}
+	res := e.must(200, "GET", path, alice, nil).obj(t)
+	if res["mode"] != "transit" {
+		t.Fatalf("default mode %v", res["mode"])
+	}
+	for _, l := range res["legs"].([]any) { // public transport is now recommended for long legs
+		if m := l.(map[string]any); m["recommended_mode"] != service.RecommendMode(num(m["straight_m"]), true) {
+			t.Fatalf("recommended mode %v", m)
+		}
+	}
+	// Share-code visitors and, once public, everyone (guests too), with the way.
+	e.must(200, "PATCH", fmt.Sprintf("/trips/%d", tripID), alice, map[string]any{"visibility": "unlisted"})
+	code := trip["share_code"].(string)
+	e.must(404, "GET", path, "", nil)
+	e.must(200, "GET", path+"?share_code="+code, "", nil)
 	e.must(200, "PATCH", fmt.Sprintf("/trips/%d", tripID), alice, map[string]any{"visibility": "public"})
 	e.must(200, "GET", path+"?mode=walking", bob, nil)
+	res = e.must(200, "GET", path+"?geometry=1", "", nil).obj(t)
+	for _, l := range res["legs"].([]any) {
+		if pl, _ := l.(map[string]any)["polyline"].([]any); len(pl) != 2 { // estimated: the straight line
+			t.Fatalf("polyline %v", l)
+		}
+	}
 }
 
 // Handlers that change a waypoint's status, photos or position take the trip

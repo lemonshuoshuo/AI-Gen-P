@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -87,8 +89,11 @@ func TestClientWithFakeServer(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	same := func(r *Route, mode string, dist, dur int) bool {
+		return r != nil && r.Mode == mode && r.DistanceM == dist && r.DurationS == dur
+	}
 	walk, err := c.Direction(ctx, "walking", 120.1513, 30.2610, 120.1437, 30.2556, "", "")
-	if err != nil || *walk != (Route{Mode: "walking", DistanceM: 1234, DurationS: 987}) {
+	if err != nil || !same(walk, "walking", 1234, 987) || walk.Polyline() != nil {
 		t.Fatalf("walking: %+v %v", walk, err)
 	}
 	n := calls
@@ -96,11 +101,11 @@ func TestClientWithFakeServer(t *testing.T) {
 		t.Fatalf("walking should be cached: %+v %v (calls %d → %d)", r, err, n, calls)
 	}
 	drive, err := c.Direction(ctx, "driving", 120.1513, 30.2610, 120.1437, 30.2556, "", "")
-	if err != nil || *drive != (Route{Mode: "driving", DistanceM: 5322, DurationS: 600}) {
+	if err != nil || !same(drive, "driving", 5322, 600) {
 		t.Fatalf("driving: %+v %v", drive, err)
 	}
 	bus, err := c.Direction(ctx, "transit", 120.1513, 30.2610, 120.1437, 30.2556, "杭州市", "杭州市")
-	if err != nil || *bus != (Route{Mode: "transit", DistanceM: 9000, DurationS: 1800}) {
+	if err != nil || !same(bus, "transit", 9000, 1800) {
 		t.Fatalf("transit: %+v %v", bus, err)
 	}
 	for i := 0; i < 2; i++ { // not cached: AMap is asked again
@@ -111,6 +116,86 @@ func TestClientWithFakeServer(t *testing.T) {
 	}
 	if _, err := c.Direction(ctx, "cycling", 120.1513, 30.2610, 120.1437, 30.2556, "", ""); err == nil {
 		t.Fatal("unknown mode accepted")
+	}
+}
+
+// Routes keep their way, simplified, from the start to the end point:
+// walking and driving steps, riding (the v4 API, errcode instead of
+// status), and public transport (walks, bus lines, train stations).
+func TestDirectionGeometry(t *testing.T) {
+	var riding atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v3/direction/walking":
+			// A straight street sampled every ~1 m (simplified away) with a corner.
+			var b strings.Builder
+			for i := 0; i <= 100; i++ {
+				if i > 0 {
+					b.WriteString(";")
+				}
+				fmt.Fprintf(&b, "%.6f,30.250000", 120.1+float64(i)*0.00001)
+			}
+			_, _ = fmt.Fprintf(w, `{"status":"1","route":{"paths":[{"distance":"300","duration":"250","steps":[
+				{"polyline":"%s"},{"polyline":"120.101000,30.250000;120.101000,30.252000"}]}]}}`, b.String())
+		case "/v3/direction/driving":
+			_, _ = w.Write([]byte(`{"status":"1","route":{"paths":[{"distance":"5000","duration":"600","steps":[
+				{"polyline":"120.100000,30.250000;120.120000,30.260000"},{"polyline":[]},{"polyline":"120.120000,30.260000;120.140000,30.250000"}]}]}}`))
+		case "/v4/direction/bicycling":
+			if riding.Add(1) == 1 {
+				_, _ = w.Write([]byte(`{"data":{"origin":"120.1,30.25","destination":"120.14,30.25","paths":[{"distance":4100,"duration":1100,
+					"steps":[{"polyline":"120.100000,30.250000;120.110000,30.255000"},{"polyline":"120.110000,30.255000;120.140000,30.250000"}]}]},
+					"errcode":0,"errdetail":null,"errmsg":"OK"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"errcode":10001,"errmsg":"INVALID_USER_KEY","errdetail":null,"data":""}`))
+		case "/v3/direction/transit/integrated":
+			_, _ = w.Write([]byte(`{"status":"1","route":{"distance":"30000","transits":[{"distance":"29000","duration":"3600","segments":[
+				{"walking":{"steps":[{"polyline":"120.100000,30.250000;120.101000,30.251000"}]},"bus":{"buslines":[{"polyline":"120.101000,30.251000;120.200000,30.300000"}]},"railway":[]},
+				{"walking":[],"bus":{"buslines":[]},"railway":{"departure_stop":{"location":"120.200000,30.300000"},"via_stops":[{"location":"120.250000,30.400000"}],"arrival_stop":{"location":"120.300000,30.450000"}}}
+			]}]}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c := New("k")
+	c.SetBaseURL(srv.URL)
+	c.dirGap = time.Millisecond
+	ctx := context.Background()
+
+	walk, err := c.Direction(ctx, "walking", 120.1, 30.25, 120.101, 30.252, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][2]float64{{120.1, 30.25}, {120.101, 30.25}, {120.101, 30.252}}
+	if got := walk.Polyline(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("walking polyline %v, want %v", got, want)
+	}
+	drive, err := c.Direction(ctx, "driving", 120.1, 30.25, 120.14, 30.25, "", "")
+	if err != nil || len(drive.Polyline()) != 3 || drive.Polyline()[1] != [2]float64{120.12, 30.26} {
+		t.Fatalf("driving: %+v %v", drive, err)
+	}
+	ride, err := c.Direction(ctx, "riding", 120.1, 30.25, 120.14, 30.25, "", "")
+	if err != nil || ride.Mode != "riding" || ride.DistanceM != 4100 || ride.DurationS != 1100 || len(ride.Polyline()) != 3 {
+		t.Fatalf("riding: %+v %v", ride, err)
+	}
+	if r, ok := c.CachedDirection("riding", 120.1, 30.25, 120.14, 30.25, "", ""); !ok || r != ride {
+		t.Fatal("riding route not cached")
+	}
+	// v4 errors carry the infocode: a key error pauses 路径规划.
+	if _, err := c.Direction(ctx, "riding", 120.1, 30.25, 120.15, 30.25, "", ""); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("riding error: %v", err)
+	} else if msg := ErrorMessage(err); !strings.Contains(msg, "10001") {
+		t.Fatalf("riding error message: %s", msg)
+	}
+	c.dirFail.close()
+	bus, err := c.Direction(ctx, "transit", 120.1, 30.25, 120.3, 30.45, "杭州市", "杭州市")
+	if err != nil || bus.DistanceM != 29000 {
+		t.Fatalf("transit: %+v %v", bus, err)
+	}
+	pl := bus.Polyline()
+	if pl[0] != [2]float64{120.1, 30.25} || pl[len(pl)-1] != [2]float64{120.3, 30.45} || !slices.Contains(pl, [2]float64{120.25, 30.4}) {
+		t.Fatalf("transit polyline %v", pl)
 	}
 }
 
@@ -143,7 +228,8 @@ func TestDirectionThrottle(t *testing.T) {
 	// A turn beyond dirMaxWait: give up at once, without taking the turn.
 	nextTurn(time.Second)
 	begin := time.Now()
-	if _, err := c.Direction(ctx, "walking", 121, 31, 121.01, 31, "", ""); !errors.Is(err, ErrUnavailable) || time.Since(begin) > 100*time.Millisecond {
+	if _, err := c.Direction(ctx, "walking", 121, 31, 121.01, 31, "", ""); !errors.Is(err, ErrBusy) || !errors.Is(err, ErrUnavailable) ||
+		time.Since(begin) > 100*time.Millisecond {
 		t.Fatalf("far turn: %v after %v", err, time.Since(begin))
 	}
 	c.dirMu.Lock()

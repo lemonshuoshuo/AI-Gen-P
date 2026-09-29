@@ -85,6 +85,8 @@ UserBrief +
 ```
 - `phase`: `planning`（规划中，可作为路线攻略分享） | `ongoing`（旅行中） | `finished`（已完成，游记）
 - `planned_count`：计划内打卡点数；`visited_count`：已到达的打卡点数（含计划外）。旅行中且未开启 `live_share` 的旅程，非成员看到的统计只按计划计算（见「旅行中的位置隐私」）
+- `waypoint_count` / `planned_count` / `visited_count` 只计游玩点（`kind=stop`），不计住宿（`kind=lodging`，见 Waypoint）
+- `days`：旅程天数，客户端按它显示「第 1 天 … 第 N 天」的页签（另有「不分天」）。设置了起止日期时按日期；否则为设置的天数（创建 / 修改旅程时的 `days`）与打卡点最大 `day`（住宿按其 `day`）中较大者；都没有时按到达时间跨度，再没有为 0
 - `visibility`: `private`（仅成员） | `unlisted`（持分享链接可看，不出现在广场） | `public`（公开）
 - `status`: `normal` | `hidden`（被管理员隐藏，仅成员和管理员可见） | `pending`（开启「公开旅程需审核」后，非管理员公开的旅程等待管理员审核，通过前仅成员和管理员可见，见「内容安全」）
 - `members`: 除作者外已接受邀请的共同作者
@@ -99,15 +101,18 @@ TripCard +
   "share_code": "a8Kd92LmQx",
   "forked_from": { "id": 3, "title": "…", "author": UserBrief } | null,
   "liked": false, "favorited": false, "can_edit": true, "is_owner": true,
-  "waypoints": [Waypoint], "photos": [Photo], "has_track": true, "live_share": false
+  "waypoints": [Waypoint], "photos": [Photo], "has_track": true, "live_share": false,
+  "travel_mode": "auto"
 }
 ```
 `share_code` 仅成员可见。`live_share`：旅行中是否向非成员实时公开位置（见「旅行中的位置隐私」）。
+`travel_mode`：旅程偏好的出行方式 `auto`（缺省：每段按距离推荐步行 / 骑行 / 驾车）| `walking` | `riding` | `driving` | `transit`，是 `GET /trips/:id/legs` 的缺省 `mode`，行程页与 3D 回放据此显示路线。
+`members`（TripCard 字段）为作者之外全部已接受邀请的共同作者（不限人数、不只是情侣），每项都是带 `avatar_url` 的 UserBrief；作者见 `author`。
 
 ### Waypoint（打卡点）
 ```json
 {
-  "id": 1, "trip_id": 1, "seq": 0, "day": 1,
+  "id": 1, "trip_id": 1, "seq": 0, "day": 1, "kind": "stop",
   "planned": true, "status": "visited", "planned_at": "…" | null,
   "name": "楼外楼(孤山路店)", "address": "孤山路30号",
   "province": "浙江省", "city": "杭州市", "district": "西湖区",
@@ -120,7 +125,8 @@ TripCard +
   "created_at": "...", "updated_at": "..."
 }
 ```
-- `seq`: 旅程内顺序（从 0 开始，计划内与计划外打卡点共用一个序列）；`day`: 第几天（0 表示未指定）
+- `seq`: 旅程内顺序（从 0 开始，计划内与计划外打卡点共用一个序列）；`day`: 第几天（0 表示未指定：「不分天」，即「想去」的地点池）
+- `kind`: `stop`（游玩点，缺省，旧数据均为 `stop`） | `lodging`（住宿）。**住宿**的 `day=N` 表示第 N 天晚上住的地方：第 N 天在这里结束、第 N+1 天从这里出发；`day=0` 表示出发前一晚（第 1 天从这里出发），**不是**「不分天」。每个旅程每晚最多一个住宿；连住几晚就是每晚一条（见 `POST /trips/:id/lodging`）。住宿总是计划内（`planned=true`），缺省分类 `hotel`；它不是打卡点：不计入旅程的打卡点数、完成率，也不在 `compare` 的计划点列表里（见各接口说明）。住宿的 `seq` 只影响列表顺序，路线（`legs`、下一站推荐等）中住宿总是在当天的游玩点之后
 - `planned`: 是否属于计划路线；`status`: `todo`（计划中，未到达） | `visited`（已到达） | `skipped`（跳过）。计划外的点总是 `visited`
 - `planned_at`: 计划到达时间（可选）；`arrived_at`: 实际到达时间
 - **计划路线** = `planned=true` 的点按 `seq`；**实际路线** = `status=visited` 的点按 `arrived_at`（为空时按 `seq`），加上 GPS 轨迹
@@ -302,7 +308,7 @@ AuthResult：
 | GET | `/share/:code` | 🔓 | 通过分享码访问（private 之外均可）→ TripDetail |
 | PATCH | `/trips/:id` | 🔐 成员 | 修改 → TripDetail |
 | DELETE | `/trips/:id` | 🔐 作者/管理员 | 删除（级联删除打卡点、照片、轨迹、评论） |
-| POST | `/trips/:id/fork` | 🔐 | 一键引用路线：把对方的已到达/计划打卡点复制为自己的**计划路线**（新旅程 `phase=planning`，私密；打卡点 `planned=true,status=todo`，保留名称/地址/坐标/分类/天数/备注/人均，清空评价与时间）`{title?, include_avoid?}` → TripDetail。默认不复制原作者标记为踩雷（`verdict=avoid`）的打卡点；`include_avoid=true` 时一并复制，并在备注前加「⚠️ 原作者踩雷：」 |
+| POST | `/trips/:id/fork` | 🔐 | 一键引用路线：把对方的已到达/计划打卡点复制为自己的**计划路线**（新旅程 `phase=planning`，私密；打卡点 `planned=true,status=todo`，保留名称/地址/坐标/分类/天数/`kind`（住宿也一并复制）/备注/人均，清空评价与时间；新旅程的天数（`days`）与 `travel_mode` 同原旅程，不复制日期）`{title?, include_avoid?}` → TripDetail。默认不复制原作者标记为踩雷（`verdict=avoid`）的打卡点（包括住宿）；`include_avoid=true` 时一并复制，并在备注前加「⚠️ 原作者踩雷：」 |
 | POST / DELETE | `/trips/:id/like` | 🔐 | → `{liked, like_count}` |
 | POST / DELETE | `/trips/:id/favorite` | 🔐 | → `{favorited, fav_count}` |
 | POST | `/trips/:id/share-code/reset` | 🔐 作者 | → `{share_code}` |
@@ -318,10 +324,13 @@ AuthResult：
   "title": "杭州三日", "summary": "", "content": "", "cover_url": "",
   "phase": "planning", "visibility": "private",
   "start_date": "2026-05-01", "end_date": "2026-05-03", "tags": ["美食"],
-  "live_share": false, "with_partner": true
+  "live_share": false, "with_partner": true,
+  "days": 3, "travel_mode": "auto"
 }
 ```
 `with_partner`（仅创建时）：直接把已绑定的情侣加为共同作者。成员可以编辑内容；只有作者能修改 `visibility`、`live_share`、管理成员、删除旅程。
+`days`（0–365，`0` 或 `null` 表示不再指定）：规划的天数，没有日期的旅程也可以按天规划。有开始日期时同时把结束日期设为「开始日期 + days − 1」（同一请求里给出的结束日期与之不符时返回 400 `天数与起止日期不一致`）；只改起止日期时天数随日期变化（清除日期后保留该天数）。天数（或日期范围）变少时：被去掉的那些天的游玩点移到「不分天」（`day=0`）；被去掉的那些晚（`day` 大于新天数；最后一天当晚保留）的住宿，若同一家（同一高德 POI / 地点，或同名且相距 100 米内）在保留的某晚仍然住，则删除（照片、评论保留并取消关联），否则改为「不分天」的游玩点（`kind=stop, day=0`），不会丢失用户填写的内容。
+`travel_mode`：见 TripDetail，缺省 `auto`；取值错误返回 400。
 `live_share`：旅行中（`phase=ongoing`）是否向非成员实时公开 GPS 轨迹、打卡和照片，缺省 `false`（见「旅行中的位置隐私」）。
 
 收藏（`POST /trips/:id/favorite`）仅限公开且正常的旅程或自己参与的旅程（与 `GET /me/favorites` 的列出规则一致），否则返回 403（如持分享码浏览的「链接可见」旅程）；取消收藏不受限制。
@@ -343,22 +352,59 @@ AuthResult：
 | PATCH | `/waypoints/:id` | 🔐 成员 | 修改 → Waypoint |
 | DELETE | `/waypoints/:id` | 🔐 成员 | 删除（照片保留，`waypoint_id` 置空） |
 | PUT | `/trips/:id/waypoints/order` | 🔐 成员 | `{ids: [..]}` 全量排序 → `[Waypoint]` |
+| POST | `/trips/:id/lodging` | 🔐 成员 | 设置住宿（可连住几晚、沿用前一晚），见下 → `[Waypoint]` |
+| POST | `/trips/:id/arrange` | 🔐 成员 | 一键规划路线：把「想去」的地点分到各天并排好顺序，见下 |
 
 创建 / 修改请求体：
 ```json
 {
   "name": "楼外楼", "address": "孤山路30号", "lng": 120.14, "lat": 30.25, "coord_type": "gcj02",
-  "day": 1, "category": "food", "planned": true, "status": "todo", "planned_at": "…", "arrived_at": "…",
+  "day": 1, "kind": "stop", "category": "food", "planned": true, "status": "todo", "planned_at": "…", "arrived_at": "…",
   "note": "", "verdict": "recommend",
   "rating": 4, "cost": 150, "amap_id": "B023B0J1V1", "seq": 3
 }
 ```
-- `seq` 可选：插入到指定位置，缺省追加到末尾
+- `seq` 可选：插入到指定位置，缺省追加到末尾（住宿缺省放在当天最后一个点之后）
+- `kind` 可选：`stop`（缺省） | `lodging`，其它值返回 400。住宿（新建、批量新建、修改 `kind` / `day` 时）校验：`day` 为 0 到旅程天数（旅程还没有天数时须 ≥ 1，天数随之增加），超出返回 400；该晚已有住宿返回 409 `第 N 天晚上已有住宿，请先修改或删除原来的住宿`（`day=0` 为「出发前一晚」）。住宿的 `planned` 总是 true（请求中的 `planned=false` 被忽略），缺省 `category=hotel`。把住宿改到另一晚（或把游玩点改为住宿）且未给 `seq` 时，它移到那一天最后一个点之后
 - `planned` 缺省：旅程 `phase=planning` 时为 true，否则为 false；`status` 缺省：计划内为 `todo`，计划外为 `visited`（`arrived_at` 缺省为当前时间）
 - 服务端根据坐标自动补全 `province` / `city` / `district`（配置了高德 Key 时补全区县与街道地址）；`name` 为空时用地址或区县名
 - 带 `amap_id` 时，只关联到按高德 POI 数据（名称、地址、坐标、电话）建立的 Place：需要服务端配置了高德 Key、能查到该 POI，且打卡点距该 POI 不超过 5 公里；否则与未带 `amap_id` 的打卡点一样按名称匹配
 - 名称相同且 100 米内已有公开地点（或自己参与的旅程中已用过的地点）时关联到同一个 Place；否则对用户填写了名称的打卡点新建 Place（不带 `amap_id`）。私密旅程里填写的名称、地址和坐标不会通过同名匹配或 AI 规划暴露给其他用户
 - `PATCH /waypoints/:id` 中 `name` 与当前名称相同时视为未修改（不会把自动生成的名称当作用户填写的名称去新建地点），客户端提交整张表单时可以原样带上 `name`
+
+`POST /trips/:id/lodging` 请求（打卡点的创建字段 + 以下字段，`kind` / `seq` 被忽略）：
+```json
+{ "day": 1, "nights": 2, "name": "临海古城客栈", "lng": 121.126, "lat": 28.857, "amap_id": "B0…", "cost": 300,
+  "copy_from": 123, "replace": false }
+```
+- `day`（必填）：从第几天晚上开始住（0 为出发前一晚）；`nights`（1–30，缺省 1）：连住几晚，每晚生成一条住宿（`day` 依次加 1）
+- `copy_from`（可选）：同一旅程中另一个打卡点的 ID（如前一晚的住宿，或「想去」里的某个酒店），沿用它的名称、地址、坐标、`amap_id`、区县、分类（住宿还沿用备注与人均）；请求中给出的字段优先。「和前一晚一样」即 `{"day": 3, "copy_from": <第 2 晚住宿的 id>}`
+- `replace`（可选，缺省 false）：先删除这几晚已有的住宿（照片、评论保留并取消关联）；为 false 且某晚已有住宿时返回 409，全部不创建
+- 响应：新建的住宿 `[Waypoint]`（按 `day`）。修改 / 删除住宿用 `PATCH` / `DELETE /waypoints/:id`
+
+`POST /trips/:id/arrange`（一键规划路线）请求：
+```json
+{ "scope": "pool", "mode": "auto", "apply": false, "days": 3, "fixed": { "123": 2 } }
+```
+- `scope`：`pool`（缺省）只安排「不分天」（`day=0`）的计划点：已分到第 1…days 天的计划点保持所在天和先后顺序（「按自己的路线」），新安排的点插入到各天路程最短的位置；`all`：重新安排全部还没到达的计划点（`status=todo`；已到达 / 跳过的点和计划外的点不动）
+- `days`（可选，1–60）：分到第 1…days 天，缺省为旅程天数；旅程没有天数时按约每天 5 个点。设置了日期的旅程不能超过日期的天数（400）
+- `fixed`（可选）：`{打卡点 ID: 第几天}`，把这些点固定在某天（仍会排序）；不是该旅程的计划游玩点，或天数超出范围时返回 400
+- `mode`：`auto` | `walking` | `riding` | `driving` | `transit`，缺省为旅程的 `travel_mode`，只用于估算各天的路程与耗时
+- 规则：每天从前一晚的住宿出发、到当晚的住宿结束（没有住宿时第 1 天从第一个点出发，之后各天从前一天结束的地方接着走）；按地理位置分组（有住宿的天以住宿为中心，同一家住几晚或没有住宿的天用确定性的 k-means++ 选取中心），每天最多 ⌈点数 / 天数⌉ 个点（固定在某天的点更多时除外）；没有住宿区分的几天按「离前一天最近」排列，第 1 天是包含旅程第一个点的那组；每天内部按最近邻 + 2-opt 排出直线距离最短的顺序。结果是确定的（同样的数据得到同样的安排）
+- `apply=false`（缺省）只返回方案，不修改旅程，客户端可以预览；`apply=true` 按方案保存：修改各点的 `day`，并把整个旅程的 `seq` 重新编号为 0…n−1（出发前一晚的住宿在最前；每天依次为：不参与安排的点（已到达等）、安排好的点、当晚住宿；最后是「不分天」的点）；没有日期的旅程天数不足时把天数设为 `days`。与其它打卡点修改一样在旅程锁内完成
+响应：
+```json
+{
+  "scope": "pool", "mode": "auto", "days": 2, "applied": false, "changed": 6,
+  "items": [{ "id": 11, "day": 1, "seq": 0 }, { "id": 15, "day": 1, "seq": 3 }],
+  "day_totals": [{ "day": 1, "ids": [11, 12, 13], "stops": 3, "distance_m": 55038, "duration_s": 8369,
+                   "start_lodging_id": null, "end_lodging_id": 15 }],
+  "waypoints": [Waypoint]
+}
+```
+- `items`：该旅程**全部**打卡点（含住宿）在新顺序中的 `day` 与 `seq`，按 `seq` 排列；`changed`：`day` 或 `seq` 会变化的点数
+- `day_totals`：第 1…days 天各一项，`ids` 为当天安排的游玩点（按顺序，不含住宿），`distance_m` / `duration_s` 为按直线估算的当天路程与耗时（从前一晚住宿到当晚住宿，规则同 `legs` 的估算），`start_lodging_id` / `end_lodging_id` 为当天出发 / 结束的住宿
+- `waypoints`：仅 `apply=true` 时返回，保存后的全部打卡点（同 TripDetail 中的顺序）
 
 ### 按路线出行（旅行中）
 | 方法 | 路径 | 权限 | 说明 |
@@ -369,9 +415,10 @@ AuthResult：
 | POST | `/waypoints/:id/reset` | 🔐 成员 | 恢复为 `todo`（仅计划内） → Waypoint |
 | GET | `/trips/:id/recommend` | 🔐 成员 | 下一站推荐，见下 |
 | GET | `/trips/:id/compare` | 🔓（按旅程可见性） | 计划 vs 实际对比，见下 |
-| GET | `/trips/:id/legs` | 🔐（按旅程可见性） | 计划路线中同一天相邻打卡点之间的路程与耗时，`?mode=walking` / `transit` / `driving`（缺省 `transit`），见下 |
+| GET | `/trips/:id/legs` | 🔓（按旅程可见性） | 每天路线（前一晚住宿 → 当天计划点 → 当晚住宿）各段的路程、耗时、推荐出行方式与实际路线，`?mode=auto` / `walking` / `riding` / `driving` / `transit`（缺省为旅程的 `travel_mode`）`&geometry=1`，见下 |
 | POST | `/ai/plan` | 🔐 | AI 规划路线，见下 |
 | POST | `/ai/plan/stream` | 🔐 | 同 `/ai/plan`，以 SSE（`text/event-stream`）推送进度与结果，见下 |
+| POST | `/ai/preferences` | 🔐 | AI 帮写「偏好和要求」，见下 |
 
 开始旅行 / 结束旅行：`PATCH /trips/:id {"phase": "ongoing" | "finished"}`。
 
@@ -382,7 +429,7 @@ AuthResult：
   "arrived_at": "…", "client_id": "…" }
 ```
 - 指定 `waypoint_id`：标记该计划点已到达
-- 否则：200 米内存在 `todo` 计划点 → 标记已到达（取距离最近的；与最近距离相差 20 米以内视为同一位置，取 seq 最小的）；否则新建计划外打卡点（`planned=false,status=visited`），插入在实际路线中最后一个已到达点之后（所有已到达点都有 `arrived_at` 时按到达时间排序，否则按 `seq`）；未给名称时用逆地理结果命名
+- 否则：200 米内存在 `todo` 计划点（含住宿）→ 标记已到达（取距离最近的；与最近距离相差 20 米以内视为同一位置，取 seq 最小的；同一家酒店连住几晚时取最早那晚的住宿）；否则新建计划外打卡点（`planned=false,status=visited`），插入在实际路线中最后一个已到达点之后（所有已到达点都有 `arrived_at` 时按到达时间排序，否则按 `seq`）；未给名称时用逆地理结果命名
 - 旅程处于 `planning` 时自动变为 `ongoing`
 
 响应：`{ "waypoint": Waypoint, "matched_plan": true, "duplicate": false }`
@@ -406,6 +453,7 @@ AuthResult：
 - `source`: `plan`（计划中的后续点） | `community`（社区公开打卡的高分地点） | `amap`（高德周边搜索） | `ai`（AI 推荐）
 - `reason`：推荐理由，不含距离（距离见 `distance_m`，由客户端显示）
 - `next_planned`：最后一个已到达的计划点之后的第一个 `todo` 计划点（中途漏打卡 / 跳过的点不计）；之后没有时取最早的 `todo` 计划点。`source=plan` 的建议按同样顺序，之前漏掉的计划点排在后面，理由为「计划中尚未去的站点」
+- 住宿参与这一顺序：第 N 天晚上的住宿排在第 N 天的计划点之后，所以当天的点都去过（或跳过）后，下一站是今晚的住宿（`next_planned.kind=lodging`，建议理由「今晚的住宿」）。已经过去的那些晚（设置了开始日期时早于今天的晚上，或之后已有到达的计划点）的住宿不再推荐
 - `ai=true` 且服务端配置了 AI 时，把位置、时间、已去/未去的点、候选地点交给大模型挑选并给出理由；失败时自动退回规则推荐
 - `warnings`：附近（2 公里内）至少 2 人标记踩雷且踩雷多于推荐的地点；踩雷多于推荐的地点不会出现在 `suggestions` 中。`reason` 形如「2 人踩雷：排队久；价格贵」，最多列出 3 条不同的备注（每人取最新一条，相同的备注只显示一次）
 
@@ -421,26 +469,36 @@ AuthResult：
 }
 ```
 `completion_rate` = 已到达的计划点 / 计划点总数；`extra` 为计划外打卡点。
+住宿不是打卡点：不计入 `planned.count`、`completion_rate`、`visited` / `skipped` / `todo` / `extra` 与 `days`，另在 `lodging: [Waypoint]` 中列出（按 `seq`）。`planned.path` 只连计划游玩点；`actual.path` / `actual.distance_km` 为实际走过的路线，包含已到达的住宿（回酒店的路程也算），`actual.count` 为已到达的游玩点数（同 TripCard 的 `visited_count`）。
 
-`GET /trips/:id/legs?mode=transit` 响应：
+`GET /trips/:id/legs?mode=auto&geometry=1` 响应：
 ```json
 {
-  "mode": "transit",
+  "mode": "auto",
   "legs": [
-    { "from_id": 11, "to_id": 12, "day": 1, "mode": "walking", "distance_m": 1180, "duration_s": 900, "straight_m": 946, "estimated": false },
-    { "from_id": 12, "to_id": 14, "day": 1, "mode": "transit", "distance_m": 3900, "duration_s": 1680, "straight_m": 2700, "estimated": false }
+    { "from_id": 10, "to_id": 11, "day": 1, "mode": "walking", "recommended_mode": "walking",
+      "distance_m": 1180, "duration_s": 900, "straight_m": 946, "estimated": false,
+      "polyline": [[121.12601, 28.85702], [121.12833, 28.85611], [121.13, 28.855]] },
+    { "from_id": 11, "to_id": 14, "day": 1, "mode": "riding", "recommended_mode": "riding",
+      "distance_m": 3900, "duration_s": 1080, "straight_m": 2700, "estimated": true,
+      "polyline": [[121.13, 28.855], [121.15, 28.87]] }
   ],
   "days": [
-    { "day": 1, "stops": 3, "distance_m": 5080, "duration_s": 2580, "estimated": false },
-    { "day": 0, "stops": 1, "distance_m": 0, "duration_s": 0, "estimated": false }
-  ]
+    { "day": 1, "stops": 3, "distance_m": 5080, "duration_s": 1980, "estimated": true, "start_lodging_id": 10, "end_lodging_id": 15 },
+    { "day": 0, "stops": 1, "distance_m": 0, "duration_s": 0, "estimated": false, "start_lodging_id": null, "end_lodging_id": null }
+  ],
+  "pending": 1
 }
 ```
-- `legs`：计划路线（`planned=true` 的打卡点按 `seq` 排列）中**同一天**相邻两点之间的一段；不跨天（相邻两点 `day` 不同时没有路段），计划外打卡点不参与。`mode` 为该段实际采用的方式：`transit` 模式下直线距离 1 公里以内的路段、以及高德查不到公交地铁且直线不超过 30 公里的路段按步行，返回 `mode=walking`
-- 服务端配置了高德 Key 时用高德路径规划计算（`estimated=false`）；未配置、调用失败或未能在约 4 秒内算完的路段按直线距离估算（`estimated=true`：路程取直线的 1.3 倍（驾车 1.4 倍）；步行 1.2 米/秒；公交地铁 6 米/秒另加 10 分钟；驾车 8 米/秒另加 3 分钟；直线 50 公里以上的公交地铁 / 驾车按 20 米/秒）。高德结果缓存 7 天，估算的路段会在之后的请求中逐步换成高德结果
-- 公交地铁需要两端的城市（打卡点的 `city`，为空时按坐标离线判断），无法确定时按估算；直线超过 30 公里的步行、150 公里的公交地铁、1000 公里的驾车路段只估算
-- `days`：每个有计划打卡点的天一项，按天排序，`day=0`（未分天）排在最后；`stops` 为当天的计划点数，`distance_m` / `duration_s` 为当天各路段之和（不含停留游玩时间），`estimated` 表示当天有估算的路段
-- 需要登录（会消耗站点的高德配额）；可见性同 `GET /trips/:id`，同样支持 `share_code`
+- 每天的路线：前一晚的住宿（`day=N−1` 的住宿，第 1 天为出发前一晚 `day=0` 的住宿，没有则从当天第一个点开始）→ 当天的计划游玩点（按 `seq`）→ 当晚的住宿（没有则在最后一个点结束）；`legs` 为其中相邻两点之间的一段（`from_id` / `to_id` 可以是住宿的 ID），不跨天，计划外打卡点不参与。某天没有游玩点、但前后两晚住在不同的地方时，只有一段「换酒店」；同一家酒店则没有路段。「不分天」（`day=0`）的点之间仍按 `seq` 相连，没有住宿
+- `mode`（请求参数，缺省为旅程的 `travel_mode`，旧数据为 `auto`）：`auto` 每段用推荐的方式；`walking` / `riding` / `driving` / `transit` 每段都用该方式（`transit` 下直线距离 1 公里以内的路段、以及高德查不到公交地铁且直线不超过 30 公里的路段按步行）。响应中的 `mode` 为请求（或缺省）的方式，每段的 `mode` 为该段实际采用的方式
+- `recommended_mode`：该段推荐的出行方式（3D 回放在路段上显示的图标）：直线 1.2 公里以内 `walking`，4 公里以内 `riding`（共享单车），更远 `driving`；旅程的 `travel_mode` 为 `transit` 时更远的路段推荐 `transit`
+- `polyline`：仅 `geometry=1` 时返回，该段的实际路线 `[[lng, lat], …]`（GCJ-02，5 位小数，从起点到终点），来自高德路径规划（步行 / 驾车 / 骑行的道路，公交地铁为步行段 + 公交地铁线路，火车为站点间直线），经 Douglas–Peucker 抽稀（约 20 米，长途路段更粗）；估算的路段（`estimated=true`）为起终点两点直线
+- 服务端配置了高德 Key 时用高德路径规划计算（`estimated=false`）；未配置、调用失败或未能在约 4 秒内算完的路段按直线距离估算（`estimated=true`：路程取直线的 1.3 倍（驾车 1.4 倍）；步行 1.2 米/秒；骑行 4 米/秒另加 2 分钟；公交地铁 6 米/秒另加 10 分钟；驾车 8 米/秒另加 3 分钟；直线 50 公里以上的公交地铁 / 驾车按 20 米/秒）。高德结果（含抽稀后的路线）缓存 7 天，估算的路段会在之后的请求中逐步换成高德结果
+- `pending`：因时间不够（约 4 秒的预算，或高德请求排队已满）还没算好的路段数。大于 0 时客户端可在 3–5 秒后用同样的参数再请求一次（已算好的路段来自缓存，很快），直到为 0 或连续几次不再减少；因未配置高德、距离过长、城市未知等原因只能估算的路段不计入
+- 公交地铁需要两端的城市（打卡点的 `city`，为空时按坐标离线判断），无法确定时按估算；直线超过 30 公里的步行、50 公里的骑行、150 公里的公交地铁、1000 公里的驾车路段只估算
+- `days`：每个有计划游玩点或路段的天一项，按天排序，`day=0`（未分天）排在最后；`stops` 为当天的计划游玩点数（不含住宿），`distance_m` / `duration_s` 为当天各路段之和（不含停留游玩时间），`estimated` 表示当天有估算的路段，`start_lodging_id` / `end_lodging_id` 为当天出发 / 结束的住宿（没有时为 `null`）
+- 权限同 `GET /trips/:id`（游客可看公开旅程，持 `share_code` 可看「链接可见」旅程；旅行中未开启 `live_share` 时非成员只看到计划路线，本接口本来就只用计划点）。会消耗站点的高德配额：旅程成员不限；其他人（含游客，按账号或 IP）每 10 分钟前 20 次请求可以调用高德，超出后只返回已缓存的高德路线和估算值（仍为 200）
 
 `POST /ai/plan` 请求：
 ```json
@@ -449,15 +507,35 @@ AuthResult：
 响应：
 ```json
 { "title": "杭州三日·美食拍照之旅", "summary": "…",
-  "items": [{ "day": 1, "name": "西湖断桥", "address": "…", "category": "scenic", "note": "建议清晨去，人少好拍",
-              "lng": 120.15, "lat": 30.26, "located": true, "amap_id": "…", "place_id": null }] }
+  "items": [{ "day": 1, "kind": "stop", "name": "断桥残雪", "address": "…", "city": "杭州市", "district": "西湖区",
+              "category": "scenic", "note": "建议清晨去，人少好拍",
+              "lng": 120.15, "lat": 30.26, "located": true, "amap_id": "…", "place_id": null },
+            { "day": 1, "kind": "lodging", "name": "杭州湖滨XX酒店", "address": "…", "city": "杭州市", "district": "上城区",
+              "category": "hotel", "note": "住湖滨，第二天出发近",
+              "lng": 120.16, "lat": 30.26, "located": true, "amap_id": "…", "place_id": null }] }
 ```
 - 仅在 `ai_enabled` 时可用，否则返回 400 `未配置 AI 服务`
 - 返回的是建议，不会自动保存。客户端可在用户确认后通过 `POST /trips` + `POST /trips/:id/waypoints/batch` 保存
-- 地点坐标优先用高德搜索校正（`located=true`），无法定位的项 `located=false`，坐标可能为空
+- `kind`：`stop`（游玩 / 用餐地点）| `lodging`（第 `day` 天晚上的住宿：多日行程每晚一家真实的酒店 / 民宿，`day` 为 1 到天数 − 1，不计入每天的地点数）。保存时把 `kind` 原样传给 `POST /trips/:id/waypoints/batch` 即成为住宿（旧客户端不传 `kind` 时住宿按普通的酒店类打卡点保存）
+- `city` / `district`：所在地级市、区县（高德定位后为高德的结果，否则为 AI 给出的）
+- 地点校正（`located=true`）：先把目的地解析为省或地级市（离线行政区划；不是省市名称时如「阳朔」「千岛湖」用高德地理编码找到所在的市），再用 AI 给出的准确名称在高德关键字搜索中**限定该市**（AI 给出的城市在同省或邻近时限定那个城市）查找，查不到时再查输入提示；从结果中按名称相似度（忽略括号里的分店名）、类别是否一致、区县是否一致、离目的地中心的距离挑选最匹配的一个，不会选用停车场、公交站、出入口等同名设施，或类别不符的同名店铺（如「神仙居农家乐」之于景区「神仙居」）；都不够相似时不定位。定位后 `name` / `address` / `city` / `district` / 坐标取高德的数据
+- 无法定位的项 `located=false`：AI 自己给出的坐标只有在目的地（地级市，目的地为省时为该省）范围内才保留，否则 `lng` / `lat` 为 `null`；客户端应请用户确认或在地图上选择这些地点
 - 未经高德定位（`located=false`）但按名称匹配到社区地点（`place_id` 非空）的项，坐标取该地点的坐标
 - 失败时返回 `500 internal`，message 说明原因，可直接展示：`AI Key 无效或没有权限（HTTP 401：…）…`（401，或带服务商错误信息的 403）、`AI 账户余额不足，请在 DeepSeek 平台（platform.deepseek.com）充值（HTTP 402）`（其它服务商为 `AI 账户余额或额度不足…`）、`模型不存在：<模型名>…`、`AI 服务请求过于频繁或并发超限（HTTP 429）…`、`AI 服务繁忙（HTTP 503，服务器过载）…`、`AI 响应超时（等待了 N 秒），可在设置中换用更快的模型或关闭深度思考`（回复已开始但太慢）、`请求已发出，但 AI 服务（<主机>）在 N 秒内没有任何响应…`、`无法连接 AI 服务（<主机>）：<失败环节与原因>`（DNS、代理、TCP、TLS；网络故障不会被说成 Key 无效或模型太慢）、`AI 返回的内容无法解析，请重试` 等
 - 生成多日行程通常需要 10–60 秒（服务端超时 `TRIPHUB_AI_TIMEOUT`，缺省 120 秒）。网页端建议使用下面的流式接口显示进度；App 等不便处理 SSE 的客户端继续用本接口，并把请求超时设为 2 分钟以上
+
+`POST /ai/preferences`（AI 帮写「偏好和要求」）请求：
+```json
+{ "destination": "台州", "days": 2, "start_date": "2026-10-01", "together": true, "draft": "不想太累" }
+```
+响应：
+```json
+{ "suggestions": ["节奏轻松，每天不超过 4 个景点", "想吃地道的台州海鲜", "喜欢古城街巷，适合拍照"],
+  "text": "不想太累，节奏轻松，每天不超过 4 个景点，想吃地道的台州海鲜。" }
+```
+- `destination` 必填（≤30 字）；`days`（1–15）、`start_date`（用于季节）、`together`（情侣同行）、`draft`（用户已写的偏好，≤300 字）可选
+- `suggestions`：3–5 条（偶尔更少）不同方面（节奏、预算、同行人、饮食、拍照、兴趣等）的短句（每条 ≤40 字，不重复草稿里已有的），客户端显示为可点击追加到偏好输入框的标签；`text`：把草稿与合适的建议整合成的一段偏好（≤300 字，可整体替换输入框），可能为空字符串
+- 仅在 `ai_enabled` 时可用，否则返回 400 `未配置 AI 服务`；与 `/ai/plan` 共用每人每小时 30 次的 AI 频率限制；不开深度思考、不流式，服务端最多等待 20 秒（`TRIPHUB_AI_TIMEOUT` 更短时以其为准）；失败时返回 `500 internal`，message 同 `/ai/plan` 的错误说明（AI 没给出可用建议时为 `AI 没有给出建议，请重试`）
 
 `POST /ai/plan/stream`：请求体、登录要求与频率限制同 `POST /ai/plan`（两者合计每人每小时 30 次）。参数错误、未登录、未配置 AI（400）、超出频率（429）等在开始推送之前以普通 JSON 错误返回；之后响应为 `200`，`Content-Type: text/event-stream`（不压缩，带 `Cache-Control: no-cache`、`X-Accel-Buffering: no`，经 Nginx 反向代理时无需额外配置），事件依次为：
 
@@ -732,7 +810,7 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 - 所有成功的删除 / 无返回体操作返回 `{}`；创建类接口统一返回 `200`。
 - 时间字段统一输出为东八区 RFC3339（如 `2026-09-24T10:00:00+08:00`）；请求中也接受不带时区的 `YYYY-MM-DDTHH:mm[:ss]`（按东八区解释）。
 - `coord_type` 缺省为 `gcj02`（包括 `/trips/:id/checkin`、`/trips/:id/recommend`、`/trips/:id/track` 等）；只有 `POST /trips/:id/photos` 缺省为 `wgs84`。
-- 频率限制：同一 IP+账号 15 分钟内失败登录 5 次、同一 IP 失败 30 次后返回 429；同一 IP 每小时最多注册 10 个账号；每人 10 分钟最多 30 条评论；AI 接口（`/ai/plan`、`/ai/plan/stream`、带 `ai=true` 的推荐）每人每小时 30 次；地点搜索 / 逆地理 / 周边地点 / 地图点选每人 10 分钟最多 120 次；修改密码 / 注销账号时同一账号 15 分钟内密码错误 5 次（超出返回 429）。并发请求同样受限（请求在校验密码前即计入，登录成功后退回）。
+- 频率限制：同一 IP+账号 15 分钟内失败登录 5 次、同一 IP 失败 30 次后返回 429；同一 IP 每小时最多注册 10 个账号；每人 10 分钟最多 30 条评论；AI 接口（`/ai/plan`、`/ai/plan/stream`、`/ai/preferences`、带 `ai=true` 的推荐）每人每小时 30 次；非成员查看路段（`/trips/:id/legs`）每 10 分钟前 20 次可以调用高德（之后只用缓存和估算，不返回 429）；地点搜索 / 逆地理 / 周边地点 / 地图点选每人 10 分钟最多 120 次；修改密码 / 注销账号时同一账号 15 分钟内密码错误 5 次（超出返回 429）。并发请求同样受限（请求在校验密码前即计入，登录成功后退回）。
 - 请求带 `Accept-Encoding: gzip` 时，JSON 响应与网页静态资源以 gzip 压缩返回（SSE 事件流 `text/event-stream` 除外）。
 - 常用长度限制：标题 ≤100、简介 ≤500、正文 ≤50000、标签 ≤10 个且每个 ≤20 字（自动去重、去掉 `#`）、昵称 ≤20、个人简介 ≤200、打卡点名称 ≤100 / 备注 ≤5000、批量打卡点 ≤200 个、共同作者 ≤20 人、照片说明 ≤500。
 
@@ -743,15 +821,15 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 - 忘记密码：由管理员在后台调用 `POST /admin/users/:id/reset-password` 重置。管理员自己忘记密码时在服务器上运行 `docker compose exec app /triphub reset-password -user <用户名>`（二进制部署：`TRIPHUB_DB_DSN=… ./triphub reset-password -user <用户名>`；`-password` 指定新密码，缺省随机生成；`-admin` 同时设为管理员）。配置 `TRIPHUB_ADMIN_PASSWORD` 不会修改已有账号的密码；`TRIPHUB_ADMIN_USERNAME` 指向已注册的普通用户时，只有密码与该用户当前密码一致才会授予管理员权限。
 
 ### 旅程
-- **分享码访问子资源**：`unlisted` 旅程按 ID 访问时仅成员/管理员可见。通过分享链接浏览的访客，在请求 `GET /trips/:id`、`/trips/:id/track`、`/trips/:id/comments`、`/trips/:id/compare`、点赞 / 评论等旅程子接口时，可附带查询参数 `?share_code=xxx`（或请求头 `X-Share-Code`）获得与公开旅程相同的访问权限。
+- **分享码访问子资源**：`unlisted` 旅程按 ID 访问时仅成员/管理员可见。通过分享链接浏览的访客，在请求 `GET /trips/:id`、`/trips/:id/track`、`/trips/:id/comments`、`/trips/:id/compare`、`/trips/:id/legs`、点赞 / 评论等旅程子接口时，可附带查询参数 `?share_code=xxx`（或请求头 `X-Share-Code`）获得与公开旅程相同的访问权限。
 - `TripDetail.share_code` 仅成员可见，非成员时**不返回该字段**。`TripDetail` 额外返回 `invite_pending`（当前用户有待接受的共同作者邀请时为 true；被邀请人在接受前可预览旅程）。
 - `TripCard.summary` 为空时由正文自动截取（最多 120 字）；`TripDetail.summary` 返回原始简介。`cover_url` 未设置时使用第一张照片（旅行中的位置隐私规则下除外）。
-- `cities` / `provinces` 按实际路线（`status=visited`）计算，尚无已到达点时退回计划路线；`distance_km` 取 GPS 轨迹里程与已打卡点连线里程中的较大者（规则见「实时轨迹」）。`days`：设置了起止日期时按日期，否则取打卡点最大 `day`，否则按到达时间跨度。例外：旅行中且未开启 `live_share` 的旅程，非成员看到的这些字段只按计划计算，见「旅行中的位置隐私」。
+- `cities` / `provinces` 按实际路线（`status=visited`，含已到达的住宿）计算，尚无已到达点时退回计划路线；`distance_km` 取 GPS 轨迹里程与已打卡点连线里程（含已到达的住宿）中的较大者（规则见「实时轨迹」）；计划路线里程只连计划游玩点。`days`：设置了起止日期时按日期，否则取设置的天数与打卡点最大 `day` 中较大者，都没有时按到达时间跨度（见 TripCard）。例外：旅行中且未开启 `live_share` 的旅程，非成员看到的这些字段只按计划计算，见「旅行中的位置隐私」。
 - `GET /me/favorites` 只列出当前仍可见（公开且正常，或本人为成员）的旅程。
 - `POST /trips/:id/members` 返回更新后的成员列表（同 `GET /trips/:id/members`）；`POST /trips/:id/members/accept` 返回 `TripDetail`。成员列表管理员也可查看。
-- 引用路线（fork）复制原旅程中除 `skipped` 和 `verdict=avoid`（踩雷；`include_avoid=true` 时保留）以外的全部打卡点，并复制标签与简介；自己引用自己的旅程不计 `fork_count`。`fork_count` 为当前持有该旅程引用副本的其他用户数：同一用户多次引用只计一次，引用副本被删除后相应减少。
+- 引用路线（fork）复制原旅程中除 `skipped` 和 `verdict=avoid`（踩雷；`include_avoid=true` 时保留）以外的全部打卡点（住宿保持 `kind=lodging` 与所在的晚上），并复制标签、简介、天数与 `travel_mode`；自己引用自己的旅程不计 `fork_count`。`fork_count` 为当前持有该旅程引用副本的其他用户数：同一用户多次引用只计一次，引用副本被删除后相应减少。
 - `GET /admin/trips` 额外支持 `?featured=true`。
-- **旅行中的位置隐私**：旅程 `phase=ongoing` 且 `live_share=false`（默认）时，非成员（包括游客和持分享码的访客）看到的是「计划本身」：`TripDetail.waypoints` 只含计划内的打卡点，且均为 `status=todo`、`arrived_at=null`、`verdict=""`、`rating=0`；`photos` 为空，`has_track=false`，`visited_count` / `photo_count` 为 0；`GET /trips/:id/track` 返回空 `segments`（`point_count=0`）；`/compare` 同样只按计划返回（`visited` / `extra` 为空，`track_distance_km=0`）；**TripCard 统计同样按计划**：`TripDetail` 以及所有列表中的 TripCard（`GET /trips` 与搜索、`/users/:username/trips`、`/me/favorites`、`/me/invites` 等）里，`waypoint_count` = `planned_count`（只计计划内的点，不含计划外打卡），`visited_count` / `photo_count` 为 0，`distance_km` 为计划路线里程（计划内的点按 `seq` 连线，不用 GPS 轨迹和打卡连线），`cities` / `provinces` 只取计划内的点，`days` 不按到达时间推算（设置了起止日期时按日期，否则取计划内的点最大 `day`，否则为 0），`cover_url` / `cover_thumb_url` 未手动设置封面时为空（不使用照片作自动封面），`updated_at` 等于 `created_at`（打卡、照片、轨迹会更新旅程，从而暴露最近活动时间）；`GET /trips` 的 `q` / `city` / `province` 对这类旅程只匹配计划内打卡点的城市和省份；`/places/:id/reviews`、`/users/:username/footprints` 不包含该旅程；引用路线（fork）只复制计划内的打卡点；该旅程的打卡也不计入地点统计、地点封面和踩雷提醒，旅程结束后计入。成员和管理员不受影响；旅程结束（`finished`）后按原可见性全部公开。
+- **旅行中的位置隐私**：旅程 `phase=ongoing` 且 `live_share=false`（默认）时，非成员（包括游客和持分享码的访客）看到的是「计划本身」：`TripDetail.waypoints` 只含计划内的打卡点，且均为 `status=todo`、`arrived_at=null`、`verdict=""`、`rating=0`；`photos` 为空，`has_track=false`，`visited_count` / `photo_count` 为 0；`GET /trips/:id/track` 返回空 `segments`（`point_count=0`）；`/compare` 同样只按计划返回（`visited` / `extra` 为空，`track_distance_km=0`）；**TripCard 统计同样按计划**：`TripDetail` 以及所有列表中的 TripCard（`GET /trips` 与搜索、`/users/:username/trips`、`/me/favorites`、`/me/invites` 等）里，`waypoint_count` = `planned_count`（只计计划内的点，不含计划外打卡），`visited_count` / `photo_count` 为 0，`distance_km` 为计划路线里程（计划内的点按 `seq` 连线，不用 GPS 轨迹和打卡连线），`cities` / `provinces` 只取计划内的点，`days` 不按到达时间推算（设置了起止日期时按日期，否则取设置的天数与计划内的点（含住宿）最大 `day` 中较大者，否则为 0），`cover_url` / `cover_thumb_url` 未手动设置封面时为空（不使用照片作自动封面），`updated_at` 等于 `created_at`（打卡、照片、轨迹会更新旅程，从而暴露最近活动时间）；`GET /trips` 的 `q` / `city` / `province` 对这类旅程只匹配计划内打卡点的城市和省份；`/places/:id/reviews`、`/users/:username/footprints` 不包含该旅程；引用路线（fork）只复制计划内的打卡点；该旅程的打卡也不计入地点统计、地点封面和踩雷提醒，旅程结束后计入。成员和管理员不受影响；旅程结束（`finished`）后按原可见性全部公开。
 
 ### 打卡点 / 按路线出行
 - 创建打卡点可额外传 `province` / `city` / `district`（如来自 `/geo/search` 结果）：`district` 优先使用客户端值；`province` / `city` 始终以离线行政区划为准，仅当坐标不在国内时才使用客户端值。
@@ -761,7 +839,7 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 - `POST /trips/:id/checkin` 可选传 `arrived_at`；新建的计划外点若设置了旅程开始日期则自动计算 `day`。`POST /waypoints/:id/checkin` 以及带 `waypoint_id` 的 `POST /trips/:id/checkin` 对已到达的点仅在显式传入 `arrived_at` 时更新时间（未传时保留原到达时间）。「我到了」打卡（`/trips/:id/checkin`、`/waypoints/:id/checkin`）与上传轨迹会把 `planning` 旅程自动切换为 `ongoing`。
 - 自动建点的照片关联到 300 米内最近的打卡点；若该点是 `todo` 计划点、照片距它不超过 100 米，且旅程不处于 `planning`、照片带拍摄时间，则该计划点被标记为已到达（`arrived_at` = 拍摄时间）。
 - `suggestions[]` 中 `source=plan` 的项额外带 `waypoint_id`（可直接调用 `/waypoints/:id/checkin`）。`ai` 参数缺省为 false。
-- `POST /ai/plan`：`days` 1–15（缺省 3），`preferences` ≤300 字；AI 调用失败或超时返回 `500 internal`（message 可直接展示）。每天最多安排约 6 个地点（行程越长每天越少，超过 7 天时每天 2–4 个），备注简短，以加快生成。
+- `POST /ai/plan`：`days` 1–15（缺省 3），`preferences` ≤300 字；AI 调用失败或超时返回 `500 internal`（message 可直接展示）。每天最多安排约 6 个地点（行程越长每天越少，超过 7 天时每天 2–4 个），另加每晚一个住宿，备注简短，以加快生成。
 - 自动命名：未给名称的打卡点（「我到了」计划外打卡、照片自动建点、只给坐标新建）在服务端配置了高德或天地图时，优先用所在的区域名称（如位于「甲午岩景区」内），否则用 30 米内最近的地点名称，再否则为「区县·街道」；未配置时为城市名。
 - `/trips/:id/recommend` 的 AI 挑选最多等待 20 秒（`TRIPHUB_AI_TIMEOUT` 更短时以其为准），超时自动退回规则推荐。
 

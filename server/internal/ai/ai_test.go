@@ -110,6 +110,15 @@ func TestThinkingParamPerHost(t *testing.T) {
 	if b := body("https://api.openai.com/v1", "off", map[string]any{"enable_thinking": false}); b["enable_thinking"] != false {
 		t.Fatalf("extra body for other providers: %v", b)
 	}
+	// A call can switch thinking off (or on) whatever the configuration.
+	c := NewClient(Config{BaseURL: "https://api.deepseek.com", Model: "m", Thinking: "high"})
+	if b, _ := c.body(msgs, Options{Thinking: ThinkingOff, MaxTokens: 600}, false); js(b["thinking"]) != `{"type":"disabled"}` ||
+		b["reasoning_effort"] != nil || b["max_tokens"] != 600 {
+		t.Fatalf("thinking off for one call: %v", b)
+	}
+	if b, _ := c.body(msgs, Options{}, false); b["reasoning_effort"] != "high" {
+		t.Fatalf("configured thinking: %v", b)
+	}
 }
 
 func chatJSON(content string) map[string]any {
