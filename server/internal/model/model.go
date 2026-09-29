@@ -33,6 +33,14 @@ const (
 	WPVisited = "visited"
 	WPSkipped = "skipped"
 
+	// Waypoint kinds: a stop to visit, or the lodging (hotel) of a night.
+	KindStop    = "stop"
+	KindLodging = "lodging"
+
+	// TravelAuto: each leg of a trip's route uses the recommended mode
+	// (walking, riding or driving by distance); see Trip.TravelMode.
+	TravelAuto = "auto"
+
 	VerdictRecommend = "recommend"
 	VerdictNeutral   = "neutral"
 	VerdictAvoid     = "avoid"
@@ -49,6 +57,10 @@ const (
 
 // Categories of waypoints / places.
 var Categories = []string{"scenic", "food", "hotel", "shopping", "transport", "entertainment", "other"}
+
+// TravelModes are the travel modes of a trip's route (Trip.TravelMode and
+// GET /trips/:id/legs).
+var TravelModes = []string{TravelAuto, "walking", "riding", "driving", "transit"}
 
 // User is a registered account.
 type User struct {
@@ -89,35 +101,42 @@ type RefreshToken struct {
 // round-trips through GORM's default comparison unchanged, while a quoted
 // literal like '[]' is re-ALTERed (ACCESS EXCLUSIVE on trips) on every boot.
 type Trip struct {
-	ID              int64      `gorm:"primaryKey"`
-	OwnerID         int64      `gorm:"not null;index"`
-	Title           string     `gorm:"size:200;not null"`
-	Summary         string     `gorm:"type:text;not null;default:''"`
-	Content         string     `gorm:"type:text;not null;default:''"`
-	CoverURL        string     `gorm:"size:500;not null;default:''"`
-	AutoCoverURL    string     `gorm:"size:500;not null;default:''"`
-	Phase           string     `gorm:"size:16;not null;default:'planning';index"`
-	Visibility      string     `gorm:"size:16;not null;default:'private';index:idx_trips_listing,priority:1"`
-	Status          string     `gorm:"size:16;not null;default:'normal';index:idx_trips_listing,priority:2"`
-	StartDate       *time.Time `gorm:"type:date"`
-	EndDate         *time.Time `gorm:"type:date"`
-	Days            int        `gorm:"not null;default:0"`
-	DistanceKm      float64    `gorm:"type:double precision;not null;default:0"`
-	Cities          []string   `gorm:"serializer:json;type:jsonb;not null;default:jsonb_build_array()"`
-	Provinces       []string   `gorm:"serializer:json;type:jsonb;not null;default:jsonb_build_array()"`
-	Tags            []string   `gorm:"serializer:json;type:jsonb;not null;default:jsonb_build_array()"`
-	WaypointCount   int        `gorm:"not null;default:0"`
-	PlannedCount    int        `gorm:"not null;default:0"`
-	VisitedCount    int        `gorm:"not null;default:0"`
-	PhotoCount      int        `gorm:"not null;default:0"`
-	LikeCount       int        `gorm:"not null;default:0"`
-	CommentCount    int        `gorm:"not null;default:0"`
-	ForkCount       int        `gorm:"not null;default:0"`
-	FavCount        int        `gorm:"not null;default:0"`
-	ViewCount       int        `gorm:"not null;default:0"`
-	TrackPointCount int        `gorm:"not null;default:0"`
-	TrackDistanceKm float64    `gorm:"type:double precision;not null;default:0"`
-	Featured        bool       `gorm:"not null;default:false"`
+	ID           int64      `gorm:"primaryKey"`
+	OwnerID      int64      `gorm:"not null;index"`
+	Title        string     `gorm:"size:200;not null"`
+	Summary      string     `gorm:"type:text;not null;default:''"`
+	Content      string     `gorm:"type:text;not null;default:''"`
+	CoverURL     string     `gorm:"size:500;not null;default:''"`
+	AutoCoverURL string     `gorm:"size:500;not null;default:''"`
+	Phase        string     `gorm:"size:16;not null;default:'planning';index"`
+	Visibility   string     `gorm:"size:16;not null;default:'private';index:idx_trips_listing,priority:1"`
+	Status       string     `gorm:"size:16;not null;default:'normal';index:idx_trips_listing,priority:2"`
+	StartDate    *time.Time `gorm:"type:date"`
+	EndDate      *time.Time `gorm:"type:date"`
+	Days         int        `gorm:"not null;default:0"`
+	// PlanDays is the number of days the members planned (set explicitly, or
+	// from the dates when they are set); Days is derived from it and the
+	// dates (see service.TripDays). 0: not set.
+	PlanDays int `gorm:"not null;default:0"`
+	// TravelMode is the preferred way to get between stops (one of
+	// TravelModes): the default of GET /trips/:id/legs.
+	TravelMode      string   `gorm:"size:16;not null;default:'auto'"`
+	DistanceKm      float64  `gorm:"type:double precision;not null;default:0"`
+	Cities          []string `gorm:"serializer:json;type:jsonb;not null;default:jsonb_build_array()"`
+	Provinces       []string `gorm:"serializer:json;type:jsonb;not null;default:jsonb_build_array()"`
+	Tags            []string `gorm:"serializer:json;type:jsonb;not null;default:jsonb_build_array()"`
+	WaypointCount   int      `gorm:"not null;default:0"`
+	PlannedCount    int      `gorm:"not null;default:0"`
+	VisitedCount    int      `gorm:"not null;default:0"`
+	PhotoCount      int      `gorm:"not null;default:0"`
+	LikeCount       int      `gorm:"not null;default:0"`
+	CommentCount    int      `gorm:"not null;default:0"`
+	ForkCount       int      `gorm:"not null;default:0"`
+	FavCount        int      `gorm:"not null;default:0"`
+	ViewCount       int      `gorm:"not null;default:0"`
+	TrackPointCount int      `gorm:"not null;default:0"`
+	TrackDistanceKm float64  `gorm:"type:double precision;not null;default:0"`
+	Featured        bool     `gorm:"not null;default:false"`
 	FeaturedAt      *time.Time
 	LiveShare       bool       `gorm:"not null;default:false"` // show GPS track / check-ins to non-members while ongoing
 	ForkedFromID    *int64     `gorm:"index"`
@@ -141,10 +160,14 @@ type TripMember struct {
 
 // Waypoint is a stop on a trip, either planned or actually visited.
 type Waypoint struct {
-	ID           int64  `gorm:"primaryKey"`
-	TripID       int64  `gorm:"not null;index:idx_wp_trip_seq,priority:1"`
-	Seq          int    `gorm:"not null;index:idx_wp_trip_seq,priority:2"`
-	Day          int    `gorm:"not null;default:0"`
+	ID     int64 `gorm:"primaryKey"`
+	TripID int64 `gorm:"not null;index:idx_wp_trip_seq,priority:1"`
+	Seq    int   `gorm:"not null;index:idx_wp_trip_seq,priority:2"`
+	Day    int   `gorm:"not null;default:0"`
+	// Kind is KindStop, or KindLodging: the hotel of the night after Day
+	// (that day ends there and the next one starts there; Day 0 is the
+	// night before day 1). At most one lodging per trip and night.
+	Kind         string `gorm:"size:16;not null;default:'stop'"`
 	Planned      bool   `gorm:"not null"`
 	Status       string `gorm:"size:16;not null"`
 	PlannedAt    *time.Time
@@ -173,6 +196,9 @@ type Waypoint struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
+
+// IsLodging reports whether the waypoint is the lodging of a night.
+func (w *Waypoint) IsLodging() bool { return w.Kind == KindLodging }
 
 // Photo is an uploaded image belonging to a trip.
 type Photo struct {

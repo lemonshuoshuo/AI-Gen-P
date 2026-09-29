@@ -8,15 +8,104 @@ import (
 	"triphub/internal/model"
 )
 
-// PlannedRoute returns planned waypoints in seq order.
+// PlannedRoute returns the planned stops in seq order. Lodging is not a
+// stop of the route: see PlanOrder.
 func PlannedRoute(wps []model.Waypoint) []model.Waypoint {
 	var out []model.Waypoint
 	for _, w := range wps {
-		if w.Planned {
+		if w.Planned && !w.IsLodging() {
 			out = append(out, w)
 		}
 	}
 	sortBySeq(out)
+	return out
+}
+
+// CountStops counts the waypoints that are stops (not lodging): the
+// 打卡点 of a trip's statistics.
+func CountStops(wps []model.Waypoint) int {
+	n := 0
+	for i := range wps {
+		if !wps[i].IsLodging() {
+			n++
+		}
+	}
+	return n
+}
+
+// Lodgings returns the planned lodging of each night (the first by seq, id
+// should a night have several).
+func Lodgings(wps []model.Waypoint) map[int]*model.Waypoint {
+	out := map[int]*model.Waypoint{}
+	for i := range wps {
+		w := &wps[i]
+		if !w.Planned || !w.IsLodging() {
+			continue
+		}
+		if cur := out[w.Day]; cur == nil || w.Seq < cur.Seq || (w.Seq == cur.Seq && w.ID < cur.ID) {
+			out[w.Day] = w
+		}
+	}
+	return out
+}
+
+// PlanOrder returns the planned waypoints in the order of the plan: the
+// stops by seq, and each night's lodging right after the last stop of that
+// day (or of the latest earlier day with stops); the night before day 1
+// (day 0), and nights before any scheduled stop, come before the first stop
+// of a later day. Where a lodging is stored in seq does not matter, so
+// clients may keep lodging anywhere in their lists.
+func PlanOrder(wps []model.Waypoint) []model.Waypoint {
+	stops := PlannedRoute(wps)
+	var lodging []model.Waypoint
+	for _, w := range wps {
+		if w.Planned && w.IsLodging() {
+			lodging = append(lodging, w)
+		}
+	}
+	if len(lodging) == 0 {
+		return stops
+	}
+	sort.SliceStable(lodging, func(i, j int) bool {
+		a, b := lodging[i], lodging[j]
+		if a.Day != b.Day {
+			return a.Day < b.Day
+		}
+		if a.Seq != b.Seq {
+			return a.Seq < b.Seq
+		}
+		return a.ID < b.ID
+	})
+	// before(n) is how many stops precede the lodging of night n; it does
+	// not decrease with n, so the lodging sorted by night merge in order.
+	before := func(night int) int {
+		after := -1
+		for i, s := range stops {
+			if s.Day >= 1 && s.Day <= night {
+				after = i
+			}
+		}
+		if after >= 0 {
+			return after + 1
+		}
+		for i, s := range stops {
+			if s.Day > night {
+				return i
+			}
+		}
+		return len(stops)
+	}
+	out := make([]model.Waypoint, 0, len(stops)+len(lodging))
+	li := 0
+	for i := 0; i <= len(stops); i++ {
+		for li < len(lodging) && before(lodging[li].Day) <= i {
+			out = append(out, lodging[li])
+			li++
+		}
+		if i < len(stops) {
+			out = append(out, stops[i])
+		}
+	}
 	return out
 }
 
@@ -93,14 +182,22 @@ func FormatDate(t *time.Time) *string {
 	return &s
 }
 
+// DateSpan is the number of days from start to end (both included); 0
+// unless both are set and end is not before start.
+func DateSpan(start, end *time.Time) int {
+	if start == nil || end == nil {
+		return 0
+	}
+	return max(int(end.UTC().Sub(start.UTC()).Hours()/24)+1, 0)
+}
+
 // TripDays computes the number of days of a trip: from its dates when both
-// are set, else the highest waypoint day, else the span of arrival dates.
-func TripDays(start, end *time.Time, wps []model.Waypoint, loc *time.Location) int {
-	if start != nil && end != nil {
-		d := int(end.UTC().Sub(start.UTC()).Hours()/24) + 1
-		if d > 0 {
-			return d
-		}
+// are set; else the days planned (planDays), or the highest waypoint day
+// when that is higher (a lodging's night counts as its day); without
+// planned days the highest waypoint day, else the span of arrival dates.
+func TripDays(start, end *time.Time, planDays int, wps []model.Waypoint, loc *time.Location) int {
+	if d := DateSpan(start, end); d > 0 {
+		return d
 	}
 	maxDay := 0
 	var first, last time.Time
@@ -117,6 +214,9 @@ func TripDays(start, end *time.Time, wps []model.Waypoint, loc *time.Location) i
 				last = d
 			}
 		}
+	}
+	if planDays > 0 {
+		return max(planDays, maxDay)
 	}
 	if maxDay > 0 {
 		return maxDay
@@ -170,12 +270,16 @@ type PlanStats struct {
 // TripPlanStats computes PlanStats from a trip's waypoints (any others than
 // the planned ones are ignored); the rules are RecomputeTrip's for a trip
 // without check-ins or a track.
-func TripPlanStats(start, end *time.Time, wps []model.Waypoint, loc *time.Location) PlanStats {
+func TripPlanStats(start, end *time.Time, planDays int, wps []model.Waypoint, loc *time.Location) PlanStats {
 	planned := PlannedRoute(wps) // a copy
 	for i := range planned {
 		planned[i].Status, planned[i].ArrivedAt = model.WPTodo, nil // no span of arrival dates in Days
 	}
 	cities, provinces := distinctRegions(planned)
+	withLodging := PlanOrder(wps) // a lodging's night counts in Days
+	for i := range withLodging {
+		withLodging[i].Status, withLodging[i].ArrivedAt = model.WPTodo, nil
+	}
 	return PlanStats{Count: len(planned), DistanceKm: RouteKm(planned), Cities: cities, Provinces: provinces,
-		Days: TripDays(start, end, planned, loc)}
+		Days: TripDays(start, end, planDays, withLodging, loc)}
 }

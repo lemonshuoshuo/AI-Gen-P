@@ -189,6 +189,10 @@ type Options struct {
 	MaxTokens int
 	// Temperature (nil = 0.4).
 	Temperature *float64
+	// Thinking overrides the client's thinking mode for this call (one of
+	// the Thinking* modes; "" keeps the configured one), e.g. ThinkingOff
+	// for short answers a user waits for.
+	Thinking string
 }
 
 // Delta is a piece of a streamed answer: Content is answer text, Reasoning
@@ -220,7 +224,11 @@ func (c *Client) body(msgs []Message, o Options, stream bool) (body map[string]a
 	if o.JSON {
 		add("response_format", map[string]string{"type": "json_object"})
 	}
-	for k, v := range thinkingFields(c.host(), c.thinking) {
+	thinking := c.thinking
+	if o.Thinking != "" {
+		thinking = o.Thinking
+	}
+	for k, v := range thinkingFields(c.host(), thinking) {
 		add(k, v)
 	}
 	for k, v := range c.extra {

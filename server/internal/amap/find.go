@@ -32,7 +32,7 @@ func (t tipJSON) toPOI() (POI, bool) {
 	}
 	prov, city, dist := SplitRegion(string(t.District))
 	return POI{ID: id, Name: name, Address: string(t.Address), Province: prov, City: city, District: dist,
-		Category: CategoryFromTypecode(string(t.Typecode)), Lng: lng, Lat: lat}, true
+		Category: CategoryFromTypecode(string(t.Typecode)), Adcode: string(t.Adcode), Lng: lng, Lat: lat}, true
 }
 
 // SplitRegion splits an AMap district string such as "浙江省台州市椒江区"
@@ -222,4 +222,137 @@ func normName(s string) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// Tips asks the input tips (/v3/assistant/inputtips) for POIs matching
+// keyword; city (a name or adcode) with cityLimit keeps only those in that
+// city. Tips without a POI ID or position are dropped. Results are cached
+// for 30 minutes; the returned slice is shared and must not be modified.
+func (c *Client) Tips(ctx context.Context, keyword, city string, cityLimit bool) ([]POI, error) {
+	key := fmt.Sprintf("tips\x00%s\x00%s\x00%t", keyword, city, cityLimit)
+	if ps, ok := c.search.Get(key); ok {
+		return c.remember(ps), nil
+	}
+	q := url.Values{}
+	q.Set("keywords", keyword)
+	if city != "" {
+		q.Set("city", city)
+	}
+	q.Set("citylimit", strconv.FormatBool(cityLimit && city != ""))
+	q.Set("datatype", "poi")
+	var resp struct {
+		Tips flexList[tipJSON] `json:"tips"`
+	}
+	if err := c.get(ctx, "/v3/assistant/inputtips", q, &resp); err != nil {
+		return nil, err
+	}
+	out := []POI{}
+	for _, t := range resp.Tips {
+		if p, ok := t.toPOI(); ok {
+			out = append(out, p)
+		}
+	}
+	c.remember(out)
+	c.search.Put(key, out)
+	return out, nil
+}
+
+// Geocode finds a place name or address (/v3/geocode/geo): the first match,
+// with its province, city, district and adcode (Name is the formatted
+// address). ErrNotFound when AMap knows none. Results are cached for 30
+// minutes.
+func (c *Client) Geocode(ctx context.Context, address string) (*POI, error) {
+	key := "geo\x00" + address
+	if ps, ok := c.search.Get(key); ok {
+		if len(ps) == 0 {
+			return nil, ErrNotFound
+		}
+		p := ps[0]
+		return &p, nil
+	}
+	q := url.Values{}
+	q.Set("address", address)
+	var resp struct {
+		Geocodes flexList[struct {
+			FormattedAddress flexString `json:"formatted_address"`
+			Province         flexString `json:"province"`
+			City             flexString `json:"city"`
+			District         flexString `json:"district"`
+			Adcode           flexString `json:"adcode"`
+			Location         flexString `json:"location"`
+		}] `json:"geocodes"`
+	}
+	if err := c.get(ctx, "/v3/geocode/geo", q, &resp); err != nil {
+		return nil, err
+	}
+	var out []POI
+	for _, g := range resp.Geocodes {
+		lng, lat, ok := parseLocation(string(g.Location))
+		if !ok || IsCountry(string(g.Province)) {
+			continue
+		}
+		city := string(g.City)
+		if city == "" {
+			city = string(g.Province) // municipalities
+		}
+		out = append(out, POI{Name: string(g.FormattedAddress), Province: string(g.Province), City: city,
+			District: string(g.District), Adcode: string(g.Adcode), Lng: lng, Lat: lat})
+		break
+	}
+	c.search.Put(key, out)
+	if len(out) == 0 {
+		return nil, ErrNotFound
+	}
+	p := out[0]
+	return &p, nil
+}
+
+// NameSimilarity rates how well a place name found on the map matches the
+// name asked for, from 0 (unrelated) to 1 (the same name, ignoring case,
+// spaces, punctuation and a branch in brackets such as "（椒江店）"). A name
+// contained in the other scores 0.7–1 by how much of it they share (the
+// asked name may start with the city: "台州府城" for "府城"); others score
+// by their common character pairs (Dice coefficient).
+func NameSimilarity(asked, found string) float64 {
+	a, b := normName(stripBranch(asked)), normName(stripBranch(found))
+	if a == "" || b == "" {
+		return 0
+	}
+	if a == b {
+		return 1
+	}
+	ra, rb := []rune(a), []rune(b)
+	if strings.Contains(a, b) || strings.Contains(b, a) {
+		short, long := min(len(ra), len(rb)), max(len(ra), len(rb))
+		return 0.7 + 0.3*float64(short)/float64(long)
+	}
+	pairs := func(r []rune) map[[2]rune]int {
+		m := map[[2]rune]int{}
+		for i := 1; i < len(r); i++ {
+			m[[2]rune{r[i-1], r[i]}]++
+		}
+		return m
+	}
+	pa, pb := pairs(ra), pairs(rb)
+	common := 0
+	for k, n := range pa {
+		common += min(n, pb[k])
+	}
+	total := len(ra) - 1 + len(rb) - 1
+	if total <= 0 {
+		return 0
+	}
+	return 2 * float64(common) / float64(total)
+}
+
+// stripBranch drops a trailing bracketed part ("楼外楼(孤山路店)" → "楼外楼")
+// unless that leaves nothing.
+func stripBranch(s string) string {
+	s = strings.TrimSpace(s)
+	for _, open := range []string{"(", "（"} {
+		if i := strings.Index(s, open); i > 0 {
+			return strings.TrimSpace(s[:i])
+		}
+	}
+	return s
 }

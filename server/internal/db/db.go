@@ -130,6 +130,8 @@ func Migrate(gdb *gorm.DB) error {
 		// by an offline queue after a lost response is answered with the first result.
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_waypoints_client_id ON waypoints (trip_id, client_id) WHERE client_id <> ''`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_photos_client_id ON photos (trip_id, client_id) WHERE client_id <> ''`,
+		// At most one lodging per trip and night (checked by the handlers too, with a clear message).
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_waypoints_lodging_night ON waypoints (trip_id, day) WHERE kind = 'lodging'`,
 	}
 	for _, s := range stmts {
 		if err := gdb.Exec(s).Error; err != nil {

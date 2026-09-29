@@ -20,7 +20,7 @@ import (
 // photo or track changes.
 func (s *Service) RecomputeTrip(tx *gorm.DB, tripID int64) error {
 	var t model.Trip
-	if err := tx.Select("id", "start_date", "end_date", "track_point_count", "track_distance_km").First(&t, tripID).Error; err != nil {
+	if err := tx.Select("id", "start_date", "end_date", "plan_days", "track_point_count", "track_distance_km").First(&t, tripID).Error; err != nil {
 		return err
 	}
 	var wps []model.Waypoint
@@ -53,15 +53,17 @@ func (s *Service) RecomputeTrip(tx *gorm.DB, tripID int64) error {
 		autoCover = media.URL(firstPhoto.Path)
 	}
 
+	// Lodging is part of the actual route (the way back to the hotel counts
+	// in distance_km) but not a stop: the counts are of stops only.
 	return tx.Model(&model.Trip{}).Where("id = ?", tripID).Updates(map[string]any{
-		"waypoint_count": len(wps),
+		"waypoint_count": CountStops(wps),
 		"planned_count":  len(planned),
-		"visited_count":  len(actual),
+		"visited_count":  CountStops(actual),
 		"photo_count":    photoCount,
 		"cities":         jsonList(cities),
 		"provinces":      jsonList(provinces),
 		"distance_km":    dist,
-		"days":           TripDays(t.StartDate, t.EndDate, wps, s.Loc),
+		"days":           TripDays(t.StartDate, t.EndDate, t.PlanDays, wps, s.Loc),
 		"auto_cover_url": autoCover,
 	}).Error
 }

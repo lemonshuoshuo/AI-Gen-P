@@ -35,6 +35,10 @@ var ErrNotFound = errors.New("amap poi not found")
 // ErrNoRoute means AMap found no route, e.g. no public transport between two points.
 var ErrNoRoute = errors.New("amap: no route")
 
+// ErrBusy means a 路径规划 request was not sent because too many are
+// waiting for their turn (see throttle); a later request may succeed.
+var ErrBusy = fmt.Errorf("%w: too many direction requests", ErrUnavailable)
+
 // DefaultBaseURL is the AMap REST endpoint.
 const DefaultBaseURL = "https://restapi.amap.com"
 
@@ -209,6 +213,9 @@ type baseResp struct {
 	Status   flexString `json:"status"`
 	Info     flexString `json:"info"`
 	Infocode flexString `json:"infocode"`
+	// v4 APIs (riding)
+	Errcode flexString `json:"errcode"`
+	Errmsg  flexString `json:"errmsg"`
 }
 
 // AMap infocodes (https://lbs.amap.com/api/webservice/guide/tools/info).
@@ -299,7 +306,16 @@ func (c *Client) fetch(ctx context.Context, path string, q url.Values, out any) 
 		// Not AMap's JSON: a captive portal, or a proxy / WAF page.
 		return &Error{BadReply: true, Info: netdiag.Redact(netdiag.BodySnippet(body, 200), c.key)}
 	}
-	if br.Status != "1" {
+	if strings.HasPrefix(path, "/v4/") {
+		// The v4 APIs answer {"errcode":0,"errmsg":"OK","data":…}; their
+		// error codes are the infocodes of v3.
+		if br.Errcode == "" && br.Status == "" {
+			return &Error{BadReply: true, Info: netdiag.Redact(netdiag.BodySnippet(body, 200), c.key)}
+		}
+		if br.Errcode != "" && br.Errcode != "0" {
+			return &Error{Infocode: string(br.Errcode), Info: string(br.Errmsg)}
+		}
+	} else if br.Status != "1" {
 		return &Error{Infocode: string(br.Infocode), Info: string(br.Info)}
 	}
 	if err := json.Unmarshal(body, out); err != nil {
@@ -432,6 +448,7 @@ type POI struct {
 	Type     string
 	Category string
 	Tel      string
+	Adcode   string // the district's code ("331002"), when AMap sends it
 	Lng, Lat float64
 	Distance float64 // metres, only for around-search and reverse geocoding
 	Rating   float64 // AMap's business rating (0–5), 0 if unknown (Find only)
@@ -448,6 +465,7 @@ type poiJSON struct {
 	Pname    flexString `json:"pname"`
 	Cityname flexString `json:"cityname"`
 	Adname   flexString `json:"adname"`
+	Adcode   flexString `json:"adcode"`
 	Tel      flexString `json:"tel"`
 	Distance flexString `json:"distance"`
 	BizExt   flexObject[struct {
@@ -468,7 +486,7 @@ func (p poiJSON) toPOI() (POI, bool) {
 	out := POI{
 		ID: string(p.ID), Name: string(p.Name), Address: string(p.Address),
 		Province: string(p.Pname), City: city, District: string(p.Adname),
-		Type: string(p.Type), Category: Category(string(p.Type)), Tel: string(p.Tel),
+		Type: string(p.Type), Category: Category(string(p.Type)), Tel: string(p.Tel), Adcode: string(p.Adcode),
 		Lng: lng, Lat: lat,
 	}
 	if out.Type == "" && p.Typecode != "" {
@@ -825,23 +843,165 @@ func (c *Client) RegeoDetail(ctx context.Context, lng, lat float64) (*RegeoDetai
 
 // Route is a 路径规划 result.
 type Route struct {
-	Mode      string // walking, transit or driving
+	Mode      string // walking, riding, transit or driving
 	DistanceM int
 	DurationS int
+	// path is the simplified route (GCJ-02) as lng, lat pairs in units of
+	// 1e-5 degrees (compact: routes are cached); nil when AMap sent none.
+	path []int32
+}
+
+// Polyline returns the route as [[lng, lat], …] (GCJ-02, 5 decimals),
+// simplified with Douglas-Peucker (see simplifyTolerance), from the start to
+// the end point of the request; nil when AMap sent no geometry.
+func (r *Route) Polyline() [][2]float64 {
+	if r == nil || len(r.path) < 4 {
+		return nil
+	}
+	out := make([][2]float64, len(r.path)/2)
+	for i := range out {
+		out[i] = [2]float64{float64(r.path[2*i]) / 1e5, float64(r.path[2*i+1]) / 1e5}
+	}
+	return out
+}
+
+// DirectionModes are the modes of Direction.
+var DirectionModes = []string{"walking", "riding", "driving", "transit"}
+
+// dirStep / dirPath are the paths of walking, riding and driving answers.
+type dirStep struct {
+	Polyline flexString `json:"polyline"`
+}
+
+type dirPath struct {
+	Distance flexString        `json:"distance"`
+	Duration flexString        `json:"duration"`
+	Steps    flexList[dirStep] `json:"steps"`
+}
+
+// stopJSON is a station of a public transport answer.
+type stopJSON struct {
+	Location flexString `json:"location"`
+}
+
+// transitJSON is one public transport plan: its walking, bus / metro and
+// railway segments in order.
+type transitJSON struct {
+	Distance flexString `json:"distance"`
+	Duration flexString `json:"duration"`
+	Segments flexList[struct {
+		Walking flexObject[struct {
+			Steps flexList[dirStep] `json:"steps"`
+		}] `json:"walking"`
+		Bus flexObject[struct {
+			Buslines flexList[struct {
+				Polyline flexString `json:"polyline"`
+			}] `json:"buslines"`
+		}] `json:"bus"`
+		Railway flexObject[struct {
+			DepartureStop flexObject[stopJSON] `json:"departure_stop"`
+			ViaStops      flexList[stopJSON]   `json:"via_stops"`
+			ArrivalStop   flexObject[stopJSON] `json:"arrival_stop"`
+		}] `json:"railway"`
+	}] `json:"segments"`
+}
+
+// points returns the transit plan's way: its walks and the lines of its
+// buses / metro in order; trains, whose track AMap does not send, go
+// straight from station to station.
+func (t *transitJSON) points() []geo.Point {
+	var pts []geo.Point
+	for _, seg := range t.Segments {
+		for _, st := range seg.Walking.V.Steps {
+			pts = appendPolyline(pts, string(st.Polyline))
+		}
+		if lines := seg.Bus.V.Buslines; len(lines) > 0 {
+			pts = appendPolyline(pts, string(lines[0].Polyline))
+		}
+		rw := seg.Railway.V
+		pts = appendPolyline(pts, string(rw.DepartureStop.V.Location))
+		for _, v := range rw.ViaStops {
+			pts = appendPolyline(pts, string(v.Location))
+		}
+		pts = appendPolyline(pts, string(rw.ArrivalStop.V.Location))
+	}
+	return pts
+}
+
+// appendPolyline appends the points of an AMap polyline ("lng,lat;lng,lat")
+// to pts, skipping repeated points and invalid pairs.
+func appendPolyline(pts []geo.Point, s string) []geo.Point {
+	for _, pair := range strings.Split(s, ";") {
+		lng, lat, ok := parseLocation(pair)
+		if !ok {
+			continue
+		}
+		if n := len(pts); n > 0 && pts[n-1].Lng == lng && pts[n-1].Lat == lat {
+			continue
+		}
+		pts = append(pts, geo.Point{Lng: lng, Lat: lat})
+	}
+	return pts
+}
+
+// simplifyTolerance is the Douglas-Peucker tolerance (metres) of a route
+// whose ends are straight metres apart: 20 m, coarser for long routes (a
+// highway drive of hundreds of kilometres needs no 20 m detail).
+func simplifyTolerance(straight float64) float64 { return math.Max(20, straight/1500) }
+
+// compactPath simplifies a route from (fromLng, fromLat) to (toLng, toLat)
+// through pts and packs it (see Route.path); the request's end points are
+// its first and last points, so that it meets the markers of both stops.
+func compactPath(pts []geo.Point, fromLng, fromLat, toLng, toLat float64) []int32 {
+	if len(pts) == 0 {
+		return nil
+	}
+	all := make([]geo.Point, 0, len(pts)+2)
+	all = append(all, geo.Point{Lng: fromLng, Lat: fromLat})
+	all = append(all, pts...)
+	all = append(all, geo.Point{Lng: toLng, Lat: toLat})
+	all = geo.Simplify(all, simplifyTolerance(geo.Haversine(fromLng, fromLat, toLng, toLat)))
+	out := make([]int32, 0, 2*len(all))
+	for _, p := range all {
+		x, y := int32(math.Round(p.Lng*1e5)), int32(math.Round(p.Lat*1e5))
+		if n := len(out); n >= 2 && out[n-2] == x && out[n-1] == y {
+			continue
+		}
+		out = append(out, x, y)
+	}
+	return out
+}
+
+// directionKey is the cache key of a Direction request.
+func directionKey(mode string, fromLng, fromLat, toLng, toLat float64, city, cityd string) string {
+	return fmt.Sprintf("%s|%.5f,%.5f|%.5f,%.5f|%s|%s", mode, fromLng, fromLat, toLng, toLat, city, cityd)
+}
+
+// CachedDirection returns a route Direction planned recently (never sending
+// a request).
+func (c *Client) CachedDirection(mode string, fromLng, fromLat, toLng, toLat float64, city, cityd string) (*Route, bool) {
+	if c == nil || c.dir == nil {
+		return nil, false
+	}
+	return c.dir.Get(directionKey(mode, fromLng, fromLat, toLng, toLat, city, cityd))
 }
 
 // Direction plans a trip between two GCJ-02 points. mode is "walking"
-// (/v3/direction/walking), "driving" (/v3/direction/driving) or "transit"
-// (/v3/direction/transit/integrated: city and cityd are the city names of
-// both ends; ErrNoRoute when AMap has no public transport between them).
-// Successful results are cached for 7 days (the returned Route is shared and
-// must not be modified); requests are throttled (see throttle).
+// (/v3/direction/walking), "riding" (/v4/direction/bicycling), "driving"
+// (/v3/direction/driving) or "transit" (/v3/direction/transit/integrated:
+// city and cityd are the city names of both ends; ErrNoRoute when AMap has
+// no public transport between them). The route's way is kept simplified
+// (see Route.Polyline). Successful results are cached for 7 days (the
+// returned Route is shared and must not be modified); requests are
+// throttled (see throttle).
 func (c *Client) Direction(ctx context.Context, mode string, fromLng, fromLat, toLng, toLat float64, city, cityd string) (*Route, error) {
 	q := url.Values{}
 	var path string
 	switch mode {
 	case "walking":
 		path = "/v3/direction/walking"
+	case "riding":
+		path = "/v4/direction/bicycling"
 	case "driving":
 		path = "/v3/direction/driving"
 		q.Set("extensions", "base")
@@ -853,7 +1013,7 @@ func (c *Client) Direction(ctx context.Context, mode string, fromLng, fromLat, t
 	default:
 		return nil, fmt.Errorf("amap: unknown direction mode %q", mode)
 	}
-	key := fmt.Sprintf("%s|%.5f,%.5f|%.5f,%.5f|%s|%s", mode, fromLng, fromLat, toLng, toLat, city, cityd)
+	key := directionKey(mode, fromLng, fromLat, toLng, toLat, city, cityd)
 	if r, ok := c.dir.Get(key); ok {
 		return r, nil
 	}
@@ -868,37 +1028,53 @@ func (c *Client) Direction(ctx context.Context, mode string, fromLng, fromLat, t
 	}
 	q.Set("origin", fmt.Sprintf("%.6f,%.6f", fromLng, fromLat))
 	q.Set("destination", fmt.Sprintf("%.6f,%.6f", toLng, toLat))
-	type leg struct {
-		Distance flexString `json:"distance"`
-		Duration flexString `json:"duration"`
-	}
 	var resp struct {
 		Route flexObject[struct {
-			Distance flexString    `json:"distance"`
-			Paths    flexList[leg] `json:"paths"`
-			Transits flexList[leg] `json:"transits"`
+			Distance flexString            `json:"distance"`
+			Paths    flexList[dirPath]     `json:"paths"`
+			Transits flexList[transitJSON] `json:"transits"`
 		}] `json:"route"`
+		// Riding (/v4) answers {"errcode":0,"data":{"paths":[…]}}.
+		Data flexObject[struct {
+			Paths flexList[dirPath] `json:"paths"`
+		}] `json:"data"`
 	}
 	if err := c.getWith(ctx, &c.dirFail, path, q, &resp); err != nil {
 		return nil, err
 	}
 	route := resp.Route.V
-	legs := route.Paths
-	if mode == "transit" {
-		legs = route.Transits
+	var dist, dur flexString
+	var pts []geo.Point
+	switch {
+	case mode == "transit":
+		if len(route.Transits) == 0 {
+			return nil, ErrNoRoute
+		}
+		t := &route.Transits[0]
+		dist, dur, pts = t.Distance, t.Duration, t.points()
+		if _, ok := roundNumber(dist); !ok {
+			dist = route.Distance
+		}
+	default:
+		paths := route.Paths
+		if mode == "riding" {
+			paths = resp.Data.V.Paths
+		}
+		if len(paths) == 0 {
+			return nil, ErrNoRoute
+		}
+		p := &paths[0]
+		dist, dur = p.Distance, p.Duration
+		for _, st := range p.Steps {
+			pts = appendPolyline(pts, string(st.Polyline))
+		}
 	}
-	if len(legs) == 0 {
-		return nil, ErrNoRoute
-	}
-	dist, okDist := roundNumber(legs[0].Distance)
-	if !okDist && mode == "transit" {
-		dist, okDist = roundNumber(route.Distance)
-	}
-	dur, okDur := roundNumber(legs[0].Duration)
+	d, okDist := roundNumber(dist)
+	s, okDur := roundNumber(dur)
 	if !okDist || !okDur {
 		return nil, ErrNoRoute
 	}
-	r := &Route{Mode: mode, DistanceM: dist, DurationS: dur}
+	r := &Route{Mode: mode, DistanceM: d, DurationS: s, path: compactPath(pts, fromLng, fromLat, toLng, toLat)}
 	c.dir.Put(key, r)
 	return r, nil
 }
@@ -924,7 +1100,7 @@ func (c *Client) throttle(ctx context.Context) error {
 	wait := max(c.dirNext.Sub(now), 0)
 	if wait > c.dirMaxWait {
 		c.dirMu.Unlock()
-		return fmt.Errorf("%w: too many direction requests", ErrUnavailable)
+		return ErrBusy
 	}
 	c.dirNext = now.Add(wait + c.dirGap)
 	c.dirMu.Unlock()
