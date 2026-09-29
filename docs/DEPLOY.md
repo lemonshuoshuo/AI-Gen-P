@@ -13,6 +13,8 @@ TripHub 由一个 Go 服务端（内嵌了网页前端）和一个 PostgreSQL �
 发布包 `triphub-<版本>.tar.gz` 里已经包含编译好的程序，**不需要在服务器上编译**，也不需要拉取 Node / Go 镜像。
 包里的文件直接解压在当前目录（没有版本号目录）：选定一个部署目录（下文以 `/root/triphub` 为例），以后升级也一直在这个目录里进行（见第八节）。
 
+> **已经在运行 v1.2.1 及更早的版本**（部署目录名带版本号，如 `triphub-v1.2.0/`）？不要按本节重新部署（网站会换成一个空数据库），按第八节「从旧的目录结构迁移」操作。
+
 ```bash
 # 1. 建部署目录，把发布包上传到这里，然后解压（可先用 sha256sum -c triphub-*.tar.gz.sha256 核对文件是否完整）
 mkdir -p /root/triphub && cd /root/triphub
@@ -167,10 +169,10 @@ docker compose exec -T db pg_dump -U triphub --clean --if-exists triphub | gzip 
 tar czf files-$(date +%F).tar.gz .env data/app   # 照片 + 登录密钥 + 配置（.env 含密码和各类 Key，请妥善保管）
 ```
 
-每天自动备份数据库（可选）：执行 `crontab -e` 加入下面一行，每天 4 点备份、保留最近 14 天。把 `/opt/triphub` 换成你的部署目录；crontab 里的 `%` 必须写成 `\%`。
+每天自动备份数据库（可选）：执行 `crontab -e` 加入下面一行，每天 4 点备份、保留最近 14 天。把 `/root/triphub` 换成你的部署目录；crontab 里的 `%` 必须写成 `\%`。
 
 ```
-0 4 * * * cd /opt/triphub && mkdir -p backups && docker compose exec -T db pg_dump -U triphub --clean --if-exists triphub | gzip > backups/db-$(date +\%F).sql.gz && find backups -name 'db-*.sql.gz' -mtime +14 -delete
+0 4 * * * cd /root/triphub && mkdir -p backups && docker compose exec -T db pg_dump -U triphub --clean --if-exists triphub | gzip > backups/db-$(date +\%F).sql.gz && find backups -name 'db-*.sql.gz' -mtime +14 -delete
 ```
 
 ### 恢复（迁移到新服务器 / 灾难恢复）
@@ -193,44 +195,73 @@ docker compose up -d --build
 
 ## 八、升级
 
-一直在同一个部署目录里升级：把新的发布包上传到部署目录，执行包里自带的升级脚本即可。
+一直在同一个部署目录里升级：把新的发布包上传到部署目录，执行升级脚本即可。
+
+> 从 v1.2.1 及更早的版本（部署目录名带版本号，如 `triphub-v1.2.0/`）升级：先按本节末尾的「从旧的目录结构迁移」操作一次。
 
 ```bash
 cd /root/triphub                        # 你的部署目录
 # 上传 triphub-v新版本.tar.gz（和 .sha256）到这里，然后：
-./upgrade.sh triphub-v新版本.tar.gz       # 不写文件名时使用目录里版本号最新的 triphub-v*.tar.gz
+./upgrade.sh triphub-v新版本.tar.gz       # 不写文件名时使用目录里版本号最新的正式版 triphub-v*.tar.gz
+./upgrade.sh --backup triphub-v新版本.tar.gz   # 升级前先备份数据库（正式运营后建议加上）
 ```
 
-脚本做的事情（也可以手动执行，效果相同：`tar xzf triphub-v新版本.tar.gz && docker compose up -d --build`）：
+脚本做的事情：
 
-1. 核对校验和（有 `.sha256` 文件时），检查包的内容
-2. 解压，覆盖程序文件（`docker-compose.yml`、程序、`README.md` 等）；**不会改动 `.env`、`data/` 和你自己添加的文件**（如 `docker-compose.override.yml`、证书）
-3. `docker compose up -d --build`：用新程序重建镜像并重启 app，数据库容器不动；数据库结构由程序启动时自动迁移
-4. 等待 app 显示 `(healthy)`，列出新版本新增的配置项（都有默认值，只做提示），删除旧版本的镜像
+1. 检查：校验和（有 `.sha256` 文件时）、包的内容、能否连接 Docker、正在运行的 TripHub 是不是从本目录启动的
+2. 先解压到临时目录，完整无误后再替换程序文件（`docker-compose.yml`、程序、`README.md` 等），磁盘满或中途按 Ctrl+C 不会留下新旧混杂的文件；**不会改动 `.env`、`data/`、`backups/` 和你自己添加的文件**（如 `docker-compose.override.yml`、证书）
+3. 之后的步骤由新版本自带的脚本执行。加了 `--backup` 时先备份数据库到 `backups/pre-upgrade-日期-时间.sql.gz`（保留最近 5 个）
+4. `docker compose up -d --build`：用新程序重建镜像并重启 app，数据库容器不动；数据库结构由程序启动时自动迁移
+5. 等待 app 显示 `(healthy)`；`Caddyfile` 有变化时重启 Caddy；列出新版本新增的配置项（都有默认值，只做提示），删除旧版本的镜像
+
+升级失败时脚本会显示日志和处理办法：排除原因后重新执行同一条命令，或者按下面的方法回滚。
+
+不用脚本也可以手动升级（需要时先按第七节备份数据库）： `tar xzf triphub-v新版本.tar.gz && docker compose up -d --build`；启用了 HTTPS 的，`Caddyfile` 有变化时还要执行 `docker compose --profile https restart caddy`。
 
 说明：
 
 - 升级时网站会中断十几秒到几十秒。从较早的版本升级时，第一次启动可能要转换部分数据（日志出现 `converting numeric columns to double precision`），等 app 显示 `(healthy)` 后再访问。
 - 自己的改动请放在 `.env` 或 `docker-compose.override.yml` 中：直接改 `docker-compose.yml`、`Caddyfile` 的内容会在升级时被覆盖。
-- 启用了 HTTPS（Caddy）的，在 `.env` 中写上 `COMPOSE_PROFILES=https`，升级时会一并更新 Caddy。
-- 需要保留升级前的数据时，升级前先按第七节备份数据库。
+- 启用了 HTTPS（Caddy）的，建议在 `.env` 中写上 `COMPOSE_PROFILES=https`：之后 `docker compose up -d`、`docker compose down` 都会自动带上 Caddy。
 
-**回滚**：保留旧版本的发布包，执行 `./upgrade.sh triphub-v旧版本.tar.gz`。新版本只会新增数据库的表和列，旧版本一般可以直接使用升级后的数据库；如果旧版本启动失败，按第七节「恢复」用升级前的备份还原。
+**回滚**：保留旧版本的发布包，执行 `./upgrade.sh triphub-v旧版本.tar.gz`（v1.2.1 及更早的旧格式发布包也可以）。旧版本一般可以直接使用升级后的数据库；如果旧版本启动失败，用升级前的备份还原（`--backup` 生成的在 `backups/` 下，按时间选对文件；升级后新产生的数据会丢失）：
+
+```bash
+docker compose stop app
+docker compose exec -T db dropdb -U triphub --force triphub
+docker compose exec -T db createdb -U triphub triphub
+gunzip -c backups/pre-upgrade-日期-时间.sql.gz | docker compose exec -T db psql -U triphub -d triphub -v ON_ERROR_STOP=1 --single-transaction
+docker compose up -d
+```
 
 ### 从旧的目录结构迁移（v1.2.1 及更早，一次性）
 
-v1.2.1 及更早的发布包解压出来是一个带版本号的目录（如 `triphub-v1.2.0/`）。改成固定目录只需做一次：
+v1.2.1 及更早的发布包解压出来是一个带版本号的目录（如 `/root/triphub-v1.2.1/`），每次升级换一个目录。改成固定的部署目录只需做一次，下面以旧目录 `/root/triphub-v1.2.1`、新的部署目录 `/root/triphub` 为例。
+
+**第 1 步（只有启用了 HTTPS 的才需要）**：`docker ps` 里能看到 `triphub-caddy-1` 的，先编辑旧目录的 `.env`，写上（或取消注释）`COMPOSE_PROFILES=https`。否则下面的 `down` 不会停止 Caddy（它会继续使用旧目录里的文件，旧目录删除后 Caddy 就启动不了），新目录的 `up` 也不会启动 Caddy。
+
+**第 2 步**：
 
 ```bash
-cd /root/triphub/triphub-v1.2.0 && docker compose down     # 停止当前运行的版本（换成你实际的目录）
-cd /root/triphub
-mv triphub-v1.2.0/.env triphub-v1.2.0/data ./               # 把配置和数据移到部署目录
-tar xzf triphub-v新版本.tar.gz                               # 新格式的发布包：文件直接解压到这里
+OLD=/root/triphub-v1.2.1          # 换成你现在运行的目录（不确定时执行 docker compose ls 查看）
+NEW=/root/triphub                 # 以后固定使用的部署目录
+cd $OLD && docker compose down    # 停止当前运行的版本
+mkdir -p $NEW
+# 把配置、数据和你自己添加的文件移到部署目录（没有的会跳过）
+for f in .env data backups docker-compose.override.yml ca.pem backup-*.sql.gz files-*.tar.gz; do [ -e "$f" ] && mv "$f" $NEW/; done
+# 把新版本的发布包（和 .sha256）上传到 /root/triphub，然后：
+cd $NEW && tar xzf triphub-v新版本.tar.gz     # 新格式的发布包：文件直接解压到这里
 docker compose up -d --build
-docker compose ps                                           # app 显示 (healthy) 后，旧的版本目录可以删除
+docker compose ps                 # app 显示 (healthy)；启用了 HTTPS 的，这里还应该有 caddy
 ```
 
-容器名和数据卷不随目录变化（Compose 项目名固定为 `triphub`），账号、旅程和照片都会保留。之后的升级就只需要 `./upgrade.sh`。
+**第 3 步：收尾**
+
+- 旧目录里还有其它你自己添加的文件（如证书）的，也移到新目录；直接改过旧目录里 `docker-compose.yml` 的（如常见问题中的 MTU 设置），改写到新目录的 `docker-compose.override.yml` 中。
+- 设置了第七节每日自动备份的，执行 `crontab -e`，把其中的目录改成新的部署目录。
+- 旧目录先保留几天，确认新版本正常后再删除；删除前用 `ls -A /root/triphub-v1.2.1` 确认里面只剩发布包自带的文件。
+
+容器名和数据卷不随目录变化（Compose 项目名固定为 `triphub`），账号、旅程和照片都会保留。之后的升级就只需要 `./upgrade.sh`；想退回迁移前的版本，执行 `./upgrade.sh triphub-v旧版本.tar.gz` 即可。
 
 ## 九、不用 Docker 直接运行
 
@@ -323,9 +354,15 @@ docker compose up -d --build       # 在服务器上编译前端和后端，自�
     ```
     修复：`systemctl restart docker`（重新写入规则），再在部署目录 `docker compose up -d`。Debian 上如果 `nftables` 服务的配置里有 `flush ruleset`，每次开机或重载都会清掉 Docker 的规则：不需要它时 `systemctl disable --now nftables`，然后重启 Docker。
   - **防火墙 / 安全组**：`firewall-cmd --reload` 或改过 iptables 后要重启 Docker，否则容器出站的 NAT 规则会丢失；确认安全组放行出站 443；`daemon.json` 中不要设置 `"iptables": false`。
-  - **MTU**：TCP 能连上但 TLS 握手超时，而宿主机上 `curl` 正常，多半是云服务器 / VPN 网卡的 MTU 小于 1500。用 `ip link` 查看网卡 MTU（如 1450），在 `docker-compose.yml` 末尾加上 `networks: {default: {driver_opts: {com.docker.network.driver.mtu: "1450"}}}`，然后 `docker compose down && docker compose up -d`。
+  - **MTU**：TCP 能连上但 TLS 握手超时，而宿主机上 `curl` 正常，多半是云服务器 / VPN 网卡的 MTU 小于 1500。用 `ip link` 查看网卡 MTU（如 1450），在部署目录的 `docker-compose.override.yml` 中加上下面的内容（文件已存在时合并进去；不要改 `docker-compose.yml`，升级时会被覆盖），然后 `docker compose down && docker compose up -d`：
+    ```yaml
+    networks:
+      default:
+        driver_opts:
+          com.docker.network.driver.mtu: "1450"
+    ```
   - **服务器时间不对**：TLS 证书校验失败（证书已过期或尚未生效）时用 `timedatectl` 检查时间。
-  - **HTTPS 被劫持检查**：诊断显示「TLS 证书不受信任（unknown authority）」，通常是公司 / 机房的防火墙或安全网关对 HTTPS 做了解密检查。镜像内置的是公共根证书，不认识这类网关的证书。向网络管理员要到网关的 CA 证书（PEM 格式，与公共根证书合并成一个文件），放在部署目录如 `ca.pem`，新建 `docker-compose.override.yml`：
+  - **HTTPS 被劫持检查**：诊断显示「TLS 证书不受信任（unknown authority）」，通常是公司 / 机房的防火墙或安全网关对 HTTPS 做了解密检查。镜像内置的是公共根证书，不认识这类网关的证书。向网络管理员要到网关的 CA 证书（PEM 格式，与公共根证书合并成一个文件），放在部署目录如 `ca.pem`，新建 `docker-compose.override.yml`（已有这个文件时合并进去）：
     ```yaml
     services:
       app:

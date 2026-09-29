@@ -5,13 +5,16 @@
 ### 升级方式改为「同一目录原地升级」
 
 - 发布包里的文件直接解压在当前目录（不再多一层 `triphub-v版本号/` 目录），部署目录固定不变
-- 新增升级脚本：把新包上传到部署目录，执行 `./upgrade.sh triphub-v新版本.tar.gz`，自动完成解压替换、重建镜像并重启、等待启动完成、清理旧镜像；不会改动 `.env`、`data/` 和自己添加的文件
-- 回滚：`./upgrade.sh triphub-v旧版本.tar.gz`
+- 新增升级脚本：把新包上传到部署目录，执行 `./upgrade.sh triphub-v新版本.tar.gz`，自动完成检查、解压替换、重建镜像并重启、等待启动完成、清理旧镜像；不会改动 `.env`、`data/` 和自己添加的文件
+- 先解压到临时目录、完整无误后再替换文件，磁盘满或中途按 Ctrl+C 不会留下新旧混杂的文件；`Caddyfile` 有变化时自动重启 Caddy
+- 加 `--backup` 时升级前先备份数据库到 `backups/`（默认不备份）
+- 回滚：`./upgrade.sh triphub-v旧版本.tar.gz`（v1.2.1 及更早的旧格式发布包也可以）
+- 常见问题中的 MTU 设置改为写在 `docker-compose.override.yml`（`docker-compose.yml` 升级时会被覆盖）
 - 新增 `.dockerignore`：构建镜像时不再把 `data/`、发布包、备份打进构建上下文，升级更快
 
 ### 从 v1.2.1 及更早版本迁移（一次性）
 
-见 README「八、升级」→「从旧的目录结构迁移」：停止旧版本，把 `.env` 和 `data/` 移到部署目录，在部署目录解压新包并 `docker compose up -d --build`。
+见 README「八、升级」→「从旧的目录结构迁移」：启用了 HTTPS 的先在旧目录的 `.env` 写上 `COMPOSE_PROFILES=https`；停止旧版本，把 `.env`、`data/` 以及自己添加的文件（`docker-compose.override.yml`、证书、`backups/` 等）移到部署目录，在部署目录解压新包并 `docker compose up -d --build`；设置了每日自动备份的，把 crontab 里的目录改成新的部署目录。
 
 ## v1.2.1
 

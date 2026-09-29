@@ -86,4 +86,5 @@ tar xzf triphub-v1.2.2.tar.gz             # 文件直接解压在当前目录
 cp .env.example .env && vim .env
 docker compose up -d --build
 # 以后升级：把新包上传到同一目录，执行 ./upgrade.sh triphub-v新版本.tar.gz
+# 已在运行 v1.2.1 及更早版本（目录名带版本号）的不要重新部署，按 DEPLOY.md「八、升级」→「从旧的目录结构迁移」操作
 ```
