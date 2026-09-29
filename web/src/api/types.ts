@@ -93,6 +93,11 @@ export interface TripCard {
   created_at: string
   updated_at: string
   published_at: string | null
+  /**
+   * 版本号（≥ 1）：旅程及其打卡点、住宿、打卡、照片、成员每修改一次加 1（见 API.md「协同编辑」）。
+   * 旅行中且未开启 live_share 时，非成员看到的是 0
+   */
+  revision: number
 }
 
 export interface Waypoint {
@@ -100,6 +105,8 @@ export interface Waypoint {
   trip_id: number
   seq: number
   day: number
+  /** stop：游玩点（缺省）；lodging：住宿，day=N 为第 N 天晚上住的地方（0 为出发前一晚） */
+  kind: WaypointKind
   planned: boolean
   status: WaypointStatus
   planned_at: string | null
@@ -164,6 +171,8 @@ export interface TripDetail extends TripCard {
   has_track: boolean
   /** 旅行中（phase=ongoing）是否向非成员实时公开打卡、照片和 GPS 轨迹；只有作者能修改 */
   live_share: boolean
+  /** 偏好的出行方式（GET /trips/:id/legs 的缺省 mode），缺省 auto */
+  travel_mode: TravelMode
 }
 
 export interface Place {
@@ -311,6 +320,62 @@ export interface TripMember {
   status: 'accepted' | 'pending'
 }
 
+/* ---------------- 协同编辑（API.md「协同编辑」） ---------------- */
+
+/** 正在编辑的成员（45 秒内发过心跳），包括请求者自己 */
+export interface TripEditor {
+  user: UserBrief
+  since: string
+  last_seen: string
+}
+
+/** GET /trips/:id/revision、POST /trips/:id/editing 的响应 */
+export interface TripRevision {
+  revision: number
+  updated_at: string
+  /** 最后修改的人：只返回给成员（含待接受邀请的人）和管理员，其他人或未知时为 null */
+  updated_by: UserBrief | null
+  /** 只返回给成员和管理员，其他人为 [] */
+  editors: TripEditor[]
+}
+
+/**
+ * PUT /trips/:id/plan 的一项：带 id 修改该打卡点（没给出的字段不变），不带 id 新建计划内的点。
+ * status / planned / arrived_at / seq / place_id 会被服务端忽略（保存计划不改动打卡记录）
+ */
+export interface PlanItemInput extends Omit<WaypointInput, 'seq' | 'status' | 'planned' | 'arrived_at' | 'coord_type'> {
+  id?: number
+  /** 客户端给这一项起的名字（≤64 字符，不能重复），响应的 id_map 返回它保存后的 ID */
+  client_key?: string
+}
+
+export interface PlanSaveInput {
+  /** 草稿所基于的版本号；force 不为 true 时必填 */
+  base_revision?: number
+  /** 不检查版本，用草稿覆盖服务端的计划 */
+  force?: boolean
+  /** 同 PATCH /trips/:id 的请求体 */
+  trip?: TripInput
+  /** 完整的计划列表，顺序即新的顺序 */
+  waypoints: PlanItemInput[]
+}
+
+export interface PlanSaveResult {
+  trip: TripDetail
+  /** client_key → 保存后的打卡点 ID */
+  id_map: Record<string, number>
+  /** 不在列表中、因已到达或有照片而保留的计划内的点 */
+  kept: number[]
+  deleted: number[]
+}
+
+/** PUT /trips/:id/plan 版本冲突（409）时响应体中除 error 之外的字段 */
+export interface PlanConflict {
+  revision: number
+  updated_by: UserBrief | null
+  updated_at: string
+}
+
 export interface SiteConfig {
   name: string
   announcement: string
@@ -429,14 +494,20 @@ export interface CompareResult {
   skipped: Waypoint[]
   todo: Waypoint[]
   extra: Waypoint[]
+  /** 住宿（不计入以上各项与完成度），按 seq */
+  lodging?: Waypoint[]
   days: { day: number; planned: number; visited: number; extra: number }[]
   time_diffs: { waypoint_id: number; name: string; planned_at: string; arrived_at: string; delta_minutes: number }[]
 }
 
 export interface AIPlanItem {
   day: number
+  /** lodging：第 day 天晚上的住宿（旧版服务端没有该字段，按 stop 处理） */
+  kind?: WaypointKind
   name: string
   address: string
+  city?: string
+  district?: string
   category: Category
   note: string
   lng: number | null
@@ -576,6 +647,7 @@ export interface WaypointInput {
   cost?: number
   amap_id?: string
   seq?: number
+  kind?: WaypointKind
   /** 创建时的位置提示（如来自 /geo/search）：地址和区县都给了就不必再逆地理；district 优先使用，province / city 仅在坐标不在离线行政区划内时使用 */
   province?: string
   city?: string
@@ -595,6 +667,9 @@ export interface TripInput {
   with_partner?: boolean
   /** 仅作者可改（否则 403） */
   live_share?: boolean
+  /** 规划的天数（0–365，0 / null 表示不再指定）；有开始日期时同时改结束日期 */
+  days?: number | null
+  travel_mode?: TravelMode
 }
 
 /** 管理后台站点设置（GET / PUT /admin/settings，PUT 字段均可选，返回保存后的全部设置） */
@@ -612,37 +687,125 @@ export interface AdminSettings {
   review_public_trips: boolean
 }
 
-export type LegMode = 'walking' | 'transit' | 'driving'
+/* ---------------- 按天规划：住宿、出行方式、路段、一键排路线（v1.3） ---------------- */
 
-/** 计划路线中同一天相邻两个计划点之间的一段（GET /trips/:id/legs） */
+/** stop：游玩点；lodging：住宿（第 day 天晚上，0 为出发前一晚） */
+export type WaypointKind = 'stop' | 'lodging'
+
+/** 旅程偏好的出行方式：auto 每段按距离推荐（步行 / 骑行 / 驾车） */
+export type TravelMode = 'auto' | 'walking' | 'riding' | 'driving' | 'transit'
+
+/** 一段路实际采用的出行方式 */
+export type LegMode = Exclude<TravelMode, 'auto'>
+
+/** 每天路线（前一晚住宿 → 当天计划游玩点 → 当晚住宿）中相邻两点之间的一段（GET /trips/:id/legs） */
 export interface TripLeg {
+  /** 可以是住宿的 ID */
   from_id: number
   to_id: number
   day: number
-  /** 实际采用的方式：transit 模式下直线 1 公里内或查不到公交地铁的路段为 walking */
+  /** 实际采用的方式：auto 为推荐的方式；transit 下很近或查不到公交地铁的路段为 walking */
   mode: LegMode
+  /** 推荐的出行方式：直线 1.2 公里内步行、4 公里内骑行，更远驾车（旅程偏好公交时为公交） */
+  recommended_mode: LegMode
   distance_m: number
   duration_s: number
   straight_m: number
   /** 按直线距离估算（未配置高德 Key、调用失败或超时） */
   estimated: boolean
+  /** 仅 geometry=1：实际路线 [[lng, lat], …]（GCJ-02，已抽稀）；估算的路段为起终点直线 */
+  polyline?: [number, number][]
 }
 
 export interface DayLegs {
   day: number
-  /** 当天的计划点数 */
+  /** 当天的计划游玩点数（不含住宿） */
   stops: number
   distance_m: number
   /** 路上用时，不含停留游玩 */
   duration_s: number
   estimated: boolean
+  /** 当天出发 / 结束的住宿，没有时为 null */
+  start_lodging_id?: number | null
+  end_lodging_id?: number | null
 }
 
 export interface TripLegs {
-  mode: LegMode
+  /** 请求（或缺省）的方式 */
+  mode: TravelMode
   legs: TripLeg[]
   /** 按天排序，day=0（未分天）排在最后 */
   days: DayLegs[]
+  /** 还没算好的路段数：大于 0 时 3–5 秒后用同样的参数再请求 */
+  pending?: number
+}
+
+/** POST /trips/:id/lodging：打卡点字段 + 从第几晚开始、连住几晚、沿用哪个点 */
+export interface LodgingInput extends Omit<WaypointInput, 'kind' | 'seq' | 'day'> {
+  /** 第几天晚上（0 为出发前一晚） */
+  day: number
+  /** 连住几晚（1–30，缺省 1） */
+  nights?: number
+  /** 沿用同一旅程中另一个点（如前一晚的住宿）的名称、地址、坐标等 */
+  copy_from?: number
+  /** 先删除这几晚已有的住宿；为 false 且已有住宿时 409 */
+  replace?: boolean
+}
+
+/** pool：只安排「想去」（day=0）的地点；all：重新安排全部未到达的计划点 */
+export type ArrangeScope = 'pool' | 'all'
+
+export interface ArrangeInput {
+  scope?: ArrangeScope
+  mode?: TravelMode
+  /** false（缺省）只返回方案预览 */
+  apply?: boolean
+  days?: number
+  /** { 打卡点 ID: 第几天 } */
+  fixed?: Record<string, number>
+}
+
+export interface ArrangeDay {
+  day: number
+  /** 当天安排的游玩点（按顺序，不含住宿） */
+  ids: number[]
+  stops: number
+  /** 按直线估算 */
+  distance_m: number
+  duration_s: number
+  start_lodging_id: number | null
+  end_lodging_id: number | null
+}
+
+export interface ArrangeResult {
+  scope: ArrangeScope
+  mode: TravelMode
+  days: number
+  applied: boolean
+  /** day 或 seq 会变化的点数 */
+  changed: number
+  /** 全部打卡点（含住宿）在新顺序中的 day 与 seq，按 seq */
+  items: { id: number; day: number; seq: number }[]
+  day_totals: ArrangeDay[]
+  /** 仅 apply=true：保存后的全部打卡点 */
+  waypoints?: Waypoint[]
+}
+
+/** POST /ai/preferences：AI 帮写「偏好和要求」 */
+export interface AIPreferencesInput {
+  destination: string
+  days?: number
+  start_date?: string
+  together?: boolean
+  /** 用户已写的偏好（≤300 字） */
+  draft?: string
+}
+
+export interface AIPreferencesResult {
+  /** 可点击追加的短句 */
+  suggestions: string[]
+  /** 整合后的一段偏好，可能为空 */
+  text: string
 }
 
 /** POST /trips/:id/track/import 的结果 */

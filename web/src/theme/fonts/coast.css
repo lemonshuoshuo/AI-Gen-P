@@ -1,0 +1,4 @@
+/* 晴海 Coast：Instrument Serif（标题、数字，只有 400）+ Plus Jakarta Sans（界面）；中文用系统黑体常规字重 */
+@import '@fontsource/instrument-serif/400.css';
+@import '@fontsource/instrument-serif/400-italic.css';
+@import '@fontsource-variable/plus-jakarta-sans/wght.css';

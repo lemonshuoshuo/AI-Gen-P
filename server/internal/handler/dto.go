@@ -90,7 +90,9 @@ type MeDTO struct {
 	StorageUsed  int64      `json:"storage_used"`
 	StorageQuota int64      `json:"storage_quota"`
 	Partner      *UserBrief `json:"partner"`
-	CreatedAt    string     `json:"created_at"`
+	// DefaultSpaceID is the space 「我们」 opens (PUT /me/default-space); nil: none.
+	DefaultSpaceID *int64 `json:"default_space_id"`
+	CreatedAt      string `json:"created_at"`
 }
 
 func (h *Handler) meDTO(ctx context.Context, u *model.User) (*MeDTO, error) {
@@ -114,7 +116,7 @@ func (h *Handler) meFrom(u, partner *model.User) *MeDTO {
 	return &MeDTO{
 		UserBrief: *userBrief(u), Email: u.Email, Bio: u.Bio, Exp: u.Exp, LevelName: l.Name, NextLevelExp: next,
 		Status: u.Status, StorageUsed: u.StorageUsed, StorageQuota: service.QuotaBytes(u), Partner: userBrief(partner),
-		CreatedAt: h.ts(u.CreatedAt),
+		DefaultSpaceID: u.DefaultSpaceID, CreatedAt: h.ts(u.CreatedAt),
 	}
 }
 
@@ -275,37 +277,45 @@ type PlaceRef struct {
 
 // TripCard is the list representation of a trip.
 type TripCard struct {
-	ID            int64        `json:"id"`
-	Title         string       `json:"title"`
-	Summary       string       `json:"summary"`
-	CoverURL      string       `json:"cover_url"`
-	CoverThumbURL string       `json:"cover_thumb_url"` // 480px thumbnail for cards (cover_url when there is none)
-	Phase         string       `json:"phase"`
-	Visibility    string       `json:"visibility"`
-	Status        string       `json:"status"`
-	StartDate     *string      `json:"start_date"`
-	EndDate       *string      `json:"end_date"`
-	Days          int          `json:"days"`
-	DistanceKm    float64      `json:"distance_km"`
-	Cities        []string     `json:"cities"`
-	Provinces     []string     `json:"provinces"`
-	Tags          []string     `json:"tags"`
-	WaypointCount int          `json:"waypoint_count"`
-	PlannedCount  int          `json:"planned_count"`
-	VisitedCount  int          `json:"visited_count"`
-	PhotoCount    int          `json:"photo_count"`
-	LikeCount     int          `json:"like_count"`
-	CommentCount  int          `json:"comment_count"`
-	ForkCount     int          `json:"fork_count"`
-	FavCount      int          `json:"fav_count"`
-	ViewCount     int          `json:"view_count"`
-	Featured      bool         `json:"featured"`
-	Together      bool         `json:"together"`
-	Author        *UserBrief   `json:"author"`
-	Members       []*UserBrief `json:"members"`
-	CreatedAt     string       `json:"created_at"`
-	UpdatedAt     string       `json:"updated_at"`
-	PublishedAt   *string      `json:"published_at"`
+	ID            int64    `json:"id"`
+	Title         string   `json:"title"`
+	Summary       string   `json:"summary"`
+	CoverURL      string   `json:"cover_url"`
+	CoverThumbURL string   `json:"cover_thumb_url"` // 480px thumbnail for cards (cover_url when there is none)
+	Phase         string   `json:"phase"`
+	Visibility    string   `json:"visibility"`
+	Status        string   `json:"status"`
+	StartDate     *string  `json:"start_date"`
+	EndDate       *string  `json:"end_date"`
+	Days          int      `json:"days"`
+	DistanceKm    float64  `json:"distance_km"`
+	Cities        []string `json:"cities"`
+	Provinces     []string `json:"provinces"`
+	Tags          []string `json:"tags"`
+	WaypointCount int      `json:"waypoint_count"`
+	PlannedCount  int      `json:"planned_count"`
+	VisitedCount  int      `json:"visited_count"`
+	PhotoCount    int      `json:"photo_count"`
+	LikeCount     int      `json:"like_count"`
+	CommentCount  int      `json:"comment_count"`
+	ForkCount     int      `json:"fork_count"`
+	FavCount      int      `json:"fav_count"`
+	ViewCount     int      `json:"view_count"`
+	Featured      bool     `json:"featured"`
+	// Together: the trip is linked to a couple space, or its author's
+	// partner (the other member of the author's couple space) is a co-author.
+	Together bool `json:"together"`
+	// Space is the space the trip is linked to, for viewers who are members
+	// of that space (null for everyone else).
+	Space       *SpaceRef    `json:"space"`
+	Author      *UserBrief   `json:"author"`
+	Members     []*UserBrief `json:"members"`
+	CreatedAt   string       `json:"created_at"`
+	UpdatedAt   string       `json:"updated_at"`
+	PublishedAt *string      `json:"published_at"`
+	// Revision counts the trip's changes (model.Trip.Revision); 0 for viewers
+	// who may not see an ongoing trip's progress (see maskLive).
+	Revision int64 `json:"revision"`
 }
 
 var (
@@ -384,7 +394,7 @@ func nonNil(v []string) []string {
 	return v
 }
 
-func (h *Handler) cardFrom(t *model.Trip, author *model.User, members []*UserBrief, together bool) TripCard {
+func (h *Handler) cardFrom(t *model.Trip, author *model.User, members []*UserBrief, together bool, space *SpaceRef) TripCard {
 	cover := t.CoverURL
 	if cover == "" {
 		cover = t.AutoCoverURL
@@ -399,8 +409,9 @@ func (h *Handler) cardFrom(t *model.Trip, author *model.User, members []*UserBri
 		DistanceKm: geo.Round(t.DistanceKm, 1), Cities: nonNil(t.Cities), Provinces: nonNil(t.Provinces), Tags: nonNil(t.Tags),
 		WaypointCount: t.WaypointCount, PlannedCount: t.PlannedCount, VisitedCount: t.VisitedCount, PhotoCount: t.PhotoCount,
 		LikeCount: t.LikeCount, CommentCount: t.CommentCount, ForkCount: t.ForkCount, FavCount: t.FavCount,
-		ViewCount: t.ViewCount, Featured: t.Featured, Together: together, Author: userBrief(author), Members: members,
+		ViewCount: t.ViewCount, Featured: t.Featured, Together: together, Space: space, Author: userBrief(author), Members: members,
 		CreatedAt: h.ts(t.CreatedAt), UpdatedAt: h.ts(t.UpdatedAt), PublishedAt: h.tsp(t.PublishedAt),
+		Revision: t.Revision,
 	}
 }
 
@@ -408,7 +419,7 @@ func (h *Handler) cardFrom(t *model.Trip, author *model.User, members []*UserBri
 // them: ongoing trips whose progress is hidden from the viewer
 // (service.Access.HideLive) show their plan instead (see maskLive).
 func (h *Handler) tripCards(ctx context.Context, trips []model.Trip, viewer *model.User) ([]TripCard, error) {
-	cards, err := h.storedTripCards(ctx, trips)
+	cards, err := h.storedTripCards(ctx, trips, viewer)
 	if err != nil {
 		return nil, err
 	}
@@ -456,9 +467,10 @@ func (h *Handler) liveHiddenTrips(ctx context.Context, trips []model.Trip, viewe
 	}
 	member := map[int64]bool{}
 	if viewer != nil {
+		db := h.db.WithContext(ctx)
 		var mine []int64
-		if err := service.MemberTripIDs(h.db.WithContext(ctx), viewer.ID).Where("trip_id IN ?", ids).
-			Pluck("trip_id", &mine).Error; err != nil {
+		if err := db.Model(&model.Trip{}).Where("id IN ? AND id IN (?)", ids, service.AccessibleTripIDs(db, viewer.ID)).
+			Pluck("id", &mine).Error; err != nil {
 			return nil, err
 		}
 		for _, id := range mine {
@@ -488,14 +500,15 @@ func (h *Handler) maskLive(card *TripCard, t *model.Trip, wps []model.Waypoint) 
 		card.CoverURL, card.CoverThumbURL = "", "" // the automatic cover is one of the trip's photos
 	}
 	// Check-ins, photos and track uploads touch the trip: its last change
-	// would tell when the travellers were last active.
-	card.UpdatedAt = card.CreatedAt
+	// (or how many there were) would tell when the travellers were last active.
+	card.UpdatedAt, card.Revision = card.CreatedAt, 0
 }
 
 // storedTripCards builds cards from the stored trip statistics, for viewers
-// who may see the trips' progress, with batched lookups of authors, members
-// and partners.
-func (h *Handler) storedTripCards(ctx context.Context, trips []model.Trip) ([]TripCard, error) {
+// who may see the trips' progress, with batched lookups of authors, members,
+// partners and spaces. viewer (nil: a guest) sees the space of the trips
+// linked to a space they belong to.
+func (h *Handler) storedTripCards(ctx context.Context, trips []model.Trip, viewer *model.User) ([]TripCard, error) {
 	out := make([]TripCard, 0, len(trips))
 	if len(trips) == 0 {
 		return out, nil
@@ -503,22 +516,25 @@ func (h *Handler) storedTripCards(ctx context.Context, trips []model.Trip) ([]Tr
 	db := h.db.WithContext(ctx)
 	tripIDs := make([]int64, len(trips))
 	ownerIDs := make([]int64, len(trips))
+	var spaceIDs []int64
 	for i, t := range trips {
 		tripIDs[i], ownerIDs[i] = t.ID, t.OwnerID
+		if t.SpaceID != nil {
+			spaceIDs = append(spaceIDs, *t.SpaceID)
+		}
 	}
 	var members []model.TripMember
 	if err := db.Where("trip_id IN ? AND status = ? AND role = ?", tripIDs, model.MemberAccepted, model.MemberEditor).
 		Order("id").Find(&members).Error; err != nil {
 		return nil, err
 	}
-	var parts []model.Partnership
-	if err := db.Where("user_a IN ? OR user_b IN ?", uniq(ownerIDs), uniq(ownerIDs)).Find(&parts).Error; err != nil {
+	partnerOf, err := service.CouplePartners(db, ownerIDs)
+	if err != nil {
 		return nil, err
 	}
-	partnerOf := map[int64]int64{}
-	for _, p := range parts {
-		partnerOf[p.UserA] = p.UserB
-		partnerOf[p.UserB] = p.UserA
+	spaces, err := h.tripSpaces(ctx, uniq(spaceIDs), viewer)
+	if err != nil {
+		return nil, err
 	}
 	userIDs := append([]int64{}, ownerIDs...)
 	byTrip := map[int64][]int64{}
@@ -533,7 +549,16 @@ func (h *Handler) storedTripCards(ctx context.Context, trips []model.Trip) ([]Tr
 	for i := range trips {
 		t := &trips[i]
 		var mb []*UserBrief
+		var space *SpaceRef
 		together := false
+		if t.SpaceID != nil {
+			if ts := spaces[*t.SpaceID]; ts != nil {
+				together = ts.couple
+				if ts.visible {
+					space = ts.ref
+				}
+			}
+		}
 		for _, uid := range byTrip[t.ID] {
 			if u := users[uid]; u != nil {
 				mb = append(mb, userBrief(u))
@@ -542,7 +567,45 @@ func (h *Handler) storedTripCards(ctx context.Context, trips []model.Trip) ([]Tr
 				together = true
 			}
 		}
-		out = append(out, h.cardFrom(t, users[t.OwnerID], mb, together))
+		out = append(out, h.cardFrom(t, users[t.OwnerID], mb, together, space))
+	}
+	return out, nil
+}
+
+// tripSpace is the space of trips' cards (see tripSpaces).
+type tripSpace struct {
+	ref     *SpaceRef
+	couple  bool // a couple space: its trips are together
+	visible bool // the viewer is a member: the card shows it
+}
+
+// tripSpaces loads the spaces ids for the cards of their trips as viewer
+// (nil: a guest) sees them.
+func (h *Handler) tripSpaces(ctx context.Context, ids []int64, viewer *model.User) (map[int64]*tripSpace, error) {
+	out := map[int64]*tripSpace{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	db := h.db.WithContext(ctx)
+	var spaces []model.Space
+	if err := db.Select("id", "name", "type", "type_label").Where("id IN ?", ids).Find(&spaces).Error; err != nil {
+		return nil, err
+	}
+	var mine []int64
+	if viewer != nil {
+		if err := db.Model(&model.SpaceMember{}).Where("user_id = ? AND space_id IN ?", viewer.ID, ids).
+			Pluck("space_id", &mine).Error; err != nil {
+			return nil, err
+		}
+	}
+	for i := range spaces {
+		sp := &spaces[i]
+		out[sp.ID] = &tripSpace{ref: spaceRef(sp), couple: sp.Type == model.SpaceCouple}
+	}
+	for _, id := range mine {
+		if ts := out[id]; ts != nil {
+			ts.visible = true
+		}
 	}
 	return out, nil
 }
@@ -599,7 +662,7 @@ func redactLive(wps []model.Waypoint) []model.Waypoint {
 
 func (h *Handler) tripDetail(ctx context.Context, t *model.Trip, a service.Access, viewer *model.User) (*TripDetail, error) {
 	db := h.db.WithContext(ctx)
-	cards, err := h.storedTripCards(ctx, []model.Trip{*t})
+	cards, err := h.storedTripCards(ctx, []model.Trip{*t}, viewer)
 	if err != nil {
 		return nil, err
 	}
@@ -782,7 +845,8 @@ func (h *Handler) commentDTOs(ctx context.Context, tops []model.Comment, withRep
 	return out, nil
 }
 
-// PartnerInviteDTO is the API representation of a partner invite.
+// PartnerInviteDTO is an invitation to a couple space in the shape of the
+// deprecated /partner API (its ID is the space invitation's).
 type PartnerInviteDTO struct {
 	ID        int64      `json:"id"`
 	From      *UserBrief `json:"from"`
@@ -792,18 +856,18 @@ type PartnerInviteDTO struct {
 	CreatedAt string     `json:"created_at"`
 }
 
-func (h *Handler) partnerInviteDTOs(ctx context.Context, invs []model.PartnerInvite) ([]PartnerInviteDTO, error) {
+func (h *Handler) partnerInviteDTOs(ctx context.Context, invs []model.SpaceInvite) ([]PartnerInviteDTO, error) {
 	out := make([]PartnerInviteDTO, 0, len(invs))
 	var ids []int64
 	for _, i := range invs {
-		ids = append(ids, i.FromID, i.ToID)
+		ids = append(ids, i.InviterID, i.InviteeID)
 	}
 	users, err := h.loadUsers(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
 	for _, i := range invs {
-		out = append(out, PartnerInviteDTO{ID: i.ID, From: userBrief(users[i.FromID]), To: userBrief(users[i.ToID]),
+		out = append(out, PartnerInviteDTO{ID: i.ID, From: userBrief(users[i.InviterID]), To: userBrief(users[i.InviteeID]),
 			Message: i.Message, Status: i.Status, CreatedAt: h.ts(i.CreatedAt)})
 	}
 	return out, nil

@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { ArrowUpRight, Copy, Navigation } from 'lucide-react'
 import { toast } from 'sonner'
-import { Button, Modal, Segmented } from '@/components/ui'
+import { ChoiceChip } from '@/components/editor/Choice'
+import { Button, Modal } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { copyText } from '@/lib/clipboard'
 import { defaultNavMode, isIOS, isWeChat, navModes, navProviders, rememberNavMode, type NavMode, type NavTarget } from '@/lib/nav'
@@ -55,16 +56,21 @@ export function NavigateMenu({
         ) : (
           <p className="eyebrow mb-1">Open in · 用地图 App 打开</p>
         )}
-        <Segmented<NavMode>
-          size="sm"
-          className="my-2"
-          value={mode}
-          onChange={(m) => {
-            setPicked(m)
-            rememberNavMode(m)
-          }}
-          options={navModes}
-        />
+        <div role="radiogroup" aria-label="出行方式" className="my-2 flex flex-wrap gap-1.5">
+          {navModes.map((o) => (
+            <ChoiceChip
+              key={o.value}
+              size="sm"
+              selected={mode === o.value}
+              onClick={() => {
+                setPicked(o.value)
+                rememberNavMode(o.value)
+              }}
+            >
+              {o.label}
+            </ChoiceChip>
+          ))}
+        </div>
         <div className="divide-y divide-ink-200 border-t border-ink-200">
           {providers.map((p) => (
             <div key={p.key} className="flex items-center gap-2">

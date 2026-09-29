@@ -1,149 +1,168 @@
 @import 'tailwindcss';
-@import '@fontsource-variable/cormorant-garamond/wght.css';
-@import '@fontsource-variable/cormorant-garamond/wght-italic.css';
-@import '@fontsource-variable/manrope/wght.css';
-@import './styles/serif-sc.css';
+@import './styles/themes.css';
+@import './styles/components.css';
 
 /*
- * TripHub 视觉系统 ·「夜航」
- * 近黑的暖色底 + 象牙白文字；超大号高反差衬线标题（Cormorant Garamond + 思源宋体），
- * 细小的无衬线标签（Manrope），整幅照片、极细分隔线、几乎不用颜色。
- * 墨色（ink）与各矿物色阶整体反转：50 是最深的底色，900 是最亮的文字，
- * 所以页面里 text-ink-900 / bg-white / bg-emerald-50 等类名无需改动即为深色主题。
+ * TripHub 视觉系统 · 多主题（手帐 / 山野 / 晴海 / 暮色 / 夜航，各有浅色与深色）
+ *
+ * 这里的 @theme 是令牌的「登记处」：登记名字（Tailwind 据此生成 bg-paper、text-ink-900、rounded-xl、
+ * text-h1… 工具类），数值是默认主题「手帐 · 浅色」。每个主题 × 模式的实际数值在 styles/themes.css，
+ * 按 <html data-theme data-mode> 覆盖同名变量；工具类读的是 var(--*)，所以切换主题不用改页面。
+ * 语义不变：ink-50 永远是页面底色、ink-900 永远是主文字（深色模式下色阶方向翻转），
+ * 矿物色 50/100 是底纹、600/700 是可读的文字色。规范见 docs/DESIGN.md。
+ * 字体按主题懒加载（src/theme/fonts/*.css，由 src/theme/runtime.ts 在切换主题时引入）。
  */
 @theme {
-  --font-sans: 'Manrope Variable', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'HarmonyOS Sans SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', 'Segoe UI', sans-serif;
-  /* 标题：西文 Cormorant Garamond + 中文思源宋体 */
-  --font-display: 'Cormorant Garamond Variable', 'Noto Serif SC', 'Songti SC', 'STSong', serif;
-  /* 数字（天数、里程、序号） */
-  --font-num: 'Cormorant Garamond Variable', 'Noto Serif SC', Georgia, serif;
+  /* 字体：界面 / 标题 / 数字 / 小标签 / 游记正文 */
+  --font-sans: 'Instrument Sans Variable', 'PingFang SC', 'HarmonyOS Sans SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --font-display: 'Fraunces Variable', 'LXGW WenKai Screen', 'Kaiti SC', 'STKaiti', 'KaiTi', '楷体', serif;
+  --font-num: 'Fraunces Variable', Georgia, serif;
+  --font-label: 'Instrument Sans Variable', 'PingFang SC', 'HarmonyOS Sans SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --font-prose: 'LXGW WenKai Screen', 'Instrument Sans Variable', 'Kaiti SC', 'STKaiti', 'KaiTi', '楷体', 'PingFang SC', 'HarmonyOS Sans SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
 
-  /* 朱砂（深色底上提亮一档）：只用于当前状态、踩雷与极少数强调 */
-  --color-brand-50: #22120e;
-  --color-brand-100: #331a13;
-  --color-brand-200: #52271b;
-  --color-brand-300: #7d3624;
-  --color-brand-400: #a94a31;
-  --color-brand-500: #cf6041;
-  --color-brand-600: #de7c5d;
-  --color-brand-700: #e99c83;
-  --color-brand-800: #f2bfae;
-  --color-brand-900: #f9e0d7;
+  /* 字号档（text-hero / text-h1 / text-h2 / text-card / text-body / text-small / text-label / text-num） */
+  --text-hero: clamp(34px, 25.83px + 2.095vw, 56px);
+  --text-hero--line-height: 1.1;
+  --text-h1: clamp(28px, 24.29px + 0.952vw, 38px);
+  --text-h1--line-height: 1.22;
+  --text-h2: clamp(21px, 19.14px + 0.476vw, 26px);
+  --text-h2--line-height: 1.3;
+  --text-card: clamp(17px, 16.63px + 0.095vw, 18px);
+  --text-card--line-height: 1.3;
+  --text-body: 15px;
+  --text-body--line-height: 1.8;
+  --text-small: 13px;
+  --text-small--line-height: 1.55;
+  --text-label: clamp(11px, 10.81px + 0.048vw, 11.5px);
+  --text-label--line-height: 1.45;
+  --text-num: clamp(30px, 26.29px + 0.952vw, 40px);
+  --text-num--line-height: 1;
+  --leading-body: 1.8;
 
-  /* 墨（反转）：900 = 象牙白正文，50 = 页面底色 */
-  --color-ink-900: #f2eee6;
-  --color-ink-800: #e3ded4;
-  --color-ink-700: #cbc5ba;
-  --color-ink-600: #aea89d;
-  --color-ink-500: #948e84;
-  /* 次要文字：在底色上对比度 ≥ 4.5 */
-  --color-ink-400: #827d74;
-  --color-ink-300: #4f4c46;
-  --color-ink-200: #2a2926;
-  --color-ink-100: #1b1a18;
-  --color-ink-50: #0b0b0a;
-
-  --color-paper: #0b0b0a;
-  /* 卡片 / 输入框 / 浮层：比底色亮一点点 */
-  --color-surface: #121211;
-  --color-surface-2: #181816;
-  /* 照片上的文字仍是纯白 */
+  /* 页面与表面 */
+  --color-paper: #fbf6ea;
+  --color-surface: #fffcf5;
+  --color-surface-2: #f4ecdb;
+  --color-line: #e3d7c0;
   --color-white: #ffffff;
-  --color-line: #2a2926;
-  --color-gold: #c9a868;
-  --color-night: #0b0b0a;
-  --color-sunset-400: #de7c5d;
-  --color-violet-brand: #988bb3;
 
-  /* 矿物色（反转）：50/100 为深色底纹，600/700 为文字色 */
-  --color-emerald-50: #0f1a16;
-  --color-emerald-100: #142620;
-  --color-emerald-200: #1e3a30;
-  --color-emerald-300: #2b5344;
-  --color-emerald-400: #3e725e;
-  --color-emerald-500: #5a917b;
-  --color-emerald-600: #7aac97;
-  --color-emerald-700: #9cc4b2;
-  --color-emerald-800: #bfdacd;
-  --color-emerald-900: #dfede6;
+  /* 墨：50 = 页面底色，900 = 主文字（深色模式下方向翻转） */
+  --color-ink-50: #fbf6ea;
+  --color-ink-100: #efebe3;
+  --color-ink-200: #e3d7c0;
+  --color-ink-300: #b6aaa0;
+  --color-ink-400: #766761;
+  --color-ink-500: #6b5a55;
+  --color-ink-600: #5e4d48;
+  --color-ink-700: #4f3d38;
+  --color-ink-800: #3f2f29;
+  --color-ink-900: #30211d;
 
-  --color-amber-50: #1b150b;
-  --color-amber-100: #291f0f;
-  --color-amber-200: #423117;
-  --color-amber-300: #624820;
-  --color-amber-400: #8a652b;
-  --color-amber-500: #b8893f;
-  --color-amber-600: #cfa35e;
-  --color-amber-700: #dfbd84;
-  --color-amber-800: #ecd5ad;
-  --color-amber-900: #f6ead3;
+  /* 强调色；brand-fill / on-brand 是实心按钮、选中徽章、选中 chip 的底色与字色 */
+  --color-brand-50: #f8e7d7;
+  --color-brand-100: #f5d9c7;
+  --color-brand-200: #eec0a8;
+  --color-brand-300: #e49e7f;
+  --color-brand-400: #e36c3a;
+  --color-brand-500: #c34707;
+  --color-brand-600: #9e380a;
+  --color-brand-700: #862801;
+  --color-brand-800: #6e1c00;
+  --color-brand-900: #581402;
+  --color-brand-fill: #a33600;
+  --color-on-brand: #fffaf2;
+  --color-gold: #b0802a;
+  --color-on-gold: #30211d;
+  --color-sunset-400: #d9774f;
+  --color-night: #231c17;
+  --color-violet-brand: #7d6a93;
+  --color-orange-500: #c9632d;
+  --color-orange-600: #a94f1f;
+  --color-indigo-500: #4d5f95;
 
-  --color-sky-50: #0e1619;
-  --color-sky-100: #132125;
-  --color-sky-200: #1c3239;
-  --color-sky-300: #294952;
-  --color-sky-400: #3b6570;
-  --color-sky-500: #56838f;
-  --color-sky-600: #7aa1ab;
-  --color-sky-700: #9fbcc4;
-  --color-sky-800: #c3d6db;
-  --color-sky-900: #e2ebee;
+  /* 矿物色：emerald 推荐 · amber 一般 · red 踩雷 · sky 计划 · violet GPS · pink 我们 */
+  --color-emerald-50: #ededde;
+  --color-emerald-100: #e0e5d4;
+  --color-emerald-200: #c9d5c1;
+  --color-emerald-300: #abc1a8;
+  --color-emerald-400: #7aa886;
+  --color-emerald-500: #62926f;
+  --color-emerald-600: #457452;
+  --color-emerald-700: #386345;
+  --color-emerald-800: #2a4e34;
+  --color-emerald-900: #203d29;
+  --color-amber-50: #f5ebd9;
+  --color-amber-100: #efe1cb;
+  --color-amber-200: #e4cfb0;
+  --color-amber-300: #d6b68b;
+  --color-amber-400: #c7944b;
+  --color-amber-500: #b27d2c;
+  --color-amber-600: #916009;
+  --color-amber-700: #7b5108;
+  --color-amber-800: #634000;
+  --color-amber-900: #4d3102;
+  --color-red-50: #fae9dd;
+  --color-red-100: #f9ddd1;
+  --color-red-200: #f7c7bb;
+  --color-red-300: #f2aa9f;
+  --color-red-400: #f37874;
+  --color-red-500: #de5f5c;
+  --color-red-600: #bb3e3f;
+  --color-red-700: #a23133;
+  --color-red-800: #842426;
+  --color-red-900: #681b1d;
+  --color-sky-50: #edece5;
+  --color-sky-100: #e0e4e0;
+  --color-sky-200: #c8d4d7;
+  --color-sky-300: #a9bfcb;
+  --color-sky-400: #76a3c2;
+  --color-sky-500: #5e8dad;
+  --color-sky-600: #406f8d;
+  --color-sky-700: #345e7a;
+  --color-sky-800: #264b61;
+  --color-sky-900: #1d3a4d;
+  --color-violet-50: #f1ebe4;
+  --color-violet-100: #e8e1df;
+  --color-violet-200: #d8cfd6;
+  --color-violet-300: #c3b7c9;
+  --color-violet-400: #a896bf;
+  --color-violet-500: #9280aa;
+  --color-violet-600: #75628b;
+  --color-violet-700: #635377;
+  --color-violet-800: #4f4160;
+  --color-violet-900: #3e324b;
+  --color-pink-50: #f5eae1;
+  --color-pink-100: #f0dfd9;
+  --color-pink-200: #e6cccb;
+  --color-pink-300: #d8b2b8;
+  --color-pink-400: #ca8ca0;
+  --color-pink-500: #b5758b;
+  --color-pink-600: #95576d;
+  --color-pink-700: #80495d;
+  --color-pink-800: #673949;
+  --color-pink-900: #512c39;
 
-  --color-violet-50: #15131b;
-  --color-violet-100: #1e1a27;
-  --color-violet-200: #2d283b;
-  --color-violet-300: #423a57;
-  --color-violet-400: #5d5079;
-  --color-violet-500: #7b6d9a;
-  --color-violet-600: #988bb3;
-  --color-violet-700: #b5aac9;
-  --color-violet-800: #d2cadf;
-  --color-violet-900: #ebe6f1;
+  /* 圆角：通用档 + 组件档（rounded-btn / -field / -card / -option / -modal / -image） */
+  --radius-sm: 0.1875rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.375rem;
+  --radius-btn: 0.375rem;
+  --radius-field: 0.375rem;
+  --radius-card: 0.625rem;
+  --radius-option: 0.625rem;
+  --radius-modal: 1rem;
+  --radius-image: 0.375rem;
 
-  --color-pink-50: #1b1013;
-  --color-pink-100: #28161b;
-  --color-pink-200: #3e2029;
-  --color-pink-300: #5b2d3a;
-  --color-pink-400: #7e3d50;
-  --color-pink-500: #a4566b;
-  --color-pink-600: #bc7889;
-  --color-pink-700: #d09ba8;
-  --color-pink-800: #e3c0c9;
-  --color-pink-900: #f2e0e4;
-
-  --color-red-50: #22120e;
-  --color-red-100: #331a13;
-  --color-red-200: #52271b;
-  --color-red-300: #7d3624;
-  --color-red-400: #a94a31;
-  --color-red-500: #cf6041;
-  --color-red-600: #de7c5d;
-  --color-red-700: #e99c83;
-  --color-red-800: #f2bfae;
-  --color-red-900: #f9e0d7;
-
-  --color-orange-500: #d07a45;
-  --color-orange-600: #dc9161;
-  --color-indigo-500: #6b7cb0;
-
-  /* 几乎直角 */
-  --radius-sm: 0.125rem;
-  --radius-md: 0.1875rem;
-  --radius-lg: 0.25rem;
-  --radius-xl: 0.375rem;
-  --radius-2xl: 0.5rem;
-  --radius-3xl: 0.625rem;
-
-  --font-weight-extrabold: 500;
-  --font-weight-bold: 500;
-
-  /* 深色底上用细亮线代替投影 */
-  --shadow-card: 0 0 0 1px rgb(242 238 230 / 0.07);
-  --shadow-float: 0 0 0 1px rgb(242 238 230 / 0.09), 0 28px 64px -16px rgb(0 0 0 / 0.75);
+  /* 阴影：Tailwind 会把 --shadow-* 的值直接写进工具类，所以这里转一道变量，主题块改 --th-shadow-* */
+  --shadow-card: var(--th-shadow-card);
+  --shadow-float: var(--th-shadow-float);
 
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --animate-fade-in: fade-in 0.5s ease-out;
-  --animate-slide-up: slide-up 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-up: slide-up 0.6s cubic-bezier(0.16, 1, 0.3, 1);
   --animate-pulse-ring: pulse-ring 1.8s ease-out infinite;
 
   @keyframes fade-in {
@@ -151,7 +170,7 @@
     to { opacity: 1; }
   }
   @keyframes slide-up {
-    from { opacity: 0; transform: translateY(16px); }
+    from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
   }
   @keyframes pulse-ring {
@@ -160,46 +179,97 @@
   }
 }
 
+/*
+ * 由主题令牌派生的变量：写在每个带 data-theme 的元素上（而不是只写在 :root），
+ * 这样嵌套的主题预览 / 强制深色的局部里，var() 按该元素自己的颜色求值。
+ */
+:where(:root),
+[data-theme] {
+  --shadow-card: var(--th-shadow-card);
+  --shadow-float: var(--th-shadow-float);
+  --glass-bg: color-mix(in oklab, var(--color-paper) 80%, transparent);
+  --glass-dark-bg: color-mix(in oklab, var(--color-night) 66%, transparent);
+  --field-focus-ring: color-mix(in oklab, var(--color-brand-500) 26%, transparent);
+  --btn-hover-mix: #000;
+}
+:where(:root),
+[data-mode='light'] {
+  color-scheme: light;
+  --menu-bg: var(--color-surface);
+  --scrim: color-mix(in oklab, var(--color-ink-900) 45%, transparent);
+  /* 纸纹：深色细点 */
+  --grain-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.2 0 0 0 0 0.15 0 0 0 0 0.12 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --select-chevron: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b645c' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='m6 9 6 6 6-6'/%3e%3c/svg%3e");
+}
+[data-mode='dark'] {
+  color-scheme: dark;
+  --menu-bg: var(--color-surface-2);
+  --scrim: rgb(0 0 0 / 0.68);
+  /* 胶片颗粒：亮色细点 */
+  --grain-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 0.97 0 0 0 0 0.92 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --select-chevron: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239a9389' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='m6 9 6 6 6-6'/%3e%3c/svg%3e");
+}
+
+/* 切换主题的那一帧不做过渡：否则上百个 transition-colors 元素会各自慢慢变色 */
+.th-switching,
+.th-switching *,
+.th-switching *::before,
+.th-switching *::after {
+  transition: none !important;
+}
+
 @layer base {
   html {
-    color-scheme: dark;
     -webkit-tap-highlight-color: transparent;
     text-size-adjust: 100%;
     background: var(--color-paper);
+    /* 中文没有真正的斜体和粗体字重时不要伪造（霞鹜文楷、思源宋体只有 400） */
+    font-synthesis: none;
+    scrollbar-color: var(--color-ink-300) transparent;
   }
   body {
     @apply bg-paper text-ink-900 font-sans antialiased;
+    font-size: var(--text-body);
     font-feature-settings: 'palt' 1;
     letter-spacing: 0.005em;
   }
-  /* 胶片颗粒：极淡，让大面积黑色不死板 */
+  /*
+   * 保险：页面里任何元素（例如换了主题字体后变宽的超大字标）都不能把整页撑出横向滚动——
+   * 否则手机上布局视口被撑宽，固定的底部导航跟着变宽、顶栏和内容整体左移。
+   * 写在应用根节点而不是 html / body 上：根元素的 overflow 会转给视口（变成 hidden，仍能被撑宽、被脚本横向滚动）；
+   * clip 不产生滚动容器，sticky 顶栏不受影响，固定定位的元素也不会被裁
+   */
+  #root {
+    overflow-x: clip;
+  }
+  /* 纸纹 / 胶片颗粒：强度由主题决定（山野、晴海没有） */
   body::before {
     content: '';
     position: fixed;
     inset: 0;
     z-index: -1;
     pointer-events: none;
-    opacity: 0.5;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 0.97 0 0 0 0 0.92 0 0 0 0.035 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: var(--grain-opacity, 0);
+    background-image: var(--grain-image);
   }
   h1,
   h2,
   h3 {
     font-family: var(--font-display);
-    font-weight: 500;
-    font-synthesis-weight: none;
-    letter-spacing: 0;
-    line-height: 1.12;
+    font-weight: var(--display-weight);
+    font-variation-settings: var(--display-variation);
+    letter-spacing: var(--display-tracking);
+    line-height: 1.2;
     /* 大字号里全角标点留白太宽：改用半角标点宽度 */
     font-feature-settings: 'halt' 1;
   }
   ::selection {
-    background: var(--color-ink-900);
-    color: var(--color-ink-50);
+    background: var(--color-brand-200);
+    color: var(--color-ink-900);
   }
   :focus-visible {
-    outline: 1px solid var(--color-ink-900);
-    outline-offset: 3px;
+    outline: var(--focus-width) solid var(--focus-color);
+    outline-offset: var(--focus-offset);
   }
   button {
     cursor: pointer;
@@ -216,7 +286,7 @@
     height: 10px;
   }
   ::-webkit-scrollbar-thumb {
-    background: var(--color-ink-200);
+    background: var(--color-ink-300);
     border: 3px solid var(--color-paper);
     border-radius: 999px;
   }
@@ -225,82 +295,95 @@
   }
 }
 
-/* 旧名称保留，外观改为纯色：朱砂作为唯一强调色 */
+/* 旧名称保留：实心强调色 */
 @utility bg-brand-gradient {
-  background-color: var(--color-brand-500);
+  background-color: var(--color-brand-fill);
 }
 @utility text-brand-gradient {
-  color: var(--color-brand-500);
+  color: var(--color-brand-600);
 }
-/* 「我们」：胭脂到黛紫的深色调 */
+/* 「我们」：胭脂到黛紫的淡底纹（深色模式下是深色底纹） */
 @utility bg-love-gradient {
-  background-image: linear-gradient(120deg, #3a1c26 0%, #221c30 100%);
+  background-image: linear-gradient(120deg, var(--color-pink-100) 0%, var(--color-violet-100) 100%);
 }
+/* 3D 夜景：每个主题自己的夜色，两种模式下都是深色 */
 @utility bg-night {
   background-color: var(--color-night);
   background-image:
-    radial-gradient(120% 80% at 50% -10%, rgb(201 168 104 / 0.08) 0%, transparent 60%),
-    radial-gradient(90% 60% at 50% 110%, rgb(63 105 117 / 0.16) 0%, transparent 70%);
+    radial-gradient(120% 80% at 50% -10%, color-mix(in oklab, var(--color-gold) 10%, transparent) 0%, transparent 60%),
+    radial-gradient(90% 60% at 50% 110%, color-mix(in oklab, var(--color-sky-500) 16%, transparent) 0%, transparent 70%);
 }
+/* 半透明的纸：顶栏、底部导航、地图上的控件 */
 @utility glass {
-  background: rgb(11 11 10 / 0.72);
-  backdrop-filter: blur(18px) saturate(1.1);
-  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+  background: var(--glass-bg);
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
 }
+/* 照片 / 夜景上的深色玻璃（任何模式下都是深色） */
 @utility glass-dark {
-  background: rgb(11 11 10 / 0.62);
+  background: var(--glass-dark-bg);
   backdrop-filter: blur(18px) saturate(1.1);
   -webkit-backdrop-filter: blur(18px) saturate(1.1);
 }
 @utility font-display {
   font-family: var(--font-display);
+  font-weight: var(--display-weight);
+  font-variation-settings: var(--display-variation);
   font-synthesis-weight: none;
 }
 @utility font-num {
   font-family: var(--font-num);
+  font-weight: var(--num-weight);
   font-variant-numeric: lining-nums tabular-nums;
   font-feature-settings: 'lnum' 1;
 }
-/* 小标签：无衬线小号，西文大写加宽字距，如「ITINERARY · 行程」 */
+/* 小标签：如「ITINERARY · 行程」；字体、字距、是否大写由主题决定 */
 @utility eyebrow {
-  font-family: var(--font-sans);
-  font-size: 0.6875rem;
-  line-height: 1rem;
-  font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--color-ink-400);
-}
-/* 说明文字对：第一行亮、第二行灰（照片说明、元信息） */
-@utility caption {
-  font-family: var(--font-sans);
-  font-size: 0.8125rem;
+  font-family: var(--font-label);
+  font-size: var(--text-label);
   line-height: 1.45;
+  font-weight: var(--eyebrow-weight);
+  letter-spacing: var(--eyebrow-tracking);
+  text-transform: var(--eyebrow-transform);
   color: var(--color-ink-500);
 }
-/* 超大展示标题：随屏幕宽度缩放 */
+/* 说明文字、元信息 */
+@utility caption {
+  font-family: var(--font-sans);
+  font-size: var(--text-small);
+  line-height: 1.5;
+  color: var(--color-ink-500);
+}
+/*
+ * 展示标题：读主题的字号档，一屏只用一个展示级标题
+ * text-display-xl = 首页 hero（≤ 60px）；-lg = 页面 H1（36–42px / 手机 28–30px）；-md = 区块 H2
+ */
 @utility text-display-xl {
   font-family: var(--font-display);
+  font-weight: var(--display-weight);
+  font-variation-settings: var(--display-variation);
   font-feature-settings: 'halt' 1;
-  font-weight: 400;
-  font-size: clamp(2.75rem, 8.2vw, 7.5rem);
-  line-height: 0.98;
-  letter-spacing: -0.01em;
+  font-size: var(--text-hero);
+  line-height: var(--text-hero--line-height);
+  letter-spacing: var(--display-tracking);
 }
 @utility text-display-lg {
   font-family: var(--font-display);
+  font-weight: var(--display-weight);
+  font-variation-settings: var(--display-variation);
   font-feature-settings: 'halt' 1;
-  font-weight: 400;
-  font-size: clamp(2.25rem, 5.4vw, 4.75rem);
-  line-height: 1.02;
-  letter-spacing: -0.005em;
+  font-size: var(--text-h1);
+  line-height: var(--text-h1--line-height);
+  letter-spacing: var(--display-tracking);
 }
 @utility text-display-md {
   font-family: var(--font-display);
+  font-weight: var(--display-weight);
+  font-variation-settings: var(--display-variation);
   font-feature-settings: 'halt' 1;
-  font-weight: 400;
-  font-size: clamp(1.75rem, 3.4vw, 2.875rem);
-  line-height: 1.08;
+  font-size: var(--text-h2);
+  line-height: var(--text-h2--line-height);
+  letter-spacing: var(--display-tracking);
 }
 /* 细分割线 */
 @utility hairline {
@@ -312,9 +395,9 @@
     display: none;
   }
 }
-/* 下拉框右侧箭头（Select 设置了 appearance-none，去掉了系统箭头） */
+/* 下拉框右侧箭头（Select 设置了 appearance-none，去掉了系统箭头）；颜色随模式 */
 @utility select-chevron {
-  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23948e84' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='m6 9 6 6 6-6'/%3e%3c/svg%3e");
+  background-image: var(--select-chevron);
   background-repeat: no-repeat;
   background-position: right 0.625rem center;
   background-size: 1rem;
@@ -323,51 +406,74 @@
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* Markdown 正文：杂志排版 */
+@layer utilities {
+  /*
+   * 展示字的字重由主题决定：页面上为「夜航」细衬线写的 font-normal / font-light
+   * 在其他主题里改用该主题的展示字重（山野的标题是 650 的粗 grotesk）。
+   * 明确写了 font-medium / font-semibold 的不受影响。
+   */
+  :is(h1, h2, h3, .font-display, .text-display-xl, .text-display-lg, .text-display-md):is(.font-normal, .font-light) {
+    font-weight: var(--display-weight);
+  }
+  .font-num.font-normal {
+    font-weight: var(--num-weight);
+  }
+  /*
+   * font-num font-light 是页面上的大数字（原为夜航的细字写的）：用主题数字字重里轻的一档，
+   * 不要变成山野 650 的粗块。新写的大数字请用 font-num text-num（40–48px），不要再靠 font-light 压重量
+   */
+  .font-num.font-light {
+    font-weight: var(--num-light-weight);
+  }
+}
+
+/* Markdown 正文：游记用主题的正文字体（手帐是霞鹜文楷） */
 .prose-trip {
-  line-height: 1.95;
+  font-family: var(--font-prose);
+  line-height: var(--leading-body);
   word-break: break-word;
   color: var(--color-ink-700);
 }
 .prose-trip p { margin: 0.8em 0; }
-.prose-trip h1, .prose-trip h2, .prose-trip h3 { font-family: var(--font-display); font-weight: 500; color: var(--color-ink-900); margin: 1.4em 0 0.5em; }
+.prose-trip h1, .prose-trip h2, .prose-trip h3 { font-family: var(--font-display); font-weight: var(--display-weight); color: var(--color-ink-900); margin: 1.4em 0 0.5em; }
 .prose-trip h1 { font-size: 1.45em; }
 .prose-trip h2 { font-size: 1.25em; }
 .prose-trip h3 { font-size: 1.08em; }
 .prose-trip ul { list-style: disc; padding-left: 1.4em; }
 .prose-trip ol { list-style: decimal; padding-left: 1.4em; }
-.prose-trip blockquote { border-left: 2px solid var(--color-brand-500); padding: 0.2em 0 0.2em 1em; font-family: var(--font-display); color: var(--color-ink-600); }
+.prose-trip blockquote { border-left: 2px solid var(--color-brand-600); padding: 0.2em 0 0.2em 1em; font-family: var(--font-display); color: var(--color-ink-600); }
 .prose-trip a { color: var(--color-brand-600); text-decoration: underline; text-underline-offset: 3px; }
-.prose-trip img { border-radius: 6px; max-width: 100%; }
-.prose-trip code { background: var(--color-ink-100); padding: 0.1em 0.35em; border-radius: 3px; }
+.prose-trip img { border-radius: var(--radius-image); max-width: 100%; }
+.prose-trip code { background: var(--color-ink-100); padding: 0.1em 0.35em; border-radius: var(--radius-sm); }
 .prose-trip hr { border: 0; border-top: 1px solid var(--color-line); margin: 2em 0; }
 
-/* 提示条（sonner）：深色浮层 + 细线，状态只给图标上色 */
+/* 提示条（sonner）：主题的浮层 + 细线，状态只给图标上色 */
 [data-sonner-toaster] [data-sonner-toast].th-toast {
-  background: var(--color-surface-2);
+  background: var(--menu-bg);
   color: var(--color-ink-900);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-float);
+  box-shadow: var(--th-shadow-float);
+  font-family: var(--font-sans);
   font-size: 0.875rem;
 }
 [data-sonner-toast].th-toast [data-description] {
   color: var(--color-ink-500);
 }
 [data-sonner-toast].th-toast[data-type='success'] [data-icon] {
-  color: var(--color-emerald-500);
+  color: var(--color-emerald-600);
 }
 [data-sonner-toast].th-toast[data-type='error'] [data-icon] {
-  color: var(--color-brand-500);
+  color: var(--color-red-600);
 }
 [data-sonner-toast].th-toast[data-type='warning'] [data-icon] {
-  color: var(--color-amber-500);
+  color: var(--color-amber-600);
 }
 [data-sonner-toast].th-toast[data-type='info'] [data-icon] {
-  color: var(--color-sky-500);
+  color: var(--color-sky-600);
 }
 [data-sonner-toast].th-toast [data-close-button] {
-  background: var(--color-surface-2);
+  background: var(--menu-bg);
   border-color: var(--color-line);
   color: var(--color-ink-500);
 }

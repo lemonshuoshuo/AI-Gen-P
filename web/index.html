@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="journal" data-mode="light">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -8,7 +8,39 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="TripHub" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0b0b0a" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#fbf6ea" />
+    <script>
+      // 外观：首次绘制前套用保存的主题与深浅色，避免先闪一下默认主题（逻辑与 src/theme/runtime.ts 的 readPref 一致）。
+      // 默认「手帐 · 浅色」；没明确选过深浅色时用该主题的默认模式（暮色、夜航是深色）
+      ;(function () {
+        // [浅色 paper, 深色 paper, 默认模式]
+        var paper = {
+          journal: ['#fbf6ea', '#1b1714', 'light'],
+          camp: ['#fbf8ec', '#121712', 'light'],
+          coast: ['#f9f8f4', '#0e1621', 'light'],
+          dusk: ['#f6eee8', '#1d1411', 'dark'],
+          voyage: ['#f3f1ec', '#0b0b0a', 'dark'],
+        }
+        var theme = 'journal'
+        var mode = ''
+        try {
+          var p = JSON.parse(localStorage.getItem('triphub.theme') || 'null')
+          if (p && paper.hasOwnProperty(p.theme)) theme = p.theme
+          var chosen = p && (typeof p.modeChosen === 'boolean' ? p.modeChosen : p.mode === 'light' || p.mode === 'dark')
+          if (chosen && (p.mode === 'light' || p.mode === 'dark' || p.mode === 'system')) mode = p.mode
+        } catch (e) {}
+        if (!mode) mode = paper[theme][2]
+        if (mode === 'system') mode = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        var root = document.documentElement
+        root.setAttribute('data-theme', theme)
+        root.setAttribute('data-mode', mode)
+        root.style.colorScheme = mode
+        root.style.backgroundColor = paper[theme][mode === 'dark' ? 1 : 0]
+        var meta = document.querySelector('meta[name="theme-color"]')
+        if (meta) meta.setAttribute('content', paper[theme][mode === 'dark' ? 1 : 0])
+      })()
+    </script>
     <meta name="description" content="TripHub · 记录旅程、规划路线、分享打卡点，和重要的人一起点亮走过的地方" />
     <title>TripHub · 旅行足迹</title>
   </head>

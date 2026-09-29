@@ -1,0 +1,5 @@
+/* 暮色 Dusk：Newsreader（标题、数字、西文斜体）+ Manrope（界面）+ 思源宋体 400（中文标题，与夜航共用） */
+@import '@fontsource-variable/newsreader/opsz.css';
+@import '@fontsource-variable/newsreader/opsz-italic.css';
+@import '@fontsource-variable/manrope/wght.css';
+@import '../../styles/serif-sc.css';

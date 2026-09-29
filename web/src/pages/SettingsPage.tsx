@@ -10,6 +10,8 @@ import { cn } from '@/lib/cn'
 import { fmtBytes } from '@/lib/format'
 import { compressImage } from '@/lib/image'
 import { isAdmin, useAuth } from '@/stores/auth'
+import { useTheme } from '@/theme'
+import { ModeSwitch, ThemePicker } from '@/theme/ThemeControls'
 
 const expRules = [
   ['创建旅程', 5],
@@ -26,6 +28,7 @@ const expRules = [
 ] as const
 
 const sectionIds = [
+  ['appearance', '外观'],
   ['profile', '资料'],
   ['level', '等级'],
   ['storage', '存储'],
@@ -39,7 +42,7 @@ const tidyBytes = (n: number) =>
     .replace(/\.0+(?=\s)/, '')
     .replace(/(\.\d*?)0+(?=\s)/, '$1')
 
-/** 默认头像：近黑底 + 细线圈 + 象牙白首字，不用彩色圆片 */
+/** 默认头像：卡片底色 + 细线圈 + 主文字色的首字，不用彩色圆片 */
 const monoAvatar = '!bg-surface-2 ring-1 ring-inset ring-ink-300 !text-ink-800'
 
 /** 细线标签行：一条 border-t，左侧 eyebrow + 灰色序号，右侧补充 */
@@ -56,7 +59,7 @@ function LabelRow({ label, count, extra }: { label: ReactNode; count?: ReactNode
 }
 
 /**
- * 一组设置（Exemplar 式区块）：细线标签行，下面左栏宋体标题 + 说明，右栏是一行行的设置。
+ * 一组设置：细线标签行，下面左栏标题 + 说明，右栏是一行行的设置。
  */
 function Section({
   id,
@@ -126,7 +129,7 @@ function Actions({ children }: { children: ReactNode }) {
   return <div className="flex justify-end gap-2 pt-6">{children}</div>
 }
 
-/** 极细的进度线：一道淡细线上叠一段象牙白，当前位置一粒小点 */
+/** 极细的进度线：一道淡细线上叠一段主文字色，当前位置一粒小点 */
 function ProgressLine({ value, className, label, dotCls = 'bg-brand-500' }: { value: number; className?: string; label: string; dotCls?: string }) {
   const pct = Math.min(100, Math.max(0, value * 100))
   return (
@@ -145,6 +148,44 @@ function ProgressLine({ value, className, label, dotCls = 'bg-brand-500' }: { va
         aria-hidden
       />
     </div>
+  )
+}
+
+/** 外观：五套主题 × 浅色 / 深色，点一下立即生效（保存在这台设备上） */
+function AppearanceSection() {
+  const { pref, resolved, meta, setThemePref } = useTheme()
+  const word = resolved.mode === 'dark' ? '深色' : '浅色'
+  // 没明确选过深浅色时跟着主题走（暮色、夜航默认深色，其余浅色）；选过之后换主题也保持
+  const hint = !pref.modeChosen ? (
+    `跟着主题：${meta.name}默认是${word}，换主题时一起换`
+  ) : (
+    <>
+      {pref.mode === 'system' ? `跟随系统，现在是${word}` : `固定为${word}，换主题也不变`}
+      <button type="button" onClick={() => setThemePref({ modeChosen: false })} className="mt-1 block text-ink-700 underline underline-offset-4 hover:text-ink-900">
+        改回跟着主题
+      </button>
+    </>
+  )
+  return (
+    <Section
+      id="appearance"
+      index={0}
+      eyebrow="Appearance · 外观"
+      title="外观"
+      desc="五套主题，每套都有浅色和深色。选择后立即生效，只保存在这台设备上。"
+    >
+      <div className="divide-y divide-ink-200 border-y border-ink-200">
+        <Row label="深浅色" hint={hint}>
+          <ModeSwitch className="max-sm:flex max-sm:w-full max-sm:[&>button]:flex-1" />
+        </Row>
+      </div>
+      <div className="mt-10">
+        <p className="eyebrow mb-4">
+          Themes · 主题<span className="ml-3 text-ink-400 normal-case">当前：{meta.name} · {meta.modeNames[resolved.mode]}</span>
+        </p>
+        <ThemePicker />
+      </div>
+    </Section>
   )
 }
 
@@ -183,7 +224,7 @@ function ProfileSection({ user }: { user: Me }) {
   })
 
   return (
-    <Section id="profile" index={0} eyebrow="Profile · 资料" title="个人资料" desc="头像、昵称与简介会显示在你的主页和公开旅程上。">
+    <Section id="profile" index={1} eyebrow="Profile · 资料" title="个人资料" desc="头像、昵称与简介会显示在你的主页和公开旅程上。">
       <div className="divide-y divide-ink-200 border-y border-ink-200">
         <Row label="头像" hint="JPG / PNG / WebP，会自动压缩">
           <div className="flex items-center gap-5">
@@ -269,7 +310,7 @@ function ProfileSection({ user }: { user: Me }) {
           </Row>
         </div>
         <Actions>
-          {/* 没有修改时是细线胶囊，有修改才变成象牙白实心 */}
+          {/* 没有修改时是细线按钮，有修改才变成实心主按钮 */}
           <Button type="submit" variant={dirty ? 'primary' : 'outline'} className={dirty ? undefined : idleBtn} disabled={!dirty} loading={save.isPending}>
             保存资料
           </Button>
@@ -292,15 +333,15 @@ function LevelSection({ user }: { user: Me }) {
   return (
     <Section
       id="level"
-      index={1}
+      index={2}
       eyebrow="Level · 等级"
       title="等级与经验"
       desc="记录旅程、分享照片、获得点赞都会积累经验；等级越高，存储空间越大。"
     >
-      {/* 大号细字数字 + 说明文字对 */}
+      {/* 大数字 + 说明文字对 */}
       <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-6">
         <div className="flex items-baseline gap-3">
-          <span className="font-num text-[5rem] leading-[0.85] font-light text-ink-900 md:text-[7.5rem]">{user.exp}</span>
+          <span className="font-num text-num leading-none text-ink-900">{user.exp}</span>
           <span className="text-[13px] text-ink-500">
             {nextExp ? (
               <>
@@ -397,10 +438,10 @@ function StorageSection({ user }: { user: Me }) {
   const dotCls = ratio > 0.9 ? 'bg-brand-500' : ratio > 0.75 ? 'bg-amber-500' : 'bg-ink-900'
   const [used, usedUnit] = tidyBytes(user.storage_used).split(' ')
   return (
-    <Section id="storage" index={2} eyebrow="Storage · 存储" title="存储空间" desc="照片和 GPS 轨迹会占用存储空间。">
+    <Section id="storage" index={3} eyebrow="Storage · 存储" title="存储空间" desc="照片和 GPS 轨迹会占用存储空间。">
       <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-6">
         <div className="flex items-baseline gap-2">
-          <span className="font-num text-[5rem] leading-[0.85] font-light text-ink-900 md:text-[7.5rem]">{used}</span>
+          <span className="font-num text-num leading-none text-ink-900">{used}</span>
           <span className="font-num text-xl text-ink-500">{usedUnit}</span>
         </div>
         <div className="pb-1 sm:text-right">
@@ -449,7 +490,7 @@ function PasswordSection() {
   }
   const ready = !!form.old && !!form.next && !!form.confirm
   return (
-    <Section id="security" index={3} eyebrow="Security · 安全" title="修改密码" desc="修改后，其他设备上的登录会失效，需要重新登录。">
+    <Section id="security" index={4} eyebrow="Security · 安全" title="修改密码" desc="修改后，其他设备上的登录会失效，需要重新登录。">
       <form onSubmit={submit}>
         <div className="divide-y divide-ink-200 border-y border-ink-200">
           <Row label="当前密码" htmlFor={`${uid}-o`}>
@@ -516,7 +557,7 @@ function DeleteAccountSection({ user }: { user: Me }) {
     setAck(false)
   }
   return (
-    <Section id="delete" index={4} eyebrow="Danger zone · 注销" title="注销账号" desc="注销后账号无法恢复，请谨慎操作。">
+    <Section id="delete" index={5} eyebrow="Danger zone · 注销" title="注销账号" desc="注销后账号无法恢复，请谨慎操作。">
       <div className="border-y border-ink-200 py-6">
         <p className="max-w-2xl text-[14px] leading-[1.9] text-ink-600">
           只有你能编辑的旅程会被删除（含照片、轨迹和评论）；有其他共同作者的旅程会转交给最早加入的共同作者；你上传的照片和 GPS
@@ -585,13 +626,13 @@ export default function SettingsPage() {
   }, [])
   return (
     <div className="mx-auto max-w-[90rem] px-4 pt-10 pb-24 [font-variant-numeric:lining-nums] md:px-8 md:pt-20 md:pb-32">
-      {/* 页头：细线标签行 + 大号宋体标题；右栏导语与本页目录 */}
+      {/* 页头：细线标签行 + 页面标题；右栏导语与本页目录 */}
       <header className="animate-slide-up">
         <LabelRow label="Account · 账号" extra={<span className="text-[13px] text-ink-400">@{user.username}</span>} />
-        <div className="mt-10 grid gap-x-8 gap-y-8 md:mt-16 lg:grid-cols-12 lg:items-end">
-          <h1 className="text-display-lg font-normal max-sm:text-[3.25rem] lg:col-span-7">账号设置</h1>
+        <div className="mt-8 grid gap-x-8 gap-y-6 md:mt-12 lg:grid-cols-12 lg:items-end">
+          <h1 className="text-display-lg lg:col-span-7">账号设置</h1>
           <div className="lg:col-span-4 lg:col-start-9 lg:pb-3">
-            <p className="max-w-sm text-[14.5px] leading-[1.8] text-ink-500">个人资料、等级经验、存储空间与账号安全。</p>
+            <p className="max-w-sm text-[14.5px] leading-[1.8] text-ink-500">外观主题、个人资料、等级经验、存储空间与账号安全。</p>
             <nav aria-label="本页目录" className="mt-6 hidden flex-wrap gap-x-6 gap-y-1 lg:flex">
               {sectionIds.map(([id, label], i) => (
                 <a
@@ -607,7 +648,8 @@ export default function SettingsPage() {
           </div>
         </div>
       </header>
-      <div className="mt-20 space-y-24 md:mt-32 md:space-y-36">
+      <div className="mt-16 space-y-20 md:mt-24 md:space-y-28">
+        <AppearanceSection />
         <ProfileSection user={user} />
         <LevelSection user={user} />
         <StorageSection user={user} />

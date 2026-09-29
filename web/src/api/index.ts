@@ -1,4 +1,4 @@
-import { ApiError, http, postStream } from './client'
+import { ApiError, http, postStream, request } from './client'
 import type {
   AdminDiagnostics,
   AIPlanProgress,
@@ -8,13 +8,17 @@ import type {
   AdminStats,
   AdminUser,
   AIPlanResult,
+  AIPreferencesInput,
+  AIPreferencesResult,
+  ArrangeInput,
+  ArrangeResult,
   AuthResult,
   Comment,
   CompareResult,
   CoordType,
   Footprints,
   GeoSearchItem,
-  LegMode,
+  LodgingInput,
   Me,
   Notification,
   Paged,
@@ -22,6 +26,8 @@ import type {
   PartnerInvite,
   Phase,
   Photo,
+  PlanSaveInput,
+  PlanSaveResult,
   Place,
   PlaceReview,
   PlaceStats,
@@ -32,11 +38,13 @@ import type {
   TrackData,
   TrackImportResult,
   TrackPointIn,
+  TravelMode,
   TripCard,
   TripDetail,
   TripInput,
   TripLegs,
   TripMember,
+  TripRevision,
   UserBrief,
   UserProfile,
   Waypoint,
@@ -170,11 +178,34 @@ export const api = {
     recommend: (id: number, q: { lng?: number; lat?: number; coord_type?: CoordType; ai?: boolean }) =>
       http.get<Recommendation>(`/trips/${id}/recommend`, q),
     compare: (id: number) => http.get<CompareResult>(`/trips/${id}/compare`),
-    /** 计划路线路段用时（需登录，消耗站点高德额度，服务端缓存 7 天） */
-    legs: (id: number, mode: LegMode = 'transit', signal?: AbortSignal) =>
-      http.get<TripLegs>(`/trips/${id}/legs`, { mode }, signal),
+    /**
+     * 每天路线各段的路程、用时、推荐方式（消耗站点高德额度，服务端缓存 7 天）。
+     * mode 缺省为旅程的 travel_mode；geometry 为 true 时每段带实际路线 polyline。
+     * 结果的 pending 大于 0 时 3–5 秒后用同样的参数再请求
+     */
+    legs: (id: number, mode?: TravelMode, signal?: AbortSignal, geometry = false) =>
+      http.get<TripLegs>(`/trips/${id}/legs`, { mode, geometry: geometry ? 1 : undefined }, signal),
+    /** 设置住宿（可连住几晚、沿用前一晚）→ 新建的住宿，按 day */
+    lodging: (id: number, b: LodgingInput) => http.post<Waypoint[]>(`/trips/${id}/lodging`, b),
+    /** 一键规划路线：apply=false 只返回方案预览，apply=true 保存 */
+    arrange: (id: number, b: ArrangeInput) => http.post<ArrangeResult>(`/trips/${id}/arrange`, b),
     comments: (id: number, q: PageQuery & { waypoint_id?: number }) =>
       http.get<Paged<Comment>>(`/trips/${id}/comments`, q),
+    /** 当前版本号、最后修改人、正在编辑的成员（很轻量，供轮询；页面不可见时应暂停） */
+    revision: (id: number, signal?: AbortSignal) => http.get<TripRevision>(`/trips/${id}/revision`, undefined, signal),
+    /**
+     * 编辑页心跳：进入时发一次、之后每 15–20 秒一次；离开时 active=false（keepalive，页面关闭时也能发出）。
+     * 只有已接受邀请的成员可以发（其他人 403）；响应同 revision
+     */
+    editing: (id: number, active = true) =>
+      request<TripRevision>('POST', `/trips/${id}/editing`, { body: { active }, keepalive: !active }),
+    /**
+     * 一次性保存编辑页的整份计划（草稿）。base_revision 不是服务端的当前版本时 409（ApiError.data 为
+     * PlanConflict，什么都不改），force=true 时覆盖；某一项有错时 400 / 409，ApiError.data 带该项的 index
+     */
+    savePlan: (id: number, b: PlanSaveInput) => http.put<PlanSaveResult>(`/trips/${id}/plan`, b),
+    /** 删除该旅程的打卡点：成员删除时总是 204（已被删掉、不属于这个旅程也一样），连点、同行的人先删都不会报错 */
+    removeWaypoint: (id: number, wid: number) => http.del<unknown>(`/trips/${id}/waypoints/${wid}`),
     addComment: (id: number, b: { content: string; parent_id?: number | null; waypoint_id?: number | null }) =>
       http.post<Comment>(`/trips/${id}/comments`, b),
   },
@@ -322,6 +353,8 @@ export const api = {
       if (!result) throw new ApiError(500, 'ai', 'AI 没有返回结果，请重试')
       return result
     },
+    /** AI 帮写「偏好和要求」：可追加的短句 + 整合后的一段文字（最多等 20 秒） */
+    preferences: (b: AIPreferencesInput) => http.post<AIPreferencesResult>('/ai/preferences', b),
   },
 
   admin: {

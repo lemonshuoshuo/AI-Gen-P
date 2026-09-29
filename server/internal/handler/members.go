@@ -109,16 +109,29 @@ func (h *Handler) inviteMember(c *gin.Context) error {
 		if n >= maxTripMembers {
 			return errBad("共同作者人数已达上限")
 		}
+		// The author's partner, and members of the trip's space (who may edit
+		// it already), join at once; others are invited.
 		partnerID, _, err := service.PartnerOf(tx, me.ID)
 		if err != nil {
 			return err
 		}
+		direct := partnerID == target.ID
+		if !direct && t.SpaceID != nil {
+			m, err := service.SpaceMembership(tx, *t.SpaceID, target.ID)
+			if err != nil {
+				return err
+			}
+			direct = m != nil
+		}
 		status, content := model.MemberPending, "邀请你成为旅程「"+t.Title+"」的共同作者"
-		if partnerID == target.ID {
+		if direct {
 			status, content = model.MemberAccepted, "把你加入了共同旅程「"+t.Title+"」"
 		}
 		if err := tx.Create(&model.TripMember{TripID: t.ID, UserID: target.ID, Role: model.MemberEditor,
 			Status: status, InvitedByID: me.ID}).Error; err != nil {
+			return err
+		}
+		if _, err := service.TouchTrip(tx, t.ID, me.ID); err != nil {
 			return err
 		}
 		return h.svc.Notify(tx, service.Notice{UserID: target.ID, Type: "trip_invite", ActorID: me.ID, TripID: t.ID, Content: content})
@@ -150,13 +163,22 @@ func (h *Handler) removeMember(c *gin.Context) error {
 	if !a.Owner && uid != me.ID {
 		return errNotOwner
 	}
-	res := h.db.WithContext(c.Request.Context()).Where("trip_id = ? AND user_id = ? AND role <> ?", t.ID, uid, model.MemberOwner).
-		Delete(&model.TripMember{})
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return errNotFound("成员不存在")
+	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		if err := service.LockTrip(tx, t.ID); err != nil {
+			return err
+		}
+		res := tx.Where("trip_id = ? AND user_id = ? AND role <> ?", t.ID, uid, model.MemberOwner).Delete(&model.TripMember{})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return errNotFound("成员不存在")
+		}
+		_, err := service.TouchTrip(tx, t.ID, me.ID)
+		return err
+	})
+	if err != nil {
+		return err
 	}
 	c.JSON(http.StatusOK, gin.H{})
 	return nil
@@ -178,12 +200,38 @@ func (h *Handler) pendingInvite(c *gin.Context) (*model.TripMember, error) {
 	return &m, nil
 }
 
+// answerInvite accepts (or declines: deletes) the current user's pending
+// invite m, counting a revision of the trip (its members change). An invite
+// the owner withdrew meanwhile is gone (404).
+func (h *Handler) answerInvite(c *gin.Context, m *model.TripMember, accept bool) error {
+	return h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		if err := service.LockTrip(tx, m.TripID); err != nil {
+			return err
+		}
+		q := tx.Where("id = ? AND status = ?", m.ID, model.MemberPending)
+		var res *gorm.DB
+		if accept {
+			res = q.Model(&model.TripMember{}).Update("status", model.MemberAccepted)
+		} else {
+			res = q.Delete(&model.TripMember{})
+		}
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return errNotFound("邀请不存在或已处理")
+		}
+		_, err := service.TouchTrip(tx, m.TripID, m.UserID)
+		return err
+	})
+}
+
 func (h *Handler) acceptInvite(c *gin.Context) error {
 	m, err := h.pendingInvite(c)
 	if err != nil {
 		return err
 	}
-	if err := h.db.WithContext(c.Request.Context()).Model(m).Update("status", model.MemberAccepted).Error; err != nil {
+	if err := h.answerInvite(c, m, true); err != nil {
 		return err
 	}
 	return h.respondTripDetail(c, m.TripID)
@@ -194,7 +242,7 @@ func (h *Handler) declineInvite(c *gin.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.db.WithContext(c.Request.Context()).Delete(m).Error; err != nil {
+	if err := h.answerInvite(c, m, false); err != nil {
 		return err
 	}
 	c.JSON(http.StatusOK, gin.H{})

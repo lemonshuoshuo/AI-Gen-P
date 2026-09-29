@@ -139,6 +139,9 @@ func (h *Handler) createLodging(c *gin.Context) error {
 		if err := h.svc.RecomputeTrip(tx, t.ID); err != nil {
 			return err
 		}
+		if _, err := service.TouchTrip(tx, t.ID, wp.CreatedByID); err != nil {
+			return err
+		}
 		return h.svc.RecomputePlaces(tx, placeIDs)
 	})
 	if err != nil {
@@ -243,8 +246,14 @@ func (h *Handler) arrange(c *gin.Context) error {
 			return err
 		}
 		// The trip gets the days arranged (dated trips have them already).
-		if res.Days > cur.Days && service.DateSpan(cur.StartDate, cur.EndDate) == 0 {
+		moreDays := res.Days > cur.Days && service.DateSpan(cur.StartDate, cur.EndDate) == 0
+		if moreDays {
 			if err := tx.Model(&model.Trip{}).Where("id = ?", t.ID).Update("plan_days", res.Days).Error; err != nil {
+				return err
+			}
+		}
+		if res.Changed > 0 || moreDays {
+			if _, err := service.TouchTrip(tx, t.ID, currentUserID(c)); err != nil {
 				return err
 			}
 		}

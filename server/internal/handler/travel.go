@@ -27,25 +27,26 @@ const (
 	checkinDupWindow = 5 * time.Minute
 )
 
-// startTripIfPlanning moves a planning trip to ongoing; the caller holds the
-// trip lock. A public trip without live sharing then stops counting in the
-// statistics of its places (see service.RecomputePlaces) until it ends.
-func (h *Handler) startTripIfPlanning(tx *gorm.DB, t *model.Trip) error {
+// startTripIfPlanning moves a planning trip to ongoing (started reports
+// whether it did); the caller holds the trip lock. A public trip without
+// live sharing then stops counting in the statistics of its places (see
+// service.RecomputePlaces) until it ends.
+func (h *Handler) startTripIfPlanning(tx *gorm.DB, t *model.Trip) (started bool, err error) {
 	if t.Phase != model.PhasePlanning {
-		return nil
+		return false, nil
 	}
 	t.Phase = model.PhaseOngoing
 	if err := tx.Model(&model.Trip{}).Where("id = ?", t.ID).Update("phase", model.PhaseOngoing).Error; err != nil {
-		return err
+		return false, err
 	}
 	if t.Visibility != model.VisPublic || t.Status != model.TripNormal || t.LiveShare {
-		return nil
+		return true, nil
 	}
 	ids, err := service.TripPlaceIDs(tx, t.ID)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return h.svc.RecomputePlaces(tx, ids)
+	return true, h.svc.RecomputePlaces(tx, ids)
 }
 
 // nearestTodo returns the closest planned todo waypoint within radius metres;
@@ -142,14 +143,15 @@ func byClientID(wps []model.Waypoint, cid string) *model.Waypoint {
 	return nil
 }
 
-// markVisited sets a waypoint visited at the given time (keeping an existing arrival time).
-func markVisited(tx *gorm.DB, wp *model.Waypoint, at time.Time, override bool) error {
-	if wp.Status == model.WPVisited && wp.ArrivedAt != nil && !override {
-		return nil
+// markVisited sets a waypoint visited at the given time (keeping an
+// existing arrival time unless override); changed reports whether it did.
+func markVisited(tx *gorm.DB, wp *model.Waypoint, at time.Time, override bool) (changed bool, err error) {
+	if wp.Status == model.WPVisited && wp.ArrivedAt != nil && (!override || wp.ArrivedAt.Equal(at)) {
+		return false, nil
 	}
 	wp.Status = model.WPVisited
 	wp.ArrivedAt = &at
-	return tx.Model(wp).Updates(map[string]any{"status": wp.Status, "arrived_at": at}).Error
+	return true, tx.Model(wp).Updates(map[string]any{"status": wp.Status, "arrived_at": at}).Error
 }
 
 func (h *Handler) tripCheckin(c *gin.Context) error {
@@ -204,10 +206,11 @@ func (h *Handler) tripCheckin(c *gin.Context) error {
 			matched = result.Planned
 			duplicate = result.Status == model.WPVisited && result.ArrivedAt != nil
 			// An already-visited stop keeps its arrival time unless arrived_at is given.
-			if err := markVisited(tx, &result, at, override); err != nil {
+			changed, err := markVisited(tx, &result, at, override)
+			if err != nil {
 				return err
 			}
-			return h.afterStatusChange(tx, t, &result)
+			return h.afterStatusChange(tx, t, &result, changed, currentUserID(c))
 		})
 		if err != nil {
 			return err
@@ -284,7 +287,8 @@ func (h *Handler) tripCheckin(c *gin.Context) error {
 		}
 		if m != nil {
 			result, matched = *m, true
-			if err := markVisited(tx, &result, at, true); err != nil {
+			changed, err := markVisited(tx, &result, at, true)
+			if err != nil {
 				return err
 			}
 			if cid != "" {
@@ -293,7 +297,7 @@ func (h *Handler) tripCheckin(c *gin.Context) error {
 				}
 				result.ClientID = cid
 			}
-			return h.afterStatusChange(tx, t, &result)
+			return h.afterStatusChange(tx, t, &result, changed, extra.CreatedByID)
 		}
 		if !located { // the planned stop was checked in concurrently
 			h.locateWaypoint(ctx, &extra, ch, &in)
@@ -316,7 +320,7 @@ func (h *Handler) tripCheckin(c *gin.Context) error {
 			return err
 		}
 		result = extra
-		return h.afterStatusChange(tx, t, &result)
+		return h.afterStatusChange(tx, t, &result, true, extra.CreatedByID)
 	})
 	if err != nil {
 		return err
@@ -325,15 +329,24 @@ func (h *Handler) tripCheckin(c *gin.Context) error {
 	return nil
 }
 
-// afterStatusChange starts the trip if needed and refreshes statistics.
-func (h *Handler) afterStatusChange(tx *gorm.DB, t *model.Trip, wp *model.Waypoint) error {
+// afterStatusChange starts the trip if needed and refreshes statistics. A
+// check-in that changed anything (changed: the waypoint; or the trip
+// started) counts a revision of the trip, made by actorID.
+func (h *Handler) afterStatusChange(tx *gorm.DB, t *model.Trip, wp *model.Waypoint, changed bool, actorID int64) error {
 	if wp.Status == model.WPVisited {
-		if err := h.startTripIfPlanning(tx, t); err != nil {
+		started, err := h.startTripIfPlanning(tx, t)
+		if err != nil {
 			return err
 		}
+		changed = changed || started
 	}
 	if err := h.svc.RecomputeTrip(tx, t.ID); err != nil {
 		return err
+	}
+	if changed {
+		if _, err := service.TouchTrip(tx, t.ID, actorID); err != nil {
+			return err
+		}
 	}
 	return h.svc.RecomputePlaces(tx, service.PlaceIDs(wp.PlaceID))
 }
@@ -361,10 +374,11 @@ func (h *Handler) waypointCheckin(c *gin.Context) error {
 		if err := lockWaypoint(tx, wp); err != nil {
 			return err
 		}
-		if err := markVisited(tx, wp, at, override); err != nil {
+		changed, err := markVisited(tx, wp, at, override)
+		if err != nil {
 			return err
 		}
-		return h.afterStatusChange(tx, t, wp)
+		return h.afterStatusChange(tx, t, wp, changed, currentUserID(c))
 	})
 	if err != nil {
 		return err
@@ -387,11 +401,12 @@ func (h *Handler) setPlanStatus(c *gin.Context, status string) error {
 		if !wp.Planned {
 			return errBad("只有计划内的打卡点可以执行此操作")
 		}
+		changed := wp.Status != status || wp.ArrivedAt != nil
 		wp.Status, wp.ArrivedAt = status, nil
 		if err := tx.Model(wp).Updates(map[string]any{"status": status, "arrived_at": nil}).Error; err != nil {
 			return err
 		}
-		return h.afterStatusChange(tx, t, wp)
+		return h.afterStatusChange(tx, t, wp, changed, currentUserID(c))
 	})
 	if err != nil {
 		return err

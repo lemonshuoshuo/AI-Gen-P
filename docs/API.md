@@ -25,7 +25,7 @@
 | unauthorized | 401 | 未登录或 token 失效（客户端应尝试 refresh） |
 | forbidden | 403 | 无权限 / 账号被封禁 |
 | not_found | 404 | 资源不存在或不可见 |
-| conflict | 409 | 冲突（如重复） |
+| conflict | 409 | 冲突（如重复；保存计划时的版本冲突见「协同编辑」） |
 | payload_too_large | 413 | 文件过大 / 超出存储配额 |
 | too_many_requests | 429 | 请求过于频繁 |
 | internal | 500 | 服务器错误 |
@@ -52,10 +52,13 @@ UserBrief +
   "next_level_exp": 200, "status": "active",
   "storage_used": 1024, "storage_quota": 1073741824,
   "partner": UserBrief | null,
+  "default_space_id": 3 | null,
   "created_at": "..."
 }
 ```
 `status`: `active` | `banned` | `deleted`（已注销，只会出现在管理后台的用户列表中）
+`partner`：情侣，即自己所在情侣空间里的另一个人（见「空间」），没有时为 `null`。
+`default_space_id`：默认空间（`PUT /me/default-space`），点击「我们」时打开它；没有设置时为 `null`。
 
 ### UserProfile
 UserBrief +
@@ -67,7 +70,7 @@ UserBrief +
   "partner": UserBrief | null
 }
 ```
-`partner`：已绑定的情侣。仅当情侣关系设为公开（`PATCH /partner {"public": true}`），或查看者是该用户本人或其情侣时返回，否则为 `null`。
+`partner`：该用户的情侣（其情侣空间里的另一个人）。仅当情侣空间设为在主页公开（空间的 `public`：`PATCH /spaces/:id {"public": true}`，或旧接口 `PATCH /partner`），或查看者是该用户本人或其情侣时返回，否则为 `null`。
 
 ### TripCard（列表项）
 ```json
@@ -79,19 +82,23 @@ UserBrief +
   "waypoint_count": 12, "planned_count": 10, "visited_count": 9, "photo_count": 30,
   "like_count": 5, "comment_count": 2, "fork_count": 1, "fav_count": 3, "view_count": 100,
   "featured": false, "together": true,
+  "space": { "id": 3, "name": "我们", "type": "couple", "type_label": "情侣" } | null,
   "author": UserBrief, "members": [UserBrief],
-  "created_at": "...", "updated_at": "...", "published_at": "..." | null
+  "created_at": "...", "updated_at": "...", "published_at": "..." | null,
+  "revision": 12
 }
 ```
 - `phase`: `planning`（规划中，可作为路线攻略分享） | `ongoing`（旅行中） | `finished`（已完成，游记）
 - `planned_count`：计划内打卡点数；`visited_count`：已到达的打卡点数（含计划外）。旅行中且未开启 `live_share` 的旅程，非成员看到的统计只按计划计算（见「旅行中的位置隐私」）
 - `waypoint_count` / `planned_count` / `visited_count` 只计游玩点（`kind=stop`），不计住宿（`kind=lodging`，见 Waypoint）
 - `days`：旅程天数，客户端按它显示「第 1 天 … 第 N 天」的页签（另有「不分天」）。设置了起止日期时按日期；否则为设置的天数（创建 / 修改旅程时的 `days`）与打卡点最大 `day`（住宿按其 `day`）中较大者；都没有时按到达时间跨度，再没有为 0
-- `visibility`: `private`（仅成员） | `unlisted`（持分享链接可看，不出现在广场） | `public`（公开）
+- `visibility`: `private`（仅成员） | `unlisted`（持分享链接可看，不出现在广场） | `public`（公开）。旅程的**成员**指作者、已接受邀请的共同作者，以及旅程所属空间的成员（见「空间」）；本文档中「成员」可见 / 可用的内容与接口（🔐 成员）对这三种人都一样
 - `status`: `normal` | `hidden`（被管理员隐藏，仅成员和管理员可见） | `pending`（开启「公开旅程需审核」后，非管理员公开的旅程等待管理员审核，通过前仅成员和管理员可见，见「内容安全」）
-- `members`: 除作者外已接受邀请的共同作者
+- `members`: 除作者外已接受邀请的共同作者（不含只因旅程所属空间而有权限的空间成员）
 - `cover_thumb_url`：封面的 480px 缩略图，列表 / 卡片中使用；封面没有单独的缩略图（如使用头像地址）时与 `cover_url` 相同，没有封面时为空字符串。Place 与 Footprints 的 `trips[]` 中的同名字段含义相同
-- `together`: 作者与其情侣都是该旅程成员时为 true
+- `together`: 旅程关联到情侣空间，或作者的情侣（作者情侣空间里的另一个人）是该旅程的共同作者时为 true
+- `space`：旅程所属的空间（SpaceRef，见 Space），只返回给该空间的成员；其他人（游客、非空间成员的共同作者等）为 `null`
+- `revision`：旅程的版本号（≥ 1），旅程及其打卡点、住宿、打卡、照片、成员每有一次修改加 1，`updated_at` 同时更新为修改时间（见「协同编辑」）。旅行中且未开启 `live_share` 的旅程，非成员看到的 `revision` 为 0、`updated_at` 同 `created_at`（修改记录会暴露旅行者的行踪）
 
 ### TripDetail
 TripCard +
@@ -199,7 +206,7 @@ TripCard +
 }
 ```
 - `points` 最多 5000 个；`trips` 按 `start_date` 正序，`path` 为按顺序的打卡点坐标
-- `points[].waypoint_id`：对应的打卡点；`photo_thumb_url`：该打卡点第一张照片（与旅程页相同的顺序：按拍摄时间，再按上传顺序）的缩略图，没有照片时为空字符串。用于地图放大后在足迹点上显示照片。足迹只包含查看者能在旅程页看到照片的旅程（本人参与的、情侣共同的，或公开且未处于「旅行中未公开位置」的旅程，见「旅行中的位置隐私」），因此不会露出旅程页上看不到的照片
+- `points[].waypoint_id`：对应的打卡点；`photo_thumb_url`：该打卡点第一张照片（与旅程页相同的顺序：按拍摄时间，再按上传顺序）的缩略图，没有照片时为空字符串。用于地图放大后在足迹点上显示照片。足迹只包含查看者能在旅程页看到照片的旅程（本人参与的、所在空间的，或公开且未处于「旅行中未公开位置」的旅程，见「旅行中的位置隐私」），因此不会露出旅程页上看不到的照片
 - `cities[].lng/lat` 为该城市内打卡点的平均位置
 
 ### Notification
@@ -207,12 +214,80 @@ TripCard +
 {
   "id": 1, "type": "comment", "actor": UserBrief | null,
   "trip": { "id": 1, "title": "…" } | null, "place": { "id": 8, "name": "…" } | null,
-  "comment_id": 5 | null, "content": "摘要", "read": false, "invite_pending": false, "created_at": "..."
+  "space": { "id": 3, "name": "我们", "type": "couple", "type_label": "情侣" } | null,
+  "comment_id": 5 | null, "content": "摘要", "read": false, "invite_pending": false, "space_invite_id": 7 | null,
+  "created_at": "..."
 }
 ```
-`type`: `comment` `reply` `like` `favorite` `fork` `follow` `trip_invite` `partner_invite` `partner_accept` `featured` `system`
-`invite_pending`：`trip_invite` 通知对应的共同作者邀请仍待接收者接受 / 拒绝时为 true（客户端据此显示「接受 / 拒绝」），邀请已处理或其它类型为 false
-`partner_invite` 的 `content` 为邀请留言（发送者自己写的话），没有留言时为空字符串
+`type`: `comment` `reply` `like` `favorite` `fork` `follow` `trip_invite` `space_invite` `space_accept` `space_decline` `featured` `system`，以及旧版本产生的 `partner_invite` `partner_accept`（升级后不再产生，只会出现在旧通知里）
+`invite_pending`：`trip_invite` 通知对应的共同作者邀请、或 `space_invite` 通知对应的空间邀请仍待接收者接受 / 拒绝时为 true（客户端据此显示「接受 / 拒绝」），邀请已处理或其它类型为 false
+`space`：空间相关通知（`space_invite` / `space_accept` / `space_decline`，以及退出、移除、删除空间等 `system` 通知）的空间，仅当接收者现在是该空间的成员或有待回应的邀请时返回，否则为 `null`（`content` 中有空间名称）
+`space_invite_id`：`space_invite` 通知的邀请仍待回应时为该邀请的 ID（`POST /space-invites/:id/accept` / `decline`），否则为 `null`
+`space_invite` 的 `content` 为邀请留言（发送者自己写的话），没有留言时为空字符串；`space_accept` / `space_decline` 的 `content` 为跟在发起人昵称后的一句话（如「接受了邀请，加入了「我们」」「拒绝了加入「驴友团」的邀请」）；`system` 通知的 `content` 为完整的一句话。旧的 `partner_invite` 的 `content` 为邀请留言
+
+### Space（空间）
+一组一起旅行的人：情侣、闺蜜、朋友、家人，或自定义的类型（如「驴友团」）。关联到空间的旅程对空间的全部成员开放，权限与共同作者相同（见「空间」）。
+
+SpaceRef（空间的引用，TripCard、Notification 中使用）：
+```json
+{ "id": 3, "name": "我们", "type": "couple", "type_label": "情侣" }
+```
+- `type`: `couple`（情侣，最多 2 人） | `besties`（闺蜜） | `friends`（朋友） | `family`（家人） | `custom`（自定义）
+- `type_label`：类型的显示名称，内置类型为 `情侣` / `闺蜜` / `朋友` / `家人`，`custom` 为创建者填写的名称（如 `驴友团`）；客户端直接显示它即可
+
+Space（`GET /spaces` 的列表项，只有空间成员能看到）= SpaceRef +
+```json
+{
+  "description": "大学室友", "anniversary": "2023-05-20" | null, "public": false,
+  "owner": UserBrief, "role": "owner", "is_default": true,
+  "members": [SpaceMember], "member_count": 2,
+  "trip_count": 5, "city_count": 12, "last_trip": TripBrief | null,
+  "pending_invite_count": 0,
+  "can_manage": true, "can_invite": false,
+  "created_at": "...", "updated_at": "..."
+}
+```
+- `role`：当前用户在空间中的角色：`owner`（创建者） | `member`；创建者本人见 `owner`（UserBrief）
+- `anniversary`：纪念日（可选，主要用于情侣空间），没有时为 `null`
+- `public`：只对情侣空间有意义：是否在两人的个人主页上显示情侣关系（UserProfile 的 `partner`）；其他类型总为 `false`
+- `is_default`：是否是当前用户的默认空间（`PUT /me/default-space`）
+- `members`：全部成员，创建者在前，其余按加入的先后；`member_count` 为成员数
+- `trip_count`：关联到空间的旅程数（含规划中的）；`city_count`：这些旅程中已到达的打卡点覆盖的城市数（同 Footprints 的 `stats.cities`）
+- `last_trip`：最近的一次旅程，即 `GET /spaces/:id/trips` 的第一项；没有旅程时为 `null`
+- `pending_invite_count`：待对方回应的邀请数
+- `can_manage`：当前用户能否修改空间设置（创建者；情侣空间的两个人都能）
+- `can_invite`：当前用户现在能否邀请：有邀请的权限（情侣空间为创建者，其他空间为任何成员），且成员数加待回应的邀请数还没到上限
+
+SpaceMember = UserBrief + `{ "space_role": "owner" | "member", "joined_at": "..." }`（其中 UserBrief 的 `role` 仍是 `user` / `admin`）
+
+TripBrief：
+```json
+{ "id": 1, "title": "杭州三日", "cover_url": "/uploads/..", "cover_thumb_url": "/uploads/.._t.jpg", "phase": "finished",
+  "start_date": "2026-05-01" | null, "end_date": "2026-05-03" | null, "days": 3, "cities": ["杭州市"] }
+```
+
+SpaceDetail（`GET /spaces/:id`，以及创建、修改空间与接受邀请的响应）= Space +
+```json
+{
+  "stats": { "trip_count": 5, "trips": 4, "waypoints": 80, "photos": 300, "distance_km": 1234.5,
+             "days": 20, "cities": 12, "provinces": 6, "first_date": "2024-01-01" | null, "last_date": "2026-05-03" | null },
+  "invites": [SpaceInvite]
+}
+```
+- `stats.trip_count` 同 `trip_count`；其余字段与空间足迹（`GET /spaces/:id/footprints`）的 `stats` 完全相同：`trips` 为已有到达记录或轨迹的旅程数，`distance_km` 为它们的里程之和，`days` 为它们覆盖的日期数，`first_date` / `last_date` 为最早 / 最晚的旅行日期（如「第一次一起旅行」）
+- `invites`：待回应的邀请（空间成员都能看到），按发出的先后
+
+SpaceInvite：
+```json
+{
+  "id": 7,
+  "space": { "id": 3, "name": "周末爬山", "type": "custom", "type_label": "驴友团", "description": "",
+             "member_count": 4, "members": [UserBrief] },
+  "inviter": UserBrief, "invitee": UserBrief,
+  "message": "一起去爬山吧", "status": "pending", "created_at": "..."
+}
+```
+`status`: `pending` | `accepted` | `declined` | `cancelled`（撤回）。`space.members` 为空间现在的成员（创建者在前），让被邀请人在接受前知道里面有谁。
 
 ---
 
@@ -275,17 +350,19 @@ AuthResult：
 | DELETE | `/me` | 注销账号 `{password}` → `{}`，见下 |
 | POST | `/me/password` | `{old_password, new_password}` → `{}`（其它会话的 refresh token 与 access token 全部立即失效） |
 | POST | `/me/avatar` | multipart `file` → `{avatar_url}`（同时更新资料） |
-| GET | `/me/trips` | `?phase=&visibility=&page=` 我创建或参与的旅程 → 分页 TripCard |
+| GET | `/me/trips` | `?phase=&visibility=&include_spaces=&page=` 我创建或参与的旅程（作者或共同作者）；`include_spaces=true` 时还包括我所在空间里的其他旅程 → 分页 TripCard |
 | GET | `/me/favorites` | 分页 TripCard |
-| GET | `/me/footprints` | 我参与的全部旅程的 Footprints |
-| GET | `/me/invites` | 待处理邀请 `{trip_invites:[{trip: TripCard, from: UserBrief, created_at}], partner_invites:[PartnerInvite]}` |
+| GET | `/me/footprints` | 我参与的全部旅程（作者或共同作者，不含只因空间可见的旅程；空间的足迹见 `GET /spaces/:id/footprints`）的 Footprints |
+| GET | `/me/invites` | 待处理邀请 `{trip_invites:[{trip: TripCard, from: UserBrief, created_at}], space_invites:[SpaceInvite], partner_invites:[PartnerInvite]}`（`partner_invites` 已弃用：`space_invites` 中情侣空间的那些，格式见旧接口「情侣空间」） |
+| PUT | `/me/default-space` | `{space_id}` 设置默认空间（`null` 或 `0` 清除）→ Me，见「空间」 |
 
 `POST /me/password` 与 `DELETE /me` 校验密码：同一账号 15 分钟内密码错误 5 次后返回 429（两个接口合计，密码正确的请求不计入），防止拿到登录令牌的人猜出密码。
 
 `DELETE /me`（注销账号，不可恢复）：密码错误返回 400 `密码不正确`；管理员账号不能注销（400）。注销后：
 - 只有本人能编辑的旅程被删除（含照片、轨迹、评论）；有其他共同作者的旅程转交给最早加入的共同作者（其收到 `system` 通知）；
 - 本人上传的照片和 GPS 轨迹全部删除；本人的评论变为已删除占位（`deleted=true`，作者显示为「已注销用户」）；
-- 点赞、收藏、关注、共同作者身份、邀请、通知、经验记录和全部登录会话被删除；情侣绑定解除并通知对方；
+- 点赞、收藏、关注、共同作者身份、邀请（含空间邀请）、通知、经验记录和全部登录会话被删除；
+- 退出所在的全部空间：自己的旅程先离开这些空间（因此只在空间中共享、没有其他共同作者的旅程同样被删除）；是创建者的空间交给最早加入的成员（其收到 `system` 通知），只有自己一人的空间被删除；情侣空间的另一方收到「对方已注销账号，情侣绑定已解除」；
 - 账号信息被清除（用户名改为 `deleted-<id>`，原用户名可被重新注册），旧 token 返回 401，`/users/:username` 返回 404。
 
 ### 用户
@@ -312,6 +389,9 @@ AuthResult：
 | POST / DELETE | `/trips/:id/like` | 🔐 | → `{liked, like_count}` |
 | POST / DELETE | `/trips/:id/favorite` | 🔐 | → `{favorited, fav_count}` |
 | POST | `/trips/:id/share-code/reset` | 🔐 作者 | → `{share_code}` |
+| GET | `/trips/:id/revision` | 🔓（按旅程可见性） | 当前版本号、最后修改人、正在编辑的成员（轮询用），见「协同编辑」 |
+| POST | `/trips/:id/editing` | 🔐 成员 | 编辑页的心跳 `{active}`，见「协同编辑」 |
+| PUT | `/trips/:id/plan` | 🔐 成员 | 一次性保存编辑页的整份计划（草稿），检测他人的修改，见「协同编辑」 |
 
 `GET /trips` 查询参数：
 - `tab`: `featured`（精选） | `latest`（默认，按发布时间） | `hot`（热门） | `following`（关注的人，需登录）
@@ -324,11 +404,16 @@ AuthResult：
   "title": "杭州三日", "summary": "", "content": "", "cover_url": "",
   "phase": "planning", "visibility": "private",
   "start_date": "2026-05-01", "end_date": "2026-05-03", "tags": ["美食"],
-  "live_share": false, "with_partner": true,
+  "live_share": false, "with_partner": true, "space_id": 3,
   "days": 3, "travel_mode": "auto"
 }
 ```
-`with_partner`（仅创建时）：直接把已绑定的情侣加为共同作者。成员可以编辑内容；只有作者能修改 `visibility`、`live_share`、管理成员、删除旅程。
+`with_partner`（仅创建时）：直接把情侣（自己情侣空间里的另一个人）加为共同作者，没有给出 `space_id` 时同时把旅程关联到情侣空间；没有情侣时忽略。成员可以编辑内容；只有作者能修改 `visibility`、`live_share`、管理成员、删除旅程。
+`space_id`：旅程所属的空间（见「空间」），该空间的全部成员都能查看和编辑这个旅程；`null` 或 `0` 表示不属于任何空间。创建时：自己必须是该空间的成员，否则 404 `空间不存在或你不是它的成员`。修改时：
+- 加入空间或改到另一个空间：只有作者可以（否则 403），且作者必须是目标空间的成员（否则 404）；
+- 移出空间（`null`）：作者或该空间的创建者可以（否则 403）。空间创建者移出别人的旅程后自己就看不到它了，此时响应为 `{}`（其他情况都响应 TripDetail）；
+- 算作一次修改（`revision` +1）；同时有别人改了所属空间时返回 409 `旅程所属的空间刚被修改，请刷新后重试`；
+- `PUT /trips/:id/plan` 的 `trip` 中的 `space_id` 被忽略。
 `days`（0–365，`0` 或 `null` 表示不再指定）：规划的天数，没有日期的旅程也可以按天规划。有开始日期时同时把结束日期设为「开始日期 + days − 1」（同一请求里给出的结束日期与之不符时返回 400 `天数与起止日期不一致`）；只改起止日期时天数随日期变化（清除日期后保留该天数）。天数（或日期范围）变少时：被去掉的那些天的游玩点移到「不分天」（`day=0`）；被去掉的那些晚（`day` 大于新天数；最后一天当晚保留）的住宿，若同一家（同一高德 POI / 地点，或同名且相距 100 米内）在保留的某晚仍然住，则删除（照片、评论保留并取消关联），否则改为「不分天」的游玩点（`kind=stop, day=0`），不会丢失用户填写的内容。
 `travel_mode`：见 TripDetail，缺省 `auto`；取值错误返回 400。
 `live_share`：旅行中（`phase=ongoing`）是否向非成员实时公开 GPS 轨迹、打卡和照片，缺省 `false`（见「旅行中的位置隐私」）。
@@ -339,10 +424,95 @@ AuthResult：
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | GET | `/trips/:id/members` | 🔐 成员 | `[{user: UserBrief, role: "owner"|"editor", status: "accepted"|"pending"}]` |
-| POST | `/trips/:id/members` | 🔐 作者 | 邀请 `{username}`（若为已绑定情侣则直接加入） |
+| POST | `/trips/:id/members` | 🔐 作者 | 邀请 `{username}`（对方是作者的情侣、或是旅程所属空间的成员时直接加入，否则需对方接受） |
 | DELETE | `/trips/:id/members/:user_id` | 🔐 作者/本人 | 移除或退出 |
 | POST | `/trips/:id/members/accept` | 🔐 被邀请人 | 接受邀请 |
 | POST | `/trips/:id/members/decline` | 🔐 被邀请人 | 拒绝邀请 |
+
+#### 协同编辑
+几位成员同时编辑一个旅程时，用旅程的版本号 `revision` 保持同步：编辑页轮询 `GET /trips/:id/revision`，版本号变了就重新获取旅程；用户在本地改好整份计划（草稿）后点「保存」，用 `PUT /trips/:id/plan` 一次提交，服务端只在草稿所基于的版本仍是最新时保存，否则返回 409，由用户选择重新加载或覆盖。
+
+**版本号**：`revision`（TripCard / TripDetail 中也有）从 1 开始，下列修改与「版本号 +1」在同一个事务中提交（一个请求 +1，只有 `PATCH /waypoints/:id` 既改了内容又改了顺序时 +2——带 `seq`，或住宿改到另一晚后移到那天之后；没有实际改动的请求不变）：
+- 旅程本身：`PATCH /trips/:id`、`PUT /trips/:id/plan`、重置分享码，管理员设为精选 / 隐藏 / 审核；
+- 打卡点与住宿：新建、批量新建、`POST /trips/:id/lodging`、修改、排序、删除，一键规划路线（`apply=true` 且有变化时）；
+- 打卡：`/trips/:id/checkin`、`/waypoints/:id/checkin`、`skip`、`reset`（重复打卡、状态没变时除外）；
+- 照片：上传、修改（说明 / 关联的打卡点）、删除；
+- 轨迹：清空、导入 GPX，以及让旅程第一次有轨迹或因此开始旅程（`planning` → `ongoing`）的那次上传；之后持续上传的 GPS 点不改变版本号；
+- 成员：邀请、接受 / 拒绝邀请、移除 / 退出，解除情侣绑定时 `remove_shared_access=true` 结束的共同作者关系，注销账号带来的变化；
+- 空间：旅程加入 / 移出空间（`PATCH /trips/:id` 的 `space_id`），以及作者退出或被移出空间、空间被删除时旅程随之离开空间（空间成员的加入与退出本身不改变旅程的版本号）。
+
+点赞、收藏、评论、浏览不改变版本号。每次修改同时更新旅程的 `updated_at`，并记下修改人（`updated_by`）。
+
+`GET /trips/:id/revision`（🔓，权限同 `GET /trips/:id`，可带 `share_code`）响应：
+```json
+{
+  "revision": 42, "updated_at": "2026-09-29T10:00:00+08:00",
+  "updated_by": UserBrief | null,
+  "editors": [{ "user": UserBrief, "since": "2026-09-29T09:58:00+08:00", "last_seen": "2026-09-29T10:00:05+08:00" }]
+}
+```
+- `updated_at`：最后一次修改的时间；`updated_by`：最后修改的人（升级前的旧数据等未知时为 `null`）
+- `editors`：正在编辑该旅程的成员（45 秒内发过心跳，见下），按开始编辑的先后排列，包括请求者自己：客户端显示「谁正在编辑」时按 `user.id` 去掉自己
+- `updated_by` 与 `editors` 只返回给成员（含待接受邀请的人）和管理员，其他人为 `null` 与 `[]`；旅行中且未开启 `live_share` 时，非成员得到 `revision=0`、`updated_at` 为旅程的创建时间（同 TripCard）
+- 很轻量（除登录校验外一次查询，成功的请求不记日志），供轮询：编辑页建议每 5 秒、行程页每 15–30 秒一次，页面不可见时暂停。`revision` 大于本地已加载的版本时重新获取 `GET /trips/:id`；`updated_by.id` 是自己时，通常是自己刚做的修改（或自己在其他页面的修改），不必提示
+
+`POST /trips/:id/editing`（🔐 成员；待接受邀请的人与非成员返回 403）请求 `{"active": true}`：进入编辑页时发送一次，之后每 15–20 秒一次心跳（`active` 缺省为 true）；离开编辑页时发送 `{"active": false}`（页面关闭时可用 `fetch(…, {keepalive: true})`），没有发送时 45 秒后自动过期。响应同 `GET /trips/:id/revision`，可以兼作一次轮询。在线状态按用户记录（同一用户开着几个编辑页也只算一个，其中一个页面发送 `active=false` 后，其它页面的下一次心跳会恢复），只保存在服务端进程的内存里（单实例部署；服务端重启后清空，客户端下一次心跳即恢复）。
+
+`PUT /trips/:id/plan`（🔐 成员）请求：
+```json
+{
+  "base_revision": 42,
+  "force": false,
+  "trip": { "title": "杭州三日", "days": 3 },
+  "waypoints": [
+    { "id": 101, "client_key": "w101", "day": 1, "note": "先吃饭" },
+    { "client_key": "tmp-1", "kind": "stop", "day": 1, "name": "楼外楼", "address": "孤山路30号",
+      "lng": 120.14, "lat": 30.25, "category": "food", "amap_id": "B023B0J1V1",
+      "province": "浙江省", "city": "杭州市", "district": "西湖区", "planned_at": "2026-05-01T12:00:00+08:00" },
+    { "id": 105, "client_key": "w105", "kind": "lodging", "day": 1 }
+  ]
+}
+```
+- `base_revision`（`force` 不为 true 时必填）：草稿所基于的版本号，即加载（或上次保存返回）的 TripDetail 的 `revision`。它不是服务端的当前版本且 `force` 不为 true 时返回 409（见下），什么都不改
+- `force`：为 true 时不检查版本，用草稿覆盖服务端的计划（「仍然保存」）
+- `trip`（可选）：旅程字段，同 `PATCH /trips/:id` 的请求体，规则也相同（如只有作者能改 `visibility` / `live_share`，天数减少时打卡点与住宿的处理）；其中的 `space_id` 被忽略（所属空间用 `PATCH /trips/:id` 修改）
+- `waypoints`（必填，最多 1000 项）：**完整的计划列表**（游玩点与住宿），列表顺序就是新的顺序（`seq`）：
+  - 带 `id` 的项修改该打卡点，字段同 `PATCH /waypoints/:id`，没有给出的字段保持不变（`{"id": 101}` 表示不修改、只参与排序）；
+  - 不带 `id` 的项新建计划内的点（`planned=true, status=todo`），字段同 `POST /trips/:id/waypoints`（`lng` / `lat` 必填，`kind: "lodging"` 为住宿）；
+  - 列表中没有的计划内的点被删除（照片、评论保留并取消关联）——**已到达（`status=visited`）或关联了照片的点不会被删除**，保留并在响应的 `kept` 中列出；
+  - 计划外的打卡点（`planned=false`，旅行中「我到了」新增的点）不属于计划：不在列表中时保持不变；也可以放进列表修改内容、调整位置（仍是计划外）。不在列表中的点（计划外的点与 `kept` 中的点）排在原来它们前面的那个列表中的点之后；
+  - 项中的 `status`、`planned`、`arrived_at`、`seq` 被忽略：保存计划不会改动打卡记录（到达 / 跳过用「按路线出行」的接口）；`place_id` 也被忽略，关联的地点同单个接口一样由服务端按 `amap_id` 或名称与位置确定；
+  - `client_key`（可选，≤64 个字符，不能重复）：客户端给这一项起的名字，响应的 `id_map` 返回它保存后的 ID。建议每一项都带（已有的点可用如 `"w101"`）；
+  - 校验同单个打卡点接口（坐标、`day` 0–365、分类、屏蔽词等）；住宿每晚最多一个，新增或改到另一晚的住宿 `day` 为 0 到旅程天数（规则同 `POST /trips/:id/waypoints`）。两项住宿在同一晚时返回 409。某一晚原有的住宿要保留（已到达或有照片、不在列表中）而列表为这一晚安排了别的住宿时，原来那家改为当天的游玩点（`kind=stop`，到达记录不变），在 `kept` 中列出；
+  - 带 `id` 的项在服务端已不存在（被别人删除）时：不带 `force` 返回 400（`地点 <id> 不在这个旅程中，请刷新后重试`；版本号已变时先返回 409）；`force=true` 时按该项的字段重新创建为新的计划点（`planned=true, status=todo`；需带齐 `name`、`lng`、`lat` 等字段），`id_map` 中是新的 ID
+- 在旅程锁内、一个事务中完成，只产生一个新版本；与服务端完全相同的计划不产生新版本
+
+成功响应：
+```json
+{
+  "trip": TripDetail,
+  "id_map": { "tmp-1": 123, "w101": 101, "w105": 105 },
+  "kept": [102],
+  "deleted": [103, 104]
+}
+```
+- `trip`：保存后的旅程，其 `revision` 即新的版本号（下一次保存的 `base_revision`）
+- `id_map`：请求中每个带 `client_key` 的项 → 保存后的打卡点 ID
+- `kept`：不在列表中、因已到达或有照片而保留的计划内的点；`deleted`：被删除的点
+
+版本冲突（`base_revision` 不是当前版本）返回 409：
+```json
+{
+  "error": { "code": "conflict", "message": "行程已被 小美 修改" },
+  "revision": 43, "updated_by": UserBrief | null, "updated_at": "2026-09-29T10:01:00+08:00"
+}
+```
+`message` 为「行程已被 <昵称> 修改」；最后修改的是自己时为「行程已在你的其他页面或设备上修改」，未知时为「行程已被修改」。客户端可以让用户选择：重新加载（放弃本地修改，或重新获取后把本地修改应用上去再保存），或者「仍然保存」（`force=true`，覆盖别人的修改）。
+
+某一项有错时（400 / 409），`message` 以「第 N 项：」开头（N 从 1 开始），响应另带该项在 `waypoints` 中的下标 `index`（从 0 开始），客户端可据此标出出错的地点：
+```json
+{ "error": { "code": "conflict", "message": "第 7 项：第 2 天晚上已有住宿（第 6 项）" }, "index": 6 }
+```
 
 ### 打卡点
 | 方法 | 路径 | 权限 | 说明 |
@@ -350,7 +520,8 @@ AuthResult：
 | POST | `/trips/:id/waypoints` | 🔐 成员 | 创建 → Waypoint |
 | POST | `/trips/:id/waypoints/batch` | 🔐 成员 | `{items: [同上]}` → `[Waypoint]` |
 | PATCH | `/waypoints/:id` | 🔐 成员 | 修改 → Waypoint |
-| DELETE | `/waypoints/:id` | 🔐 成员 | 删除（照片保留，`waypoint_id` 置空） |
+| DELETE | `/waypoints/:id` | 🔐 成员 | 删除（照片保留，`waypoint_id` 置空）；打卡点已不存在时也返回 `{}`，见下 |
+| DELETE | `/trips/:id/waypoints/:wid` | 🔐 成员 | 删除该旅程的打卡点，总是返回 `204`（无响应体），见下 |
 | PUT | `/trips/:id/waypoints/order` | 🔐 成员 | `{ids: [..]}` 全量排序 → `[Waypoint]` |
 | POST | `/trips/:id/lodging` | 🔐 成员 | 设置住宿（可连住几晚、沿用前一晚），见下 → `[Waypoint]` |
 | POST | `/trips/:id/arrange` | 🔐 成员 | 一键规划路线：把「想去」的地点分到各天并排好顺序，见下 |
@@ -371,6 +542,7 @@ AuthResult：
 - 带 `amap_id` 时，只关联到按高德 POI 数据（名称、地址、坐标、电话）建立的 Place：需要服务端配置了高德 Key、能查到该 POI，且打卡点距该 POI 不超过 5 公里；否则与未带 `amap_id` 的打卡点一样按名称匹配
 - 名称相同且 100 米内已有公开地点（或自己参与的旅程中已用过的地点）时关联到同一个 Place；否则对用户填写了名称的打卡点新建 Place（不带 `amap_id`）。私密旅程里填写的名称、地址和坐标不会通过同名匹配或 AI 规划暴露给其他用户
 - `PATCH /waypoints/:id` 中 `name` 与当前名称相同时视为未修改（不会把自动生成的名称当作用户填写的名称去新建地点），客户端提交整张表单时可以原样带上 `name`
+- 删除打卡点是幂等的：连点两次「删除」、或别的成员已经删掉了，都不会报错。推荐用 `DELETE /trips/:id/waypoints/:wid`：请求者是该旅程的成员时，无论这次删除了它、它已不存在还是不属于这个旅程（后者不会被删除），都返回 `204 No Content`（无响应体）；非成员同其它旅程接口（404 / 403）。`DELETE /waypoints/:id` 在打卡点已不存在时也返回 `{}`（打卡点存在但请求者无权编辑时仍为 404 / 403）。删除（包括住宿）与其它修改一样使版本号 +1（已不存在时不变）
 
 `POST /trips/:id/lodging` 请求（打卡点的创建字段 + 以下字段，`kind` / `seq` 被忽略）：
 ```json
@@ -564,7 +736,7 @@ data: {"title":"杭州三日·美食拍照之旅","summary":"…","items":[…]}
 |---|---|---|---|
 | POST | `/trips/:id/photos` | 🔐 成员 | 上传，见下 |
 | PATCH | `/photos/:id` | 🔐 成员 | `{caption?, waypoint_id?}`（waypoint_id 传 0 取消关联）→ Photo |
-| DELETE | `/photos/:id` | 🔐 成员 | 删除 |
+| DELETE | `/photos/:id` | 🔐 成员 | 删除；照片已不存在（如连点两次）时也返回 `{}` |
 | POST | `/uploads/image` | 🔐 | 通用图片上传（封面等）multipart `file` → `{url, thumb_url, width, height}` |
 
 `POST /trips/:id/photos`（multipart）字段：
@@ -622,7 +794,7 @@ data: {"title":"杭州三日·美食拍照之旅","summary":"…","items":[…]}
 | POST | `/trips/:id/comments` | 🔐 | `{content, parent_id?, waypoint_id?}` → Comment |
 | GET | `/places/:id/comments` | 🔓 | 分页顶层 Comment |
 | POST | `/places/:id/comments` | 🔐 | `{content, parent_id?}` → Comment |
-| DELETE | `/comments/:id` | 🔐 | 作者 / 旅程作者 / 管理员 |
+| DELETE | `/comments/:id` | 🔐 | 作者 / 旅程作者 / 管理员；已删除的评论再次删除返回 `{}` |
 
 评论内容 1–1000 字。
 
@@ -698,20 +870,89 @@ data: {"title":"杭州三日·美食拍照之旅","summary":"…","items":[…]}
 - 海上的点位：高德不返回省份（只有「中华人民共和国」）时，`address` 的省、市取自离线行政区划，`address.address` 为「省 + 市」，附近若有 AOI / POI 仍作为候选返回；「中华人民共和国」不会出现在地址或候选名称中
 - 选择 `aoi` / `poi` 候选后，客户端创建打卡点时可带上 `name`、`amap_id` 和候选的坐标；选择 `address` 时可只传坐标（名称留空由服务端自动命名）或使用候选的 `name`
 
-### 情侣空间「我们一起走过的地方」 🔐
+### 空间「我们」 🔐
+用户可以有多个空间（情侣、闺蜜、朋友、家人或自定义类型），各自邀请不同的人（可以多人）。点击「我们」时：设置了默认空间（Me 的 `default_space_id`）就打开它；否则只有一个空间时打开它，有多个空间时打开总览（`GET /spaces`），再点进某个空间。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | `/spaces` | 🔐 | 我所在的空间 → `[Space]`（数组，不分页，按我加入的先后） |
+| POST | `/spaces` | 🔐 | 创建 `{type, name?, type_label?, description?, anniversary?, public?}` → SpaceDetail（我是创建者） |
+| GET | `/spaces/:id` | 🔐 空间成员 | SpaceDetail |
+| PATCH | `/spaces/:id` | 🔐 创建者（情侣空间：两人都可以） | `{name?, type?, type_label?, description?, anniversary?, public?}`（`anniversary: null` 清除）→ SpaceDetail |
+| DELETE | `/spaces/:id` | 🔐 创建者 | 删除空间，见下 → `{}` |
+| POST | `/spaces/:id/invites` | 🔐 空间成员（情侣空间：创建者） | 邀请 `{username, message?}` 或 `{user_id, message?}` → SpaceInvite |
+| DELETE | `/spaces/:id/members/:user_id` | 🔐 创建者 / 本人 | 移除成员；`user_id` 是自己时为退出空间，见下 → `{}` |
+| GET | `/spaces/:id/trips` | 🔐 空间成员 | `?phase=&page=` 关联到空间的旅程 → 分页 TripCard |
+| GET | `/spaces/:id/footprints` | 🔐 空间成员 | 空间里全部旅程的 Footprints（格式同个人足迹，可直接用于 3D 足迹） |
+| GET | `/space-invites` | 🔐 | `{incoming: [SpaceInvite], outgoing: [SpaceInvite]}`：别人邀请我的、我发出的，都只含待回应的（新的在前） |
+| POST | `/space-invites/:id/accept` | 🔐 被邀请人 | 接受 → SpaceDetail |
+| POST | `/space-invites/:id/decline` | 🔐 被邀请人 | 拒绝 → `{}` |
+| DELETE | `/space-invites/:id` | 🔐 邀请人 / 空间创建者 | 撤回 → `{}` |
+| PUT | `/me/default-space` | 🔐 | `{space_id}` 设置默认空间，`null` 或 `0` 清除 → Me |
+
+不是空间成员（包括只被邀请、还没接受的人）请求 `/spaces/:id` 下的接口一律返回 404 `空间不存在或你不是它的成员`；非邀请人、非被邀请人操作邀请返回 404 `邀请不存在或已处理`。
+
+**创建 / 修改**：
+- `type`（创建时必填）：`couple` | `besties` | `friends` | `family` | `custom`；`custom` 时 `type_label` 必填（≤10 字，如「驴友团」），其他类型忽略 `type_label`
+- `name`（≤30 字）：创建时可以不填，按类型默认为「我们」（情侣）、「闺蜜们」、「朋友们」、「家人们」或自定义类型的名称；修改时不能为空
+- `description`（≤120 字）；`anniversary`：`YYYY-MM-DD`，不能晚于今天（东八区）
+- `public`：只有情侣空间可以设为 `true`（否则 400）；情侣空间改为其他类型时自动变为 `false`
+- 名称、类型名称、简介受屏蔽词检查（见「内容安全」）
+- 改为情侣空间：成员与待回应的邀请合计不能超过 2 人（400），成员都不能已在另一个情侣空间中（409）
+
+**人数上限**：
+- 每人最多加入 20 个空间（含自己创建的）：已满时创建返回 400，接受邀请返回 409；邀请已满 20 个空间的人返回 409 `对方加入的空间已达上限`
+- 每个空间最多 50 人，情侣空间最多 2 人；**成员加上待回应的邀请**不能超过上限：普通空间返回 400 `空间最多 50 人（含待接受的邀请）`，情侣空间返回 409 `情侣空间只能有两个人`（已有两人）或 `已邀请了另一个人，请先撤回那条邀请`（同一时间只能有一条待回应的邀请）
+- 每人只能在一个情侣空间中：已在情侣空间中再创建情侣空间返回 409；邀请已有情侣的人加入情侣空间返回 409 `对方已有情侣`
+
+**邀请**：
+- 情侣空间只有创建者可以邀请；其他空间的任何成员都可以邀请
+- `username`（可带 `@`，不区分大小写）或 `user_id` 二选一；`message` 为留言（≤200 字，受屏蔽词检查）。都没给时 400；用户不存在或已注销 404；邀请自己、被封禁的用户 400；对方已是成员 409 `对方已在空间中`；已有待对方回应的邀请 409 `已邀请过对方，请等待对方回应`；对方已邀请你加入他的情侣空间时，再邀请他加入你的情侣空间返回 409 `对方已邀请你加入情侣空间，请直接接受`
+- 每人每小时最多发出 60 条邀请（含旧接口 `/partner/invites`），超出返回 429
+- 通知：被邀请人收到 `space_invite`（`content` 为留言，`space_invite_id` 可直接用于接受 / 拒绝）；接受后邀请人收到 `space_accept`（空间创建者不是邀请人时也收到一条）；拒绝后邀请人收到 `space_decline`；撤回不通知
+- 被拒绝或撤回的邀请可以重新发出；邀请人退出或被移出空间时，他发出的待回应邀请自动撤回；空间被删除时它的邀请全部撤回
+- 接受情侣空间的邀请后，接受者收到的其他情侣空间邀请、以及这个空间其余待回应的邀请都自动撤回（空间已满）。接受者已在另一个情侣空间中时：那个空间只有他自己、而且没有旅程（例如他创建后还在等对方加入）则自动删除（其中的邀请一并撤回）；否则返回 409 `你已在情侣空间「X」中，请先退出或删除它，再接受邀请`
+- 同一邀请同时被接受与撤回 / 拒绝时，只有先完成的操作生效，另一方返回 404 `邀请不存在或已处理`
+
+**空间里的旅程**：
+- 旅程用 `space_id` 关联到空间：创建时带 `space_id`，或 `PATCH /trips/:id {"space_id": 3}`（规则见「旅程」）。一个旅程最多属于一个空间，只有作者能把它加入空间（作者必须是该空间的成员）；作者或空间创建者可以把它移出
+- **关联的旅程对空间的全部成员开放，权限与已接受邀请的共同作者完全相同**：查看（含私密、被隐藏或待审核的旅程，以及旅行中未公开的实时进度、照片和轨迹）、编辑内容与计划、打卡、上传照片与轨迹、协同编辑、看到分享码、查看成员列表、评论、收藏等；也和共同作者一样不能修改 `visibility` / `live_share`、管理成员、重置分享码或删除旅程（只有作者可以）。空间成员不会出现在旅程的 `members` 里，也不计入旅程的参与者（`/me/trips`、个人足迹、个人主页只含自己是作者或共同作者的旅程）
+- 权限随空间成员关系实时生效：被移出或退出空间后立即失去空间带来的权限（是某个旅程的共同作者时，对这个旅程的权限不受影响）；只被邀请、还没接受的人没有任何权限
+- 作者退出或被移出空间时，**他的旅程随他离开空间**（仍属于他，不会删除）；其他人的旅程留在空间里。删除空间时全部旅程都保留，只是不再属于该空间
+- `GET /spaces/:id/trips` 的顺序：按开始日期（没有日期的按创建日期）由近到远，`phase` 可筛选；TripCard 的 `space` 为该空间
+- 在旅程的「成员」中邀请空间成员做共同作者时直接加入，不需要对方接受
+
+**退出与移除**（`DELETE /spaces/:id/members/:user_id`）：
+- 创建者可以移除任何成员（被移除的人收到 `system` 通知）；其他成员只能移除自己，即退出（创建者收到 `system` 通知）；移除别人返回 403，对方不是成员返回 404
+- 创建者退出时，最早加入的成员成为新的创建者（收到 `system` 通知）；最后一个人退出时空间被删除
+- 删除空间：只有创建者可以，其他成员收到 `system` 通知
+- 退出、被移出或空间被删除后，它不再是这些人的默认空间（`default_space_id` 变为 `null`）
+
+**默认空间**：`PUT /me/default-space {"space_id": 3}` 只能设为自己所在的空间（否则 404），`{"space_id": null}` 清除；响应为 Me。Space 的 `is_default` 标出默认空间。
+
+### 情侣空间（旧接口，已弃用） 🔐
+旧版客户端使用的接口，仍然可用。它们操作的是用户所在的**情侣空间**（`type=couple` 的空间，每人最多一个）：「绑定情侣」就是情侣空间里有两个人，邀请就是情侣空间的邀请（ID 与 `/space-invites` 相同）。新客户端请使用「空间」接口。
+
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/partner` | `{partner: UserBrief|null, since: "2023-05-20"|null, title: "", bound_at, public: false, invites: {incoming: [PartnerInvite], outgoing: [PartnerInvite]}}` |
-| PATCH | `/partner` | `{since?, title?, public?}`（纪念日、空间名称、是否在双方个人主页公开显示情侣关系（缺省不公开），双方共享；`since` 不能晚于今天（东八区））→ 同 `GET /partner` |
-| DELETE | `/partner` | 解除绑定。`?remove_shared_access=true` 时同时结束共同作者关系：删除双方在对方创建的旅程中的成员身份（含待接受的邀请）；不传时共同旅程的成员关系保持不变，可在旅程「成员」中移除 |
+| GET | `/partner` | `{partner: UserBrief|null, since: "2023-05-20"|null, title: "", bound_at, public: false, space_id: 3|null, invites: {incoming: [PartnerInvite], outgoing: [PartnerInvite]}}` |
+| PATCH | `/partner` | `{since?, title?, public?}` 修改情侣空间 → 同 `GET /partner` |
+| DELETE | `/partner` | 解除绑定：删除情侣空间。`?remove_shared_access=true` 时同时结束共同作者关系，见下 → `{}` |
 | POST | `/partner/invites` | `{username, message?}` → PartnerInvite |
-| POST | `/partner/invites/:id/accept` | 接受 |
-| POST | `/partner/invites/:id/decline` | 拒绝 |
-| DELETE | `/partner/invites/:id` | 撤回自己发出的邀请 |
-| GET | `/partner/trips` | 双方都是成员的旅程 → 分页 TripCard |
-| GET | `/partner/footprints` | 双方共同旅程的 Footprints |
+| POST | `/partner/invites/:id/accept` | 接受 → 同 `GET /partner` |
+| POST | `/partner/invites/:id/decline` | 拒绝 → `{}` |
+| DELETE | `/partner/invites/:id` | 撤回自己发出的邀请 → `{}` |
+| GET | `/partner/trips` | 情侣空间的旅程（同 `GET /spaces/:id/trips`；没有情侣时为空）→ 分页 TripCard |
+| GET | `/partner/footprints` | 情侣空间的 Footprints（同 `GET /spaces/:id/footprints`；没有情侣时为空） |
 
-PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending", created_at}`。每人同时只能绑定一位。同一邀请同时被接受与撤回 / 拒绝时只有先完成的操作生效，另一方返回 `404`（「邀请不存在或已处理」）。
+- `GET /partner`：`partner` 为情侣空间里的另一个人；有情侣时 `since` 为空间的纪念日、`title` 为空间名称、`bound_at` 为第二个人加入的时间、`public` 为空间的 `public`，没有时依次为 `null`、`""`、`null`、`false`；`space_id` 为自己的情侣空间（只有自己一人时也返回，没有时为 `null`）；`invites` 为待回应的情侣空间邀请
+- `PATCH /partner`：需要已有情侣（否则 400 `尚未绑定情侣`），两人都可以修改：`since` → 纪念日（不能晚于今天（东八区）），`title` → 空间名称（≤30 字，空字符串时为「我们」），`public` → 是否在两人的个人主页公开显示情侣关系
+- `DELETE /partner`：需要已有情侣（否则 400）。情侣空间被删除（旅程都保留，不再属于该空间），对方收到 `system` 通知。`?remove_shared_access=true` 时同时删除双方在对方创建的旅程中的共同作者身份（含待接受的邀请）；不传时共同旅程的成员关系不变，可在旅程「成员」中移除
+- `POST /partner/invites`：邀请对方加入自己的情侣空间，没有情侣空间时自动创建一个名为「我们」的情侣空间。已有情侣时 409 `你已绑定情侣，请先解除绑定`，对方已有情侣时 409 `对方已绑定情侣`；其余规则与通知同 `POST /spaces/:id/invites`
+- `accept` / `decline` / `DELETE`：规则同 `/space-invites/:id` 的接受 / 拒绝 / 撤回，只接受情侣空间的邀请（其他空间的邀请返回 404）
+- PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending", created_at}`，`id` 为空间邀请的 ID
+
+**升级说明**：服务端升级后首次启动时，每一对已绑定的情侣自动变成一个情侣空间：名称为原来的空间名称（没有时为「我们」），纪念日、是否在主页公开不变；创建者为当初发出邀请的一方（查不到时为用户 ID 较小的一方），两人的加入时间为原来的绑定时间；两人共同的旅程（一方创建、另一方是已接受的共同作者）关联到这个空间；它成为两人的默认空间（已有默认空间的不变）。待处理的情侣邀请变为邀请对方加入邀请人的情侣空间（邀请人没有时自动创建）。每对情侣只转换一次，旅程的版本号与更新时间不变。
 
 ### 通知 🔐
 | 方法 | 路径 | 说明 |
@@ -807,17 +1048,17 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 
 ### 通用
 - 请求头携带了**无效/过期**的 access token 时，即使是 🔓 接口也返回 `401`（客户端应 refresh 后重试，refresh 失败则清除 token 以游客身份访问）。access token 属于某个登录会话（即签发它的 refresh token），该会话已登出或被吊销（修改密码、管理员重置密码）后同样返回 `401`。被封禁用户的 token 在 🔓 接口上按游客处理，在 🔐 接口上返回 `403 账号已被封禁`。
-- 所有成功的删除 / 无返回体操作返回 `{}`；创建类接口统一返回 `200`。
+- 所有成功的删除 / 无返回体操作返回 `{}`（例外：`DELETE /trips/:id/waypoints/:wid` 返回 `204`，无响应体）；创建类接口统一返回 `200`。
 - 时间字段统一输出为东八区 RFC3339（如 `2026-09-24T10:00:00+08:00`）；请求中也接受不带时区的 `YYYY-MM-DDTHH:mm[:ss]`（按东八区解释）。
 - `coord_type` 缺省为 `gcj02`（包括 `/trips/:id/checkin`、`/trips/:id/recommend`、`/trips/:id/track` 等）；只有 `POST /trips/:id/photos` 缺省为 `wgs84`。
-- 频率限制：同一 IP+账号 15 分钟内失败登录 5 次、同一 IP 失败 30 次后返回 429；同一 IP 每小时最多注册 10 个账号；每人 10 分钟最多 30 条评论；AI 接口（`/ai/plan`、`/ai/plan/stream`、`/ai/preferences`、带 `ai=true` 的推荐）每人每小时 30 次；非成员查看路段（`/trips/:id/legs`）每 10 分钟前 20 次可以调用高德（之后只用缓存和估算，不返回 429）；地点搜索 / 逆地理 / 周边地点 / 地图点选每人 10 分钟最多 120 次；修改密码 / 注销账号时同一账号 15 分钟内密码错误 5 次（超出返回 429）。并发请求同样受限（请求在校验密码前即计入，登录成功后退回）。
+- 频率限制：同一 IP+账号 15 分钟内失败登录 5 次、同一 IP 失败 30 次后返回 429；同一 IP 每小时最多注册 10 个账号；每人 10 分钟最多 30 条评论；AI 接口（`/ai/plan`、`/ai/plan/stream`、`/ai/preferences`、带 `ai=true` 的推荐）每人每小时 30 次；非成员查看路段（`/trips/:id/legs`）每 10 分钟前 20 次可以调用高德（之后只用缓存和估算，不返回 429）；地点搜索 / 逆地理 / 周边地点 / 地图点选每人 10 分钟最多 120 次；空间邀请（`/spaces/:id/invites` 与 `/partner/invites` 合计）每人每小时 60 条；修改密码 / 注销账号时同一账号 15 分钟内密码错误 5 次（超出返回 429）。并发请求同样受限（请求在校验密码前即计入，登录成功后退回）。
 - 请求带 `Accept-Encoding: gzip` 时，JSON 响应与网页静态资源以 gzip 压缩返回（SSE 事件流 `text/event-stream` 除外）。
-- 常用长度限制：标题 ≤100、简介 ≤500、正文 ≤50000、标签 ≤10 个且每个 ≤20 字（自动去重、去掉 `#`）、昵称 ≤20、个人简介 ≤200、打卡点名称 ≤100 / 备注 ≤5000、批量打卡点 ≤200 个、共同作者 ≤20 人、照片说明 ≤500。
+- 常用长度限制：标题 ≤100、简介 ≤500、正文 ≤50000、标签 ≤10 个且每个 ≤20 字（自动去重、去掉 `#`）、昵称 ≤20、个人简介 ≤200、打卡点名称 ≤100 / 备注 ≤5000、批量打卡点 ≤200 个、共同作者 ≤20 人、照片说明 ≤500、空间名称 ≤30 / 自定义类型名称 ≤10 / 空间简介 ≤120 / 空间邀请留言 ≤200、每人最多 20 个空间、每个空间最多 50 人（情侣空间 2 人）。
 
 ### 用户
 - `Me.next_level_exp` 在满级时为 `null`；管理员的 `storage_quota` 为 `0`（表示不限）。
 - `POST /me/password` 会吊销**除当前会话外**的全部会话，其 refresh token 与 access token 立即失效（当前会话由 access token 识别；也可额外传 `refresh_token` 指定保留）。
-- `GET /users/:username/trips` 返回该用户作为作者或共同作者参与的旅程；`stats.likes` 为其公开旅程获赞总数。
+- `GET /users/:username/trips` 返回该用户作为作者或共同作者参与的旅程（不含只因空间可见的旅程）；`stats.likes` 为其公开旅程获赞总数。
 - 忘记密码：由管理员在后台调用 `POST /admin/users/:id/reset-password` 重置。管理员自己忘记密码时在服务器上运行 `docker compose exec app /triphub reset-password -user <用户名>`（二进制部署：`TRIPHUB_DB_DSN=… ./triphub reset-password -user <用户名>`；`-password` 指定新密码，缺省随机生成；`-admin` 同时设为管理员）。配置 `TRIPHUB_ADMIN_PASSWORD` 不会修改已有账号的密码；`TRIPHUB_ADMIN_USERNAME` 指向已注册的普通用户时，只有密码与该用户当前密码一致才会授予管理员权限。
 
 ### 旅程
@@ -825,7 +1066,7 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 - `TripDetail.share_code` 仅成员可见，非成员时**不返回该字段**。`TripDetail` 额外返回 `invite_pending`（当前用户有待接受的共同作者邀请时为 true；被邀请人在接受前可预览旅程）。
 - `TripCard.summary` 为空时由正文自动截取（最多 120 字）；`TripDetail.summary` 返回原始简介。`cover_url` 未设置时使用第一张照片（旅行中的位置隐私规则下除外）。
 - `cities` / `provinces` 按实际路线（`status=visited`，含已到达的住宿）计算，尚无已到达点时退回计划路线；`distance_km` 取 GPS 轨迹里程与已打卡点连线里程（含已到达的住宿）中的较大者（规则见「实时轨迹」）；计划路线里程只连计划游玩点。`days`：设置了起止日期时按日期，否则取设置的天数与打卡点最大 `day` 中较大者，都没有时按到达时间跨度（见 TripCard）。例外：旅行中且未开启 `live_share` 的旅程，非成员看到的这些字段只按计划计算，见「旅行中的位置隐私」。
-- `GET /me/favorites` 只列出当前仍可见（公开且正常，或本人为成员）的旅程。
+- `GET /me/favorites` 只列出当前仍可见（公开且正常，或本人为成员，含旅程所属空间的成员）的旅程。
 - `POST /trips/:id/members` 返回更新后的成员列表（同 `GET /trips/:id/members`）；`POST /trips/:id/members/accept` 返回 `TripDetail`。成员列表管理员也可查看。
 - 引用路线（fork）复制原旅程中除 `skipped` 和 `verdict=avoid`（踩雷；`include_avoid=true` 时保留）以外的全部打卡点（住宿保持 `kind=lodging` 与所在的晚上），并复制标签、简介、天数与 `travel_mode`；自己引用自己的旅程不计 `fork_count`。`fork_count` 为当前持有该旅程引用副本的其他用户数：同一用户多次引用只计一次，引用副本被删除后相应减少。
 - `GET /admin/trips` 额外支持 `?featured=true`。
@@ -848,7 +1089,7 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 - 单张照片的占用 = 处理后原图 + 缩略图的字节数。
 
 ### 地点
-- `GET /places/:id`：有公开打卡、带 `amap_id`、或被某个公开旅程引用的地点对所有人可见（reviews / comments 同样适用）；其余地点仅对引用了它的旅程成员（含待接受的邀请）和管理员可见（避免泄露私密旅程）。
+- `GET /places/:id`：有公开打卡、带 `amap_id`、或被某个公开旅程引用的地点对所有人可见（reviews / comments 同样适用）；其余地点仅对引用了它的旅程成员（含待接受的邀请与旅程所属空间的成员）和管理员可见（避免泄露私密旅程）。
 - `TripDetail`（`GET /trips/:id`、`GET /share/:code`、创建 / 修改旅程的响应）中的打卡点在关联地点有公开打卡时带 `place_stats`（字段同 `/geo/search` 结果的 `place`），用于在行程中提示社区的「踩雷」评价；其它接口返回的 Waypoint 不带该字段。
 - `GET /places` 的 `q` 同时匹配名称、地址、区县、城市、省份（与 `/trips` 的 `q` 一致）；`city` 参数仅按城市 / 省份筛选。
 - `GET /places` 缺省 `sort=hot`；`rating` 只含有评分的地点，`avoid` 只含有踩雷记录的地点。`/places/nearby` 的 `radius` 取值 50–50000，`limit` ≤100，另支持 `category`。
@@ -861,7 +1102,7 @@ PartnerInvite：`{id, from: UserBrief, to: UserBrief, message, status: "pending"
 - `POST /notifications/read` 返回 `{updated: n}`。
 
 ### 内容安全
-- **屏蔽词**（`/admin/settings` 的 `sensitive_words`，缺省为空）：用户提交的旅程标题 / 简介 / 正文 / 标签、评论、打卡点名称 / 地址 / 备注、照片说明、昵称 / 个人简介、注册用户名、情侣空间名称与邀请留言中包含屏蔽词时返回 `400`，message 为 `内容包含不允许发布的词语「xx」，请修改后再提交`。匹配时忽略大小写、全角 / 半角、空格、标点与符号（如「博 彩」「博*彩」也会命中）。管理员不受限制。已发布的内容不会被追溯处理，但再次提交修改时会重新检查所提交的字段。
+- **屏蔽词**（`/admin/settings` 的 `sensitive_words`，缺省为空）：用户提交的旅程标题 / 简介 / 正文 / 标签、评论、打卡点名称 / 地址 / 备注、照片说明、昵称 / 个人简介、注册用户名、空间名称 / 类型名称 / 简介与空间邀请留言中包含屏蔽词时返回 `400`，message 为 `内容包含不允许发布的词语「xx」，请修改后再提交`。匹配时忽略大小写、全角 / 半角、空格、标点与符号（如「博 彩」「博*彩」也会命中）。管理员不受限制。已发布的内容不会被追溯处理，但再次提交修改时会重新检查所提交的字段。
 - **公开旅程需审核**（`review_public_trips`，缺省关闭）：开启后，非管理员新建公开旅程或把旅程改为公开时，旅程 `status` 为 `pending`：不出现在广场、搜索与地点统计中，非成员访问返回 404。管理员通过 `PATCH /admin/trips/:id {"status": "normal"}` 审核通过（`published_at` 更新为通过时间），`{"status": "hidden"}` 驳回；两种情况作者都会收到 `system` 通知。待审核的旅程改为非公开时退出审核队列（`status` 恢复为 `normal`）；被隐藏的旅程作者无法自行恢复。已公开的旅程修改内容不需重新审核；关闭审核不会自动通过队列中的旅程。「旅程首次公开」的经验在审核通过时发放。`GET /admin/trips?status=pending` 为审核队列。
 - **图片地址**：`cover_url`、`avatar_url` 只接受本站上传得到的 `/uploads/...` 路径（或空字符串），外部链接返回 400；正文 Markdown 中的图片，客户端只显示 `/uploads/` 开头的地址。
 

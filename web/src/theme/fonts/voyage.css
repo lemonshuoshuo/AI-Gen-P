@@ -1,0 +1,5 @@
+/* 夜航 Voyage：Cormorant Garamond（标题、数字）+ Manrope（界面）+ 思源宋体 400（中文标题） */
+@import '@fontsource-variable/cormorant-garamond/wght.css';
+@import '@fontsource-variable/cormorant-garamond/wght-italic.css';
+@import '@fontsource-variable/manrope/wght.css';
+@import '../../styles/serif-sc.css';

@@ -28,11 +28,14 @@ import { toast } from 'sonner'
 import { api, ApiError, errorMessage, isNotFound, type Recommendation, type Suggestion, type TripDetail, type Waypoint } from '@/api'
 import { useOutboxCount } from '@/components/OutboxSync'
 import { WaypointForm } from '@/components/editor/WaypointForm'
+import { describeUpdate, useRevisionPoll } from '@/components/editor/useTripSync'
 import { BaseMap, mapChipClass, useMap } from '@/components/map/BaseMap'
-import { FitOnce, RouteLines, UserDot, WaypointMarkers, fitTo } from '@/components/map/layers'
+import { FitOnce, RouteLines, UserDot, fitTo } from '@/components/map/layers'
 import { CheckinPicker, type PickedPlace } from '@/components/trip/CheckinPicker'
 import { NavigateMenu } from '@/components/trip/NavigateMenu'
+import { PlanMarkers } from '@/components/trip/PlanMarkers'
 import { WaypointNumber } from '@/components/trip/WaypointItem'
+import { isLodging, nextInPlan, tripDayToday } from '@/components/trip/plan'
 import { Button, CategoryChip, Empty, LoadError, Modal, PageLoader, Spinner, buttonClass, confirmDialog } from '@/components/ui'
 import { useGeoTracker, type GeoFix } from '@/hooks/useGeoTracker'
 import { useSite } from '@/hooks/useSite'
@@ -56,7 +59,7 @@ import {
   type SkipItem,
 } from '@/lib/outbox'
 import { compressImage } from '@/lib/image'
-import { actualPath, bySeq, nextPlanned, plannedPath, trackSegments } from '@/lib/trip'
+import { actualPath, bySeq, plannedPath, trackSegments } from '@/lib/trip'
 import { useAuth } from '@/stores/auth'
 
 function Follow({ pos, enabled }: { pos: [number, number] | null; enabled: boolean }) {
@@ -248,6 +251,16 @@ export default function TravelModePage() {
   const geo = useGeoTracker(tripId)
   const pending = useOutboxCount(me?.id, tripId)
   useTicker(geo.recording)
+  // 同行的人改了行程（加了地点、打了卡）：约 10 秒内自动刷新。本机还有没发出去的打卡时先不刷新（会盖掉本地的标记）
+  useRevisionPoll(trip?.id, trip?.revision, (r) => {
+    if (pending > 0) return
+    const before = qc.getQueryData<TripDetail>(key)
+    void refetch().then((res) => {
+      if (!res.data || !r.updated_by || r.updated_by.id === me?.id) return
+      const text = describeUpdate(before, res.data, r.updated_by)
+      if (text) toast(text, { id: `trip-sync-${res.data.id}` })
+    })
+  })
 
   // 记录轨迹时离开旅行模式（返回、浏览器后退等）先确认：离开会停止记录，已记录的部分会保存
   const blocker = useBlocker(({ currentLocation, nextLocation }) => geo.recording && currentLocation.pathname !== nextLocation.pathname)
@@ -299,13 +312,18 @@ export default function TravelModePage() {
     [track, geo.livePaths],
   )
   // 与服务端推荐的 next_planned 一致：从最后打卡的计划点往后找，路过没打卡的点不会一直挡在前面
-  const next = nextPlanned(sorted)
+  // 住宿参与顺序：当天的点都去过后，下一站是今晚的住宿；已经过去的那些晚的住宿不再算
+  const next = trip ? nextInPlan(sorted, tripDayToday(trip.start_date)) : null
+  // 序号只给游玩点（住宿是床的方章，不编号）
+  const labelOf = useMemo(() => new Map(sorted.filter((w) => !isLodging(w)).map((w, i) => [w.id, String(i + 1)])), [sorted])
+  const markers = useMemo(() => sorted.map((w) => ({ w, label: labelOf.get(w.id) })), [sorted, labelOf])
   // 地点面板里显示的点：从最新的 sorted 里取，打卡 / 跳过后状态随之更新
   const stop = sorted.find((w) => w.id === stopId) ?? null
   const nextDist = next && geo.fix ? haversine(geo.fix.gcj, [next.lng, next.lat]) : null
   const visited = sorted.filter((w) => w.status === 'visited').length
-  const plannedTotal = sorted.filter((w) => w.planned).length
-  const plannedDone = sorted.filter((w) => w.planned && w.status !== 'todo').length
+  // 住宿不是打卡点：不计入计划进度
+  const plannedTotal = sorted.filter((w) => w.planned && !isLodging(w)).length
+  const plannedDone = sorted.filter((w) => w.planned && !isLodging(w) && w.status !== 'todo').length
 
   // 网络不好（请求失败或离线暂停）：旅程可能是上次加载的数据
   const netDown = fetchStatus === 'paused' || (error instanceof ApiError && (error.status === 0 || error.status >= 500))
@@ -762,7 +780,7 @@ export default function TravelModePage() {
           }
         >
           <RouteLines planned={planned} actual={actual} track={segments} />
-          <WaypointMarkers waypoints={sorted} selectedId={next?.id} onSelect={(w) => setStopId(w.id)} />
+          <PlanMarkers items={markers} selectedId={next?.id} onSelect={(w) => setStopId(w.id)} />
           <UserDot position={geo.fix?.gcj ?? null} accuracy={geo.fix?.accuracy} />
           {!geo.fix && <FitOnce points={sorted.map((w) => [w.lng, w.lat])} fitKey={`go-${trip.id}`} />}
           <Follow pos={geo.fix?.gcj ?? null} enabled={follow} />
@@ -805,11 +823,11 @@ export default function TravelModePage() {
           {next ? (
             <section aria-label="下一站">
               <div className="flex items-baseline justify-between gap-3">
-                <p className="eyebrow">Next · 下一站</p>
+                <p className="eyebrow">{isLodging(next) ? 'Tonight · 今晚住这里' : 'Next · 下一站'}</p>
                 {nextDist != null && <span className="font-num text-[13px] text-ink-500">{formatDistance(nextDist)}</span>}
               </div>
               <div className="mt-2 flex items-center gap-3">
-                <WaypointNumber w={next} label={String(sorted.indexOf(next) + 1)} />
+                <WaypointNumber w={next} label={labelOf.get(next.id) ?? ''} />
                 <div className="font-display min-w-0 flex-1 truncate text-[1.625rem] leading-tight text-ink-900 sm:text-[1.875rem]">{next.name}</div>
                 {/* key：手动选的出行方式不带到下一站 */}
                 <NavigateMenu
@@ -1024,7 +1042,7 @@ export default function TravelModePage() {
                     </span>
                   </div>
                   <div className="mt-2 divide-y divide-ink-200">
-                    {sorted.map((w, i) => (
+                    {sorted.map((w) => (
                       <button
                         type="button"
                         key={w.id}
@@ -1035,7 +1053,7 @@ export default function TravelModePage() {
                         )}
                         onClick={() => setStopId(w.id)}
                       >
-                        <WaypointNumber w={w} label={String(i + 1)} />
+                        <WaypointNumber w={w} label={labelOf.get(w.id) ?? ''} />
                         <span className={cn('font-display min-w-0 flex-1 truncate text-[1.0625rem] text-ink-900', w.status === 'skipped' && 'line-through')}>
                           {w.name}
                         </span>
@@ -1076,7 +1094,7 @@ export default function TravelModePage() {
         {stop && (
           <StopSheet
             w={stop}
-            label={String(sorted.indexOf(stop) + 1)}
+            label={labelOf.get(stop.id) ?? ''}
             distM={geo.fix ? haversine(geo.fix.gcj, [stop.lng, stop.lat]) : null}
             onCheckin={() => {
               setStopId(null)

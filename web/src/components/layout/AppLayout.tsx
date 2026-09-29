@@ -22,6 +22,7 @@ import { Avatar, Button, Menu, MenuItem } from '@/components/ui'
 import { useSite } from '@/hooks/useSite'
 import { cn } from '@/lib/cn'
 import { isAdmin, useAuth } from '@/stores/auth'
+import { ThemeMenuSection, ThemeToggle } from '@/theme/ThemeControls'
 
 /** 标识：细线圆框里一个宋体「迹」 */
 export function SealMark({ size = 30, className }: { size?: number; className?: string }) {
@@ -129,6 +130,8 @@ function UserMenu() {
               管理后台
             </MenuItem>
           )}
+          {/* 外观：深浅色 + 主题快捷切换 */}
+          <ThemeMenuSection onNavigate={close} />
           <div className="my-1 border-t border-ink-200" />
           <MenuItem
             icon={<LogOut className="size-4" />}
@@ -197,6 +200,8 @@ function Header() {
         <Link to="/search" className="inline-flex size-9 items-center justify-center rounded-full transition hover:bg-ink-900/[0.07] lg:hidden" aria-label="搜索">
           <Search className="size-[18px] text-ink-700" strokeWidth={1.4} />
         </Link>
+        {/* 外观：太阳 / 月亮，点开切换深浅色与主题 */}
+        <ThemeToggle />
         {user ? (
           <>
             <Button size="sm" variant="outline" icon={<Plus className="size-3.5" />} className="hidden md:inline-flex" onClick={() => nav('/trips/new')}>

@@ -25,18 +25,23 @@ import {
   Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { api, ApiError, errorMessage, isNotFound, type Photo, type TripDetail, type Waypoint } from '@/api'
+import { api, ApiError, errorMessage, isNotFound, type DayLegs, type Photo, type TripDetail, type Waypoint } from '@/api'
 import { rememberShareCode, rememberedShareCode } from '@/api/client'
 import { CommentSection } from '@/components/comments/CommentSection'
 import { Markdown } from '@/components/Markdown'
 import { BaseMap, useMap } from '@/components/map/BaseMap'
-import { FitOnce, RouteLines, WaypointMarkers } from '@/components/map/layers'
+import { useTripLegs } from '@/components/editor/RouteLegs'
+import { PresenceBadge } from '@/components/editor/SyncUI'
+import { describeUpdate, useRevisionPoll } from '@/components/editor/useTripSync'
+import { FitOnce, RouteLines, RouteSegments } from '@/components/map/layers'
 import { ReportDialog } from '@/components/report/ReportDialog'
 import { CjkWords } from '@/components/trip/CjkWords'
 import { PhotoViewer } from '@/components/trip/PhotoViewer'
 import { Reveal } from '@/components/trip/Reveal'
 import { ShareDialog, ShareSheet } from '@/components/trip/ShareDialog'
+import { PlanMarkers, planMarkerItems } from '@/components/trip/PlanMarkers'
 import { WaypointItem } from '@/components/trip/WaypointItem'
+import { actualSegments, dayTone, groupPlan, isLodging, plannedSegments, stopLabels, type PlanGroups } from '@/components/trip/plan'
 import {
   Avatar,
   Button,
@@ -55,11 +60,12 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useRequireAuth } from '@/hooks/useRequireAuth'
 import { invalidateTripLists } from '@/lib/cache'
 import { cn } from '@/lib/cn'
-import { dateRange, dayjs, fmtCount, fmtTime, fromNow } from '@/lib/format'
-import { formatKm } from '@/lib/geo'
+import { dateRange, dayjs, fmtCount, fmtMinutes, fmtTime, fromNow } from '@/lib/format'
+import { formatDistance, formatKm } from '@/lib/geo'
 import { phases, tripStatuses, verdicts } from '@/lib/meta'
 import { AMAP_MAX_STOPS, amapMultiRoute } from '@/lib/nav'
-import { actualPath, allPoints, bySeq, groupByDay, photosByWaypoint, plannedPath, trackSegments } from '@/lib/trip'
+import { allPoints, bySeq, photosByWaypoint, trackSegments, visitedInOrder } from '@/lib/trip'
+import { useAuth } from '@/stores/auth'
 
 /** refit：FitOnce 重新缩放（如轨迹加载完）后再飞一次，选中的地点不会被全程视野盖掉 */
 function FlyToSelected({ w, refit }: { w: Waypoint | null; refit?: string }) {
@@ -247,13 +253,13 @@ function BigStat({
   // 「3,103 公里」这类长数字缩小一号，避免手机上单位被挤到下一行
   const long = (typeof value === 'string' || typeof value === 'number') && String(value).length >= 5
   return (
-    <div className={cn('min-w-0 border-ink-200 py-7 pr-3 md:py-10 md:pr-6', className)}>
+    <div className={cn('min-w-0 border-ink-200 py-6 pr-3 md:py-8 md:pr-6', className)}>
       <p className="eyebrow">{label}</p>
-      <div className="mt-5 flex flex-wrap items-baseline gap-x-2 md:mt-7">
+      <div className="mt-4 flex flex-wrap items-baseline gap-x-2 md:mt-5">
         <span
           className={cn(
             'font-num leading-[0.85] font-light tracking-[-0.01em] whitespace-nowrap text-ink-900',
-            long ? 'text-[2.75rem] sm:text-[4rem] lg:text-[5.25rem]' : 'text-[3.5rem] sm:text-[4.5rem] lg:text-[5.75rem]',
+            long ? 'text-[2.25rem] sm:text-[2.75rem] lg:text-[3.25rem]' : 'text-[2.75rem] sm:text-[3.25rem] lg:text-[3.75rem]',
           )}
         >
           {value}
@@ -380,8 +386,8 @@ function Cover({ trip, onScroll }: { trip: TripDetail; onScroll: () => void }) {
         <div className="relative mx-auto flex w-full max-w-[90rem] flex-1 flex-col justify-end px-4 pb-7 md:px-8 md:pb-10">
           {kicker}
           <h1
-            className="text-display-xl animate-slide-up mt-5 max-w-[11em] text-balance text-white [animation-fill-mode:backwards] md:mt-7"
-            style={{ animationDelay: '120ms', fontSize: 'clamp(3rem, 8.6vw, 8rem)' }}
+            className="text-display-lg animate-slide-up mt-4 max-w-[16em] text-balance text-white [animation-fill-mode:backwards] md:mt-5"
+            style={{ animationDelay: '120ms' }}
           >
             <CjkWords text={trip.title} />
           </h1>
@@ -399,12 +405,13 @@ function Cover({ trip, onScroll }: { trip: TripDetail; onScroll: () => void }) {
   // 按最长的地名定字号：两个字的城市在手机上也能撑满一行（约 165px），宽屏封顶
   const longest = Math.max(first?.length ?? 1, last?.length ?? 0)
   const gutter = 'var(--cover-gutter)'
-  const nameSize = `min(${last ? '12.5rem' : '17rem'}, calc((100vw - ${gutter}) / ${longest} * 0.92))`
+  // 地名是装饰：比以前小很多，手机上不超过屏宽的约 1/4
+  const nameSize = `min(${last ? '5.5rem' : '7rem'}, ${last ? '18vw' : '22vw'}, calc((100vw - ${gutter}) / ${longest} * 0.92))`
   const days = trip.days ? pad2(trip.days) : '—'
   const ring = `TripHub · ${dates || dayjs(trip.created_at).format('YYYY')} · ${phaseEyebrow[trip.phase]} · `
   return (
     <section className="relative overflow-hidden">
-      <div className="mx-auto flex min-h-[calc(88svh-3.75rem)] max-w-[90rem] flex-col px-4 pt-8 pb-7 [--cover-gutter:2rem] md:min-h-[680px] md:px-8 md:pt-12 md:pb-10 md:[--cover-gutter:4rem]">
+      <div className="mx-auto flex min-h-[calc(64svh-3.75rem)] max-w-[90rem] flex-col px-4 pt-8 pb-7 [--cover-gutter:2rem] md:min-h-[540px] md:px-8 md:pt-12 md:pb-10 md:[--cover-gutter:4rem]">
         <div className="flex items-start justify-between gap-6">
           {kicker}
           <CoverPostmark ring={ring} value={days} unit="DAYS" className="animate-fade-in -mt-1 w-36 shrink-0 text-ink-400 md:w-56" />
@@ -449,8 +456,15 @@ function Cover({ trip, onScroll }: { trip: TripDetail; onScroll: () => void }) {
 }
 
 /* ---------------- 行程 ---------------- */
+/**
+ * 按天排版的行程：每天的游玩点（每天各自编号，与地图上的标记一致），当晚的住宿排在当天最后（床的方章、不编号），
+ * 出发前一晚的住宿在第 1 天最前；没有安排到某天的点单独成一节
+ */
 function Itinerary({
   trip,
+  groups,
+  labels,
+  totals,
   selected,
   onSelect,
   onPhoto,
@@ -458,21 +472,33 @@ function Itinerary({
   renderActions,
 }: {
   trip: TripDetail
+  groups: PlanGroups
+  labels: Map<number, string>
+  totals: Map<number, DayLegs>
   selected: Waypoint | null
   onSelect: (w: Waypoint) => void
   onPhoto: (p: Photo) => void
   onComment: (w: Waypoint) => void
   renderActions?: (w: Waypoint) => ReactNode
 }) {
-  const days = groupByDay(trip.waypoints)
   const byWp = photosByWaypoint(trip.photos)
-  const order = useMemo(() => new Map([...trip.waypoints].sort(bySeq).map((w, i) => [w.id, i + 1])), [trip.waypoints])
-  const hasPlan = trip.waypoints.some((w) => w.planned)
+  const hasPlan = trip.waypoints.some((w) => w.planned && !isLodging(w))
+  const sections: { day: number; items: { w: Waypoint; caption?: string }[] }[] = []
+  for (const d of groups.days) {
+    const items: { w: Waypoint; caption?: string }[] = []
+    const eve = d.day === 1 ? groups.lodging.get(0) : undefined
+    if (eve) items.push({ w: eve, caption: '出发前一晚' })
+    for (const w of d.stops) items.push({ w })
+    if (d.end) items.push({ w: d.end, caption: `第 ${d.day} 晚 · 住宿` })
+    for (const w of groups.extraLodging.filter((x) => x.day === d.day)) items.push({ w, caption: `第 ${d.day} 晚 · 住宿` })
+    if (items.length) sections.push({ day: d.day, items })
+  }
+  if (groups.pool.length) sections.push({ day: 0, items: groups.pool.map((w) => ({ w })) })
   // 每天有照片的第一站用整栏横幅，之后的站用竖幅并左右交替
   const plates = new Map<number, 'wide' | 'left' | 'right'>()
-  for (const [, list] of days) {
+  for (const { items } of sections) {
     let k = 0
-    for (const w of list) {
+    for (const { w } of items) {
       if (!byWp.get(w.id)?.length) continue
       plates.set(w.id, k === 0 ? 'wide' : k % 2 ? 'right' : 'left')
       k++
@@ -488,54 +514,66 @@ function Itinerary({
       />
     )
   return (
-    <div className="space-y-20 md:space-y-28">
-      {days.map(([day, list]) => (
-        <section key={day} aria-label={day > 0 ? `第 ${day} 天` : '未分天'}>
-          {(days.length > 1 || day > 0) && (
-            <Reveal as="header" className="flex items-end gap-5 border-b border-ink-200 pb-5 md:gap-7 md:pb-6">
-              {day > 0 ? (
-                <>
-                  <span className="font-num text-[4.5rem] leading-[0.74] font-light tracking-[-0.02em] text-ink-900 md:text-[6.5rem]">
-                    {pad2(day)}
-                  </span>
-                  <CaptionPair
-                    className="pb-0.5"
-                    top={
-                      <>
+    <div className="space-y-16 md:space-y-24">
+      {sections.map(({ day, items }) => {
+        const t = totals.get(day)
+        const stops = items.filter((i) => !isLodging(i.w)).length
+        return (
+          <section key={day} aria-label={day > 0 ? `第 ${day} 天` : '未分天'}>
+            {(sections.length > 1 || day > 0) && (
+              <Reveal as="header" className="flex items-end gap-4 border-b border-ink-200 pb-4 md:gap-6 md:pb-5">
+                {day > 0 ? (
+                  <>
+                    <span className="font-num text-[3rem] leading-[0.74] font-light tracking-[-0.02em] text-ink-900 md:text-[4rem]">{pad2(day)}</span>
+                    <div className="min-w-0 pb-0.5 text-[13px] leading-[1.45]">
+                      <p className="truncate text-ink-900">
+                        <span className={cn('mr-2 inline-block size-2 translate-y-[-1px] rounded-full', dayTone(day).bg)} aria-hidden />
                         <span className="eyebrow !text-ink-900">Day {pad2(day)}</span>
                         {trip.start_date && <span className="ml-3">{dayDate(trip.start_date, day)}</span>}
-                      </>
-                    }
-                    bottom={trip.start_date ? dayWeek(trip.start_date, day) : `第 ${day} 天`}
-                  />
-                </>
-              ) : (
-                <span className="font-display text-[2rem] leading-none text-ink-700 md:text-[2.5rem]">未分天</span>
-              )}
-              <span className="caption ml-auto shrink-0 pb-0.5">
-                <span className="font-num text-[14px]">{list.length}</span> 个地点
-              </span>
-            </Reveal>
-          )}
-          <div className="divide-y divide-ink-200">
-            {list.map((w) => (
-              <WaypointItem
-                key={w.id}
-                w={w}
-                label={String(order.get(w.id))}
-                photos={byWp.get(w.id)}
-                plate={plates.get(w.id)}
-                selected={selected?.id === w.id}
-                onSelect={() => onSelect(w)}
-                onPhoto={onPhoto}
-                onComment={() => onComment(w)}
-                actions={renderActions?.(w)}
-                showStatus={hasPlan && trip.phase !== 'planning'}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
+                      </p>
+                      <p className="text-ink-500">
+                        {trip.start_date ? dayWeek(trip.start_date, day) : `第 ${day} 天`}
+                        {t && t.duration_s > 0 && (
+                          <span className="whitespace-nowrap">
+                            {' · '}路上{t.estimated ? '约' : ''} <span className="font-num text-[14px] text-ink-700">{fmtMinutes(t.duration_s)}</span>
+                            {' · '}
+                            <span className="font-num text-[14px]">{formatDistance(t.distance_m)}</span>
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <span className="font-display text-[1.5rem] leading-none text-ink-700 md:text-[1.75rem]">
+                    {trip.phase === 'planning' ? '还没安排到某天' : '未分天'}
+                  </span>
+                )}
+                <span className="caption ml-auto shrink-0 pb-0.5">
+                  <span className="font-num text-[14px]">{stops}</span> 个地点
+                </span>
+              </Reveal>
+            )}
+            <div className="divide-y divide-ink-200">
+              {items.map(({ w, caption }) => (
+                <WaypointItem
+                  key={w.id}
+                  w={w}
+                  label={labels.get(w.id) ?? ''}
+                  caption={caption}
+                  photos={byWp.get(w.id)}
+                  plate={plates.get(w.id)}
+                  selected={selected?.id === w.id}
+                  onSelect={() => onSelect(w)}
+                  onPhoto={onPhoto}
+                  onComment={() => onComment(w)}
+                  actions={renderActions?.(w)}
+                  showStatus={hasPlan && trip.phase !== 'planning' && !isLodging(w)}
+                />
+              ))}
+            </div>
+          </section>
+        )
+      })}
     </div>
   )
 }
@@ -625,6 +663,22 @@ function TripDetailView() {
     queryFn: () => api.trips.track(trip!.id),
     enabled: !!trip?.has_track,
   })
+  // 行程改了（同行的人新加了地点、打了卡）：成员约 10 秒内、其他人约 30 秒内自动刷新，不用重新打开页面
+  const myId = useAuth((s) => s.user?.id)
+  const { editors } = useRevisionPoll(
+    trip?.id,
+    trip?.revision,
+    (r) => {
+      const before = qc.getQueryData<TripDetail>(key)
+      void refetch().then((res) => {
+        if (res.data?.has_track) void qc.invalidateQueries({ queryKey: ['track', res.data.id] })
+        if (!res.data || !r.updated_by || r.updated_by.id === myId) return
+        const text = describeUpdate(before, res.data, r.updated_by)
+        if (text) toast(text, { id: `trip-sync-${res.data.id}` })
+      })
+    },
+    { interval: trip?.can_edit ? 10_000 : 30_000 },
+  )
   const [selected, setSelected] = useState<Waypoint | null>(null)
   const [viewer, setViewer] = useState<{ list: Photo[]; i: number } | null>(null)
   const [share, setShare] = useState(false)
@@ -664,10 +718,23 @@ function TripDetailView() {
   })
 
   const segments = useMemo(() => trackSegments(track), [track])
-  const planned = useMemo(() => (trip ? plannedPath(trip.waypoints) : []), [trip])
-  const actual = useMemo(() => (trip ? actualPath(trip.waypoints) : []), [trip])
   const sorted = useMemo(() => (trip ? [...trip.waypoints].sort(bySeq) : []), [trip])
   const fitPoints = useMemo(() => (trip ? allPoints(trip.waypoints, segments) : []), [trip, segments])
+  // 按天规划：每天的路线（前一晚住宿 → 当天游玩点 → 当晚住宿）按实际道路画，每天一种颜色
+  const groups = useMemo(() => groupPlan(trip?.waypoints ?? [], trip?.days ?? 0), [trip])
+  const labels = useMemo(() => stopLabels(groups), [groups])
+  const legs = useTripLegs(trip?.id, trip?.waypoints ?? [], trip?.travel_mode, { geometry: true })
+  const totals = useMemo(() => new Map((legs.data?.days ?? []).map((d) => [d.day, d])), [legs.data])
+  const routeSegs = useMemo(() => {
+    if (!trip) return []
+    const visited = visitedInOrder(trip.waypoints)
+    const planned = plannedSegments(groups, legs.data?.legs, { icons: visited.length < 2 })
+    if (visited.length < 2) return planned
+    // 走过的路线为实线；计划路线（有计划时）淡淡地留作对照
+    const plannedAny = trip.waypoints.some((w) => w.planned && !isLodging(w))
+    return [...(plannedAny ? planned.map((s) => ({ ...s, dim: true, mode: undefined })) : []), ...actualSegments(visited, legs.data?.legs)]
+  }, [trip, groups, legs.data])
+  const markers = useMemo(() => planMarkerItems(groups, labels), [groups, labels])
   useDocumentTitle(trip?.title)
 
   if (isLoading) return <PageLoader />
@@ -712,7 +779,8 @@ function TripDetailView() {
     }
   }
 
-  const hasPlan = trip.waypoints.some((w) => w.planned)
+  // 住宿不是打卡点：不计入计划点数、完成度和路线一览
+  const hasPlan = trip.waypoints.some((w) => w.planned && !isLodging(w))
   // 「我的收藏」只列出公开旅程和自己参与的旅程：通过分享链接看到的旅程收藏后找不到，不提供收藏（已收藏的仍可取消）
   const canFavorite = trip.favorited || trip.can_edit || (trip.visibility === 'public' && trip.status === 'normal')
   // 单个打卡点的分享链接：「链接可见」的旅程要带分享码，私密旅程不提供
@@ -723,12 +791,12 @@ function TripDetailView() {
   const hasActual = trip.waypoints.some((w) => w.status === 'visited')
   // 「已打卡/计划」只数计划内的点（与计划 vs 实际页一致，不会超过 100%）；计划外的另记为 +N
   const showProgress = hasPlan && trip.phase !== 'planning'
-  const plannedTotal = trip.waypoints.filter((w) => w.planned).length
-  const plannedVisited = trip.waypoints.filter((w) => w.planned && w.status === 'visited').length
+  const plannedTotal = trip.waypoints.filter((w) => w.planned && !isLodging(w)).length
+  const plannedVisited = trip.waypoints.filter((w) => w.planned && !isLodging(w) && w.status === 'visited').length
   const extraVisited = trip.waypoints.filter((w) => !w.planned && w.status === 'visited').length
-  const remaining = sorted.filter((w) => w.status === 'todo')
+  const remaining = sorted.filter((w) => w.status === 'todo' && !isLodging(w))
   // 高德一次最多规划 AMAP_MAX_STOPS 站：站数更多时导航接下来的这几站，并在按钮上说明，不再悄悄跳过中间的站
-  const navStops = remaining.length ? remaining : sorted
+  const navStops = remaining.length ? remaining : sorted.filter((w) => !isLodging(w))
   const navTruncated = navStops.length > AMAP_MAX_STOPS
   const navAll = amapMultiRoute(navStops.map((w) => ({ lng: w.lng, lat: w.lat, name: w.name })))
   const navHint = navTruncated
@@ -763,9 +831,9 @@ function TripDetailView() {
         ]
       : []),
   ]
-  const legend = (hasPlan && hasActual) || segments.length > 0
+  const legend = hasPlan || hasActual || segments.length > 0
   // 一眼看完的路线：地点名按顺序连起来
-  const routeNames = sorted.map((w) => w.name || '未命名地点')
+  const routeNames = sorted.filter((w) => !isLodging(w)).map((w) => w.name || '未命名地点')
   const ROUTE_MAX = 12
 
   // 查看器里始终可以翻看全部照片
@@ -1037,6 +1105,13 @@ function TripDetailView() {
                   <p className="eyebrow !text-ink-900">Your Trip · 你的旅程</p>
                   <span className="caption">{phases[trip.phase].label}</span>
                 </div>
+                {/* 同行的人正在编辑：先说一声，免得两个人同时改 */}
+                {editors.some((e) => e.user.id !== myId) && (
+                  <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    <PresenceBadge editors={editors.filter((e) => e.user.id !== myId)} />
+                    <span className="text-[12.5px] text-ink-500">现在去编辑也可以，保存时会先看到双方各改了什么</span>
+                  </div>
+                )}
                 <p className="mt-3 max-w-xl text-[14px] leading-[1.8] text-ink-500">
                   {trip.phase === 'planning' && '规划好路线后就可以出发，路上一键打卡、实时记录轨迹。'}
                   {trip.phase === 'ongoing' && '旅行进行中：到了就打卡，还能推荐下一站。'}
@@ -1114,12 +1189,9 @@ function TripDetailView() {
                   )
                 }
               >
-                <RouteLines
-                  planned={hasPlan && hasActual ? planned : undefined}
-                  actual={hasActual ? actual : planned}
-                  track={segments}
-                />
-                <WaypointMarkers waypoints={sorted} selectedId={selected?.id} onSelect={setSelected} />
+                <RouteLines track={segments} />
+                <RouteSegments segments={routeSegs} idPrefix="trip" />
+                <PlanMarkers items={markers} selectedId={selected?.id} onSelect={setSelected} />
                 <FitOnce points={fitPoints} fitKey={fitKey} />
                 <FlyToSelected w={selected} refit={fitKey} />
               </BaseMap>
@@ -1132,16 +1204,22 @@ function TripDetailView() {
               )}
               {legend && (
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-ink-200 px-4 py-2.5 text-[11px] tracking-[0.06em] text-ink-500 md:px-8 lg:glass lg:absolute lg:top-4 lg:left-4 lg:rounded-full lg:border lg:border-ink-900/15 lg:px-4 lg:py-2">
-                  {hasPlan && hasActual && (
+                  {hasPlan && (
                     <span className="flex items-center gap-2">
-                      <span className="inline-block w-5 border-t border-dashed border-sky-500" />
-                      计划路线
+                      <span className="flex items-center gap-0.5" aria-hidden>
+                        {[1, 2, 3].map((d) => (
+                          <span key={d} className={cn('inline-block w-2 border-t-2 border-dashed', dayTone(d).border)} />
+                        ))}
+                      </span>
+                      {groups.dayCount > 1 ? '计划路线 · 每天一色' : '计划路线'}
                     </span>
                   )}
-                  <span className="flex items-center gap-2">
-                    <span className="inline-block h-px w-5 bg-brand-500" />
-                    {hasActual ? '实际路线' : '路线'}
-                  </span>
+                  {hasActual && (
+                    <span className="flex items-center gap-2">
+                      <span className="inline-block h-0.5 w-5 bg-brand-500" />
+                      实际路线
+                    </span>
+                  )}
                   {segments.length > 0 && (
                     <span className="flex items-center gap-2">
                       <span className="inline-block h-px w-5 bg-amber-500" />
@@ -1164,6 +1242,9 @@ function TripDetailView() {
           <div className="mt-14 md:mt-20">
             <Itinerary
               trip={trip}
+              groups={groups}
+              labels={labels}
+              totals={totals}
               selected={selected}
               onSelect={selectAndShow}
               onPhoto={(p) => openPhoto(p)}

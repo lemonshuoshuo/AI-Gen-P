@@ -20,6 +20,8 @@ export function PlaceSearch({
   placeholder = '搜索景点、餐厅、酒店、街道…',
   className,
   autoFocus,
+  inline,
+  initialKeyword = '',
 }: {
   onPick: (item: GeoSearchItem, source: PickSource) => void
   city?: string
@@ -27,8 +29,12 @@ export function PlaceSearch({
   placeholder?: string
   className?: string
   autoFocus?: boolean
+  /** 结果始终显示在输入框下方（放在弹窗里时，手机上不切换成全屏搜索） */
+  inline?: boolean
+  /** 打开时就搜索这个关键词（如 AI 给出的地点名称） */
+  initialKeyword?: string
 }) {
-  const [kw, setKw] = useState('')
+  const [kw, setKw] = useState(initialKeyword)
   const [items, setItems] = useState<GeoSearchItem[]>([])
   const [community, setCommunity] = useState<Place[]>([])
   const [source, setSource] = useState<GeoSource | null>(null)
@@ -45,7 +51,7 @@ export function PlaceSearch({
   const { data: site } = useSite()
   const user = useAuth((s) => s.user)
   // 手机上搜索时全屏显示：输入框在顶部、结果紧跟其下，不会被键盘挡住
-  const sheet = active && !isDesktop
+  const sheet = active && !isDesktop && !inline
   // city / near 只是搜索提示，发起搜索时才读取最新值：它们变化（新加、拖动、排序打卡点后）不重新搜索，
   // 否则关键词还留在框里时会重复请求高德，并把用户已经关掉的结果列表重新弹出来
   const nearLng = near?.[0]

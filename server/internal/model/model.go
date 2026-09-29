@@ -49,6 +49,20 @@ const (
 	InviteAccepted = "accepted"
 	InviteDeclined = "declined"
 	InviteCanceled = "canceled"
+	// InviteCancelled is the withdrawn state of a SpaceInvite (the legacy
+	// PartnerInvite used InviteCanceled).
+	InviteCancelled = "cancelled"
+
+	// Space types (Space.Type).
+	SpaceCouple  = "couple"
+	SpaceBesties = "besties"
+	SpaceFriends = "friends"
+	SpaceFamily  = "family"
+	SpaceCustom  = "custom"
+
+	// Roles in a space (SpaceMember.Role).
+	SpaceRoleOwner  = "owner"
+	SpaceRoleMember = "member"
 
 	ReportPending  = "pending"
 	ReportResolved = "resolved"
@@ -81,6 +95,10 @@ type User struct {
 
 	// TermsAgreedAt is when the user agreed to the 用户协议 / 隐私政策 at registration.
 	TermsAgreedAt *time.Time
+
+	// DefaultSpaceID is the space 「我们」 opens (PUT /me/default-space);
+	// nil: none. Cleared when the user leaves the space or it is deleted.
+	DefaultSpaceID *int64
 }
 
 // IsAdmin reports whether the user has the admin role.
@@ -144,6 +162,21 @@ type Trip struct {
 	PublishedAt     *time.Time `gorm:"index:idx_trips_listing,priority:3"`
 	CreatedAt       time.Time  `gorm:"index"`
 	UpdatedAt       time.Time
+	// Revision counts the changes of the trip and of its waypoints (lodging,
+	// check-ins, arrangement), photos and members, each counted in the
+	// transaction of the change (service.TouchTrip, which also sets
+	// UpdatedAt); UpdatedByID is who made the last one (0: unknown). Editors
+	// poll it (GET /trips/:id/revision) to pick up each other's changes, and
+	// PUT /trips/:id/plan saves a draft only onto the revision it was based
+	// on. Trips that existed before it start at 1 (the column default).
+	Revision    int64 `gorm:"not null;default:1"`
+	UpdatedByID int64 `gorm:"not null;default:0"`
+	// SpaceID links the trip to a space (nil: none): every member of the
+	// space may open and edit it like an accepted co-author (see
+	// service.TripAccess). Only its owner links it, to a space they belong
+	// to; it is unlinked when the owner leaves the space or the space is
+	// deleted, so the owner is always a member of the linked space.
+	SpaceID *int64 `gorm:"index"`
 }
 
 // TripMember links users to trips (the owner has a row too).
@@ -306,7 +339,9 @@ type Follow struct {
 	CreatedAt  time.Time
 }
 
-// Partnership binds two users as a couple (UserA < UserB).
+// Partnership binds two users as a couple (UserA < UserB). Legacy: couples
+// are couple spaces now (Space); db.Migrate turns each partnership into one
+// and records it in SpaceID. Nothing writes partnerships any more.
 type Partnership struct {
 	ID      int64      `gorm:"primaryKey"`
 	UserA   int64      `gorm:"not null;uniqueIndex"`
@@ -317,14 +352,65 @@ type Partnership struct {
 	// Public shows the relationship on both users' profiles to everyone
 	// (「和 TA 一起旅行中」); otherwise only the two of them see it there.
 	Public bool `gorm:"not null;default:false"`
+	// SpaceID is the couple space the partnership became (nil: not migrated yet).
+	SpaceID *int64
 }
 
-// PartnerInvite is a pending/processed couple-binding request.
+// PartnerInvite is a pending/processed couple-binding request. Legacy: see
+// SpaceInvite; db.Migrate turns the pending ones into space invites and
+// records them in SpaceInviteID.
 type PartnerInvite struct {
 	ID        int64  `gorm:"primaryKey"`
 	FromID    int64  `gorm:"not null;index"`
 	ToID      int64  `gorm:"not null;index"`
 	Message   string `gorm:"size:500;not null;default:''"`
+	Status    string `gorm:"size:16;not null;index"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	// SpaceInviteID is the space invite a pending invite became (nil: not migrated).
+	SpaceInviteID *int64
+}
+
+// Space (空间) is a group of users sharing trips: a couple, besties,
+// friends, a family or a group of another (custom) kind. Trips linked to it
+// (Trip.SpaceID) are open to all its members.
+type Space struct {
+	ID   int64  `gorm:"primaryKey"`
+	Name string `gorm:"size:120;not null"`
+	// Type is one of SpaceCouple, SpaceBesties, SpaceFriends, SpaceFamily,
+	// SpaceCustom; TypeLabel is the name of a custom type (e.g. 驴友团).
+	Type      string `gorm:"size:16;not null"`
+	TypeLabel string `gorm:"size:40;not null;default:''"`
+	OwnerID   int64  `gorm:"not null;index"`
+	// Anniversary is an optional date (a couple's 纪念日).
+	Anniversary *time.Time `gorm:"type:date"`
+	Description string     `gorm:"size:500;not null;default:''"`
+	// Public (couple spaces only) shows the relationship on both members'
+	// profiles to everyone; otherwise only the two of them see it there.
+	Public    bool `gorm:"not null;default:false"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// SpaceMember is a user's membership of a space.
+type SpaceMember struct {
+	SpaceID  int64     `gorm:"primaryKey;autoIncrement:false"`
+	UserID   int64     `gorm:"primaryKey;autoIncrement:false;index"`
+	Role     string    `gorm:"size:16;not null"` // SpaceRoleOwner | SpaceRoleMember
+	JoinedAt time.Time `gorm:"not null"`
+	// Couple mirrors Space.Type == SpaceCouple: a unique index on the user
+	// for couple memberships keeps everyone in at most one couple space.
+	Couple bool `gorm:"not null;default:false"`
+}
+
+// SpaceInvite invites a user to join a space.
+type SpaceInvite struct {
+	ID        int64  `gorm:"primaryKey"`
+	SpaceID   int64  `gorm:"not null;index"`
+	InviterID int64  `gorm:"not null;index"`
+	InviteeID int64  `gorm:"not null;index"`
+	Message   string `gorm:"size:800;not null;default:''"`
+	// Status: InvitePending, InviteAccepted, InviteDeclined or InviteCancelled.
 	Status    string `gorm:"size:16;not null;index"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -339,6 +425,7 @@ type Notification struct {
 	TripID    *int64 `gorm:"index"`
 	PlaceID   *int64
 	CommentID *int64
+	SpaceID   *int64
 	Content   string    `gorm:"size:500;not null;default:''"`
 	Read      bool      `gorm:"not null;index:idx_notif_user,priority:2"`
 	CreatedAt time.Time `gorm:"index"`
@@ -379,6 +466,7 @@ func All() []any {
 	return []any{
 		&User{}, &RefreshToken{}, &Trip{}, &TripMember{}, &Waypoint{}, &Photo{}, &TrackPoint{}, &TrackStat{},
 		&Place{}, &Comment{}, &Like{}, &Favorite{}, &Follow{}, &Partnership{}, &PartnerInvite{},
+		&Space{}, &SpaceMember{}, &SpaceInvite{},
 		&Notification{}, &Report{}, &ExpLog{}, &Setting{},
 	}
 }

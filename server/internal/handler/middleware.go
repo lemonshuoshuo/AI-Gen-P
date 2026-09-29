@@ -39,6 +39,20 @@ func recovery() gin.HandlerFunc {
 // notification count (every 60 s from every open tab).
 var quietPaths = map[string]bool{"/api/v1/health": true, "/api/v1/notifications/unread-count": true}
 
+// quietPath reports whether path is a polled endpoint (quietPaths, and the
+// trip revision and editing heartbeats every open editor sends).
+func quietPath(path string) bool {
+	if quietPaths[path] {
+		return true
+	}
+	rest, ok := strings.CutPrefix(path, "/api/v1/trips/")
+	if !ok {
+		return false
+	}
+	_, sub, _ := strings.Cut(rest, "/")
+	return sub == "revision" || sub == "editing"
+}
+
 func requestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -46,7 +60,7 @@ func requestLogger() gin.HandlerFunc {
 		status := c.Writer.Status()
 		path := c.Request.URL.Path
 		// Keep logs readable: skip successful static asset requests and polling.
-		if status < 400 && (!strings.HasPrefix(path, "/api/") || quietPaths[path]) {
+		if status < 400 && (!strings.HasPrefix(path, "/api/") || quietPath(path)) {
 			return
 		}
 		lvl := slog.LevelInfo

@@ -97,6 +97,7 @@ func (h *Handler) appendTrack(c *gin.Context) error {
 		if err := service.LockTrip(tx, t.ID); err != nil {
 			return err
 		}
+		first := false // the trip's first track points: it now has a track (TripDetail.has_track)
 		if len(rows) > 0 {
 			cur, err := trackPointCount(tx, t.ID)
 			if err != nil {
@@ -108,10 +109,20 @@ func (h *Handler) appendTrack(c *gin.Context) error {
 			if accepted, err = h.svc.AppendTrack(tx, t.ID, uid, req.Segment, rows); err != nil {
 				return err
 			}
+			first = cur == 0 && accepted > 0
 		}
 		if accepted > 0 {
-			if err := h.startTripIfPlanning(tx, t); err != nil {
+			started, err := h.startTripIfPlanning(tx, t)
+			if err != nil {
 				return err
+			}
+			// GPS samples arrive every few seconds while recording: only
+			// the start of a track or of the trip counts as a revision, so
+			// that editors are not told of every sample.
+			if started || first {
+				if _, err := service.TouchTrip(tx, t.ID, uid); err != nil {
+					return err
+				}
 			}
 		}
 		return tx.Select("track_point_count", "track_distance_km").First(&trip, t.ID).Error
@@ -276,7 +287,11 @@ func (h *Handler) clearTrack(c *gin.Context) error {
 		if err := tx.Where("trip_id = ?", t.ID).Delete(&model.TrackPoint{}).Error; err != nil {
 			return err
 		}
-		return h.svc.RecomputeTrack(tx, t.ID)
+		if err := h.svc.RecomputeTrack(tx, t.ID); err != nil {
+			return err
+		}
+		_, err := service.TouchTrip(tx, t.ID, currentUserID(c))
+		return err
 	})
 	if err != nil {
 		return err
@@ -367,6 +382,9 @@ func (h *Handler) importTrack(c *gin.Context) error {
 		}
 		if accepted = res.RowsAffected; accepted > 0 {
 			if err := h.svc.RecomputeTrack(tx, t.ID); err != nil {
+				return err
+			}
+			if _, err := service.TouchTrip(tx, t.ID, uid); err != nil {
 				return err
 			}
 		}

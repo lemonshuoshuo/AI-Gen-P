@@ -105,7 +105,7 @@ func regionMatch(db *gorm.DB, viewer *model.User, like string, regions ...string
 	args := []any{sql.Named("like", like), sql.Named("ongoing", model.PhaseOngoing)}
 	if viewer != nil {
 		hidden += " AND trips.id NOT IN (@mine)"
-		args = append(args, sql.Named("mine", service.MemberTripIDs(db, viewer.ID)))
+		args = append(args, sql.Named("mine", service.AccessibleTripIDs(db, viewer.ID)))
 	}
 	return clause.NamedExpr{SQL: "(CASE WHEN " + hidden + " THEN EXISTS (SELECT 1 FROM waypoints w WHERE w.trip_id = trips.id AND w.planned AND (" +
 		strings.Join(planned, " OR ") + ")) ELSE " + storedSQL + " END)", Vars: args}
@@ -167,17 +167,23 @@ const maxTripDays = 365
 
 // tripInput is the create/update request body.
 type tripInput struct {
-	Title       *string     `json:"title"`
-	Summary     *string     `json:"summary"`
-	Content     *string     `json:"content"`
-	CoverURL    *string     `json:"cover_url"`
-	Phase       *string     `json:"phase"`
-	Visibility  *string     `json:"visibility"`
-	StartDate   Opt[string] `json:"start_date"`
-	EndDate     Opt[string] `json:"end_date"`
-	Tags        *[]string   `json:"tags"`
-	LiveShare   *bool       `json:"live_share"`
-	WithPartner bool        `json:"with_partner"`
+	Title      *string     `json:"title"`
+	Summary    *string     `json:"summary"`
+	Content    *string     `json:"content"`
+	CoverURL   *string     `json:"cover_url"`
+	Phase      *string     `json:"phase"`
+	Visibility *string     `json:"visibility"`
+	StartDate  Opt[string] `json:"start_date"`
+	EndDate    Opt[string] `json:"end_date"`
+	Tags       *[]string   `json:"tags"`
+	LiveShare  *bool       `json:"live_share"`
+	// WithPartner (creating only): the author's partner (couple space)
+	// becomes a co-author, and the trip joins the couple space unless
+	// SpaceID names one.
+	WithPartner bool `json:"with_partner"`
+	// SpaceID links the trip to a space the author belongs to (null or 0:
+	// none); see createTrip and updateTrip. PUT /trips/:id/plan ignores it.
+	SpaceID Opt[int64] `json:"space_id"`
 	// Days planned (0 clears): with a start date it sets the end date.
 	Days       Opt[int] `json:"days"`
 	TravelMode *string  `json:"travel_mode"`
@@ -337,8 +343,10 @@ func cleanTags(in []string) ([]string, error) {
 	return out, nil
 }
 
-// createTripRecord inserts a trip (with a unique share code) and its owner row.
+// createTripRecord inserts a trip (with a unique share code) and its owner
+// row. A new trip is at revision 1, made by its owner.
 func createTripRecord(tx *gorm.DB, t *model.Trip) error {
+	t.Revision, t.UpdatedByID = 1, t.OwnerID
 	for attempt := 0; ; attempt++ {
 		t.ShareCode = service.NewShareCode()
 		err := tx.Transaction(func(tx2 *gorm.DB) error { return tx2.Create(t).Error })
@@ -378,23 +386,40 @@ func (h *Handler) createTrip(c *gin.Context) error {
 	}
 	ctx := c.Request.Context()
 	err := h.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := createTripRecord(tx, &t); err != nil {
-			return err
+		var spaceID, partnerID int64
+		if in.SpaceID.Set && !in.SpaceID.Null {
+			spaceID = in.SpaceID.V
 		}
 		if in.WithPartner {
-			partnerID, _, err := service.PartnerOf(tx, u.ID)
+			pid, couple, err := service.PartnerOf(tx, u.ID)
 			if err != nil {
 				return err
 			}
-			if partnerID != 0 {
-				if err := tx.Create(&model.TripMember{TripID: t.ID, UserID: partnerID, Role: model.MemberEditor,
-					Status: model.MemberAccepted, InvitedByID: u.ID}).Error; err != nil {
-					return err
+			if pid != 0 {
+				partnerID = pid
+				if spaceID == 0 {
+					spaceID = couple.ID
 				}
-				if err := h.svc.Notify(tx, service.Notice{UserID: partnerID, Type: "trip_invite", ActorID: u.ID, TripID: t.ID,
-					Content: "把你加入了共同旅程「" + t.Title + "」"}); err != nil {
-					return err
-				}
+			}
+		}
+		if spaceID != 0 {
+			// The space is locked before the trip exists (spaces before trips).
+			if err := linkableSpace(tx, spaceID, u.ID); err != nil {
+				return err
+			}
+			t.SpaceID = &spaceID
+		}
+		if err := createTripRecord(tx, &t); err != nil {
+			return err
+		}
+		if partnerID != 0 {
+			if err := tx.Create(&model.TripMember{TripID: t.ID, UserID: partnerID, Role: model.MemberEditor,
+				Status: model.MemberAccepted, InvitedByID: u.ID}).Error; err != nil {
+				return err
+			}
+			if err := h.svc.Notify(tx, service.Notice{UserID: partnerID, Type: "trip_invite", ActorID: u.ID, TripID: t.ID,
+				Content: "把你加入了共同旅程「" + t.Title + "」"}); err != nil {
+				return err
 			}
 		}
 		if err := h.svc.AwardExp(tx, u.ID, service.ExpKey("trip_create", t.ID), service.ExpCreateTrip, "trip_create"); err != nil {
@@ -483,6 +508,211 @@ func (h *Handler) getShared(c *gin.Context) error {
 	return nil
 }
 
+// tripUpdate is a validated change of a trip's own fields, as PATCH
+// /trips/:id and PUT /trips/:id/plan write it.
+type tripUpdate struct {
+	t   *model.Trip    // the trip with the change applied
+	upd map[string]any // the columns to write; empty: nothing changes
+	// The trip as it was.
+	oldVis, oldPhase string
+	oldLive          bool
+	oldDays          int
+	firstPublic      bool // published for the first time
+	datesChanged     bool // dates or planned days: days may shrink (service.ShrinkDays)
+}
+
+// prepareTripUpdate validates in for viewer a and applies it to t (as
+// loaded; it is changed): owner-only fields, the fields themselves,
+// sensitive words, and the review of public trips.
+func (h *Handler) prepareTripUpdate(c *gin.Context, t *model.Trip, a service.Access, in *tripInput) (*tripUpdate, error) {
+	tu := &tripUpdate{t: t, oldVis: t.Visibility, oldPhase: t.Phase, oldLive: t.LiveShare, oldDays: t.Days}
+	before := *t
+	if in.Visibility != nil && *in.Visibility != t.Visibility && !a.Owner {
+		return nil, errForbidden("只有作者可以修改可见性")
+	}
+	if in.LiveShare != nil && *in.LiveShare != t.LiveShare && !a.Owner {
+		return nil, errForbidden("只有作者可以修改实时位置公开设置")
+	}
+	upd, err := in.apply(t, false)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.screen(c, in.screenedTexts(t)...); err != nil {
+		return nil, err
+	}
+	// Review of public trips (a site setting): a trip a non-admin makes public
+	// waits for an admin, one that is no longer public leaves the queue.
+	// Hidden trips stay hidden, also when an admin hides one meanwhile.
+	setStatus := func(from, to string) {
+		t.Status, upd["status"] = to, gorm.Expr("CASE WHEN status = ? THEN ? ELSE status END", from, to)
+	}
+	switch {
+	case tu.oldVis != model.VisPublic && t.Visibility == model.VisPublic && t.Status == model.TripNormal &&
+		h.svc.Settings.Get().ReviewPublicTrips && !currentUser(c).IsAdmin():
+		setStatus(model.TripNormal, model.TripPending)
+	case t.Status == model.TripPending && t.Visibility != model.VisPublic:
+		setStatus(model.TripPending, model.TripNormal)
+	}
+	tu.firstPublic = t.Visibility == model.VisPublic && t.PublishedAt == nil
+	if !tu.firstPublic && !tripFieldsChanged(&before, t) {
+		upd = map[string]any{} // the values it has already (e.g. a whole form sent back): nothing to write
+	}
+	tu.upd = upd
+	if len(upd) == 0 {
+		return tu, nil
+	}
+	if tu.firstPublic {
+		upd["published_at"] = time.Now()
+	}
+	for _, col := range []string{"start_date", "end_date", "plan_days"} {
+		if _, ok := upd[col]; ok {
+			tu.datesChanged = true
+		}
+	}
+	return tu, nil
+}
+
+// tripFieldsChanged reports whether a trip's fields that tripInput and the
+// review of public trips set differ between a and b.
+func tripFieldsChanged(a, b *model.Trip) bool {
+	sameDate := func(x, y *time.Time) bool { return x == nil && y == nil || x != nil && y != nil && x.Equal(*y) }
+	return a.Title != b.Title || a.Summary != b.Summary || a.Content != b.Content || a.CoverURL != b.CoverURL ||
+		a.Phase != b.Phase || a.Visibility != b.Visibility || a.Status != b.Status || !sameDate(a.StartDate, b.StartDate) ||
+		!sameDate(a.EndDate, b.EndDate) || a.PlanDays != b.PlanDays || a.TravelMode != b.TravelMode ||
+		!slices.Equal(a.Tags, b.Tags) || a.LiveShare != b.LiveShare
+}
+
+// finishTripUpdate follows up a trip update written in tx (the caller holds
+// the trip lock when tu.datesChanged): the waypoints of days that no longer
+// exist move (service.ShrinkDays), the statistics of the trip's places
+// follow its visibility, phase and live sharing, and the first publication
+// earns experience. The caller then recomputes the trip (RecomputeTrip)
+// when its dates or days changed.
+func (h *Handler) finishTripUpdate(tx *gorm.DB, tu *tripUpdate) error {
+	t := tu.t
+	if tu.datesChanged {
+		days := service.DateSpan(t.StartDate, t.EndDate)
+		if days == 0 {
+			days = t.PlanDays
+		}
+		if days > 0 && days < tu.oldDays {
+			ids, err := service.ShrinkDays(tx, t.ID, days)
+			if err != nil {
+				return err
+			}
+			if err := h.svc.RecomputePlaces(tx, ids); err != nil {
+				return err
+			}
+		}
+	}
+	// Place statistics count public trips, ongoing ones only with live
+	// sharing (see service.RecomputePlaces).
+	if tu.oldVis != t.Visibility || tu.oldPhase != t.Phase || tu.oldLive != t.LiveShare {
+		ids, err := service.TripPlaceIDs(tx, t.ID)
+		if err != nil {
+			return err
+		}
+		if err := h.svc.RecomputePlaces(tx, ids); err != nil {
+			return err
+		}
+	}
+	if tu.firstPublic && t.Status == model.TripNormal { // a pending trip earns it when approved
+		return h.svc.AwardExp(tx, t.OwnerID, service.ExpKey("trip_public", t.ID), service.ExpFirstPublic, "trip_public")
+	}
+	return nil
+}
+
+// linkableSpace share-locks space spaceID (service.ShareLockSpace) for a
+// trip to be linked to it by userID, who must be a member (404 otherwise):
+// neither the space nor the membership can go before the transaction ends.
+func linkableSpace(tx *gorm.DB, spaceID, userID int64) error {
+	sp, err := service.ShareLockSpace(tx, spaceID)
+	if err != nil {
+		return err
+	}
+	if sp == nil {
+		return errSpaceNotFound
+	}
+	m, err := service.SpaceMembership(tx, spaceID, userID)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return errSpaceNotFound
+	}
+	return nil
+}
+
+// spaceChange is the change of a trip's space a PATCH /trips/:id asks for:
+// link it to a space (to), or unlink it (to 0).
+type spaceChange struct {
+	change bool
+	to     int64
+}
+
+// tripSpaceChange reads the change of trip t's space in in, checking what
+// may be checked before the transaction: only the trip's author links it
+// to a space (one they belong to, checked by linkSpace); the author or the
+// space's owner unlinks it.
+func tripSpaceChange(t *model.Trip, a service.Access, in *tripInput) (spaceChange, error) {
+	if !in.SpaceID.Set {
+		return spaceChange{}, nil
+	}
+	to := int64(0)
+	if !in.SpaceID.Null {
+		to = in.SpaceID.V
+	}
+	from := int64(0)
+	if t.SpaceID != nil {
+		from = *t.SpaceID
+	}
+	if to == from {
+		return spaceChange{}, nil
+	}
+	if to != 0 && !a.Owner {
+		return spaceChange{}, errForbidden("只有作者可以把旅程加入空间")
+	}
+	return spaceChange{change: true, to: to}, nil
+}
+
+// linkSpace applies sc to trip t (as loaded) for the current user in tx,
+// before any trip is locked (spaces are locked before trips), and returns
+// the column value to write. The trip must still be in the space it was
+// loaded with.
+func linkSpace(tx *gorm.DB, c *gin.Context, t *model.Trip, a service.Access, sc spaceChange) (any, error) {
+	me := currentUserID(c)
+	if sc.to != 0 {
+		if err := linkableSpace(tx, sc.to, me); err != nil {
+			return nil, err
+		}
+	} else if !a.Owner {
+		sp, err := service.ShareLockSpace(tx, *t.SpaceID)
+		if err != nil {
+			return nil, err
+		}
+		if sp == nil || sp.OwnerID != me {
+			return nil, errForbidden("只有作者或空间的创建者可以把旅程移出空间")
+		}
+	}
+	if err := service.LockTrip(tx, t.ID); err != nil {
+		return nil, err
+	}
+	var cur model.Trip
+	if err := tx.Select("id", "space_id").Limit(1).Find(&cur, t.ID).Error; err != nil {
+		return nil, err
+	}
+	if cur.ID == 0 {
+		return nil, errTripNotFound
+	}
+	if (cur.SpaceID == nil) != (t.SpaceID == nil) || (cur.SpaceID != nil && *cur.SpaceID != *t.SpaceID) {
+		return nil, errConflict("旅程所属的空间刚被修改，请刷新后重试")
+	}
+	if sc.to == 0 {
+		return gorm.Expr("NULL"), nil
+	}
+	return sc.to, nil
+}
+
 func (h *Handler) updateTrip(c *gin.Context) error {
 	t, a, err := h.tripForEdit(c)
 	if err != nil {
@@ -492,93 +722,55 @@ func (h *Handler) updateTrip(c *gin.Context) error {
 	if err := bindJSON(c, &in); err != nil {
 		return err
 	}
-	oldVis, oldPhase, oldLive, oldDays := t.Visibility, t.Phase, t.LiveShare, t.Days
-	if in.Visibility != nil && *in.Visibility != t.Visibility && !a.Owner {
-		return errForbidden("只有作者可以修改可见性")
-	}
-	if in.LiveShare != nil && *in.LiveShare != t.LiveShare && !a.Owner {
-		return errForbidden("只有作者可以修改实时位置公开设置")
-	}
-	upd, err := in.apply(t, false)
+	sc, err := tripSpaceChange(t, a, &in)
 	if err != nil {
 		return err
 	}
-	if err := h.screen(c, in.screenedTexts(t)...); err != nil {
+	tu, err := h.prepareTripUpdate(c, t, a, &in)
+	if err != nil {
 		return err
 	}
-	// Review of public trips (a site setting): a trip a non-admin makes public
-	// waits for an admin, one that is no longer public leaves the queue.
-	// Hidden trips stay hidden, also when an admin hides one meanwhile.
-	setStatus := func(from, to string) {
-		t.Status, upd["status"] = to, gorm.Expr("CASE WHEN status = ? THEN ? ELSE status END", from, to)
-	}
-	switch {
-	case oldVis != model.VisPublic && t.Visibility == model.VisPublic && t.Status == model.TripNormal &&
-		h.svc.Settings.Get().ReviewPublicTrips && !currentUser(c).IsAdmin():
-		setStatus(model.TripNormal, model.TripPending)
-	case t.Status == model.TripPending && t.Visibility != model.VisPublic:
-		setStatus(model.TripPending, model.TripNormal)
-	}
-	if len(upd) == 0 {
+	if len(tu.upd) == 0 && !sc.change {
 		return h.respondTripDetail(c, t.ID)
 	}
-	firstPublic := t.Visibility == model.VisPublic && t.PublishedAt == nil
-	if firstPublic {
-		upd["published_at"] = time.Now()
-	}
-	_, datesChanged := upd["start_date"]
-	for _, col := range []string{"end_date", "plan_days"} {
-		if _, ok := upd[col]; ok {
-			datesChanged = true
-		}
-	}
 	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
-		if datesChanged { // days may shrink: waypoints move (see service.ShrinkDays)
+		if sc.change {
+			v, err := linkSpace(tx, c, t, a, sc)
+			if err != nil {
+				return err
+			}
+			tu.upd["space_id"] = v
+		}
+		if tu.datesChanged { // days may shrink: waypoints move (see service.ShrinkDays)
 			if err := service.LockTrip(tx, t.ID); err != nil {
 				return err
 			}
 		}
-		if err := tx.Model(&model.Trip{}).Where("id = ?", t.ID).Updates(upd).Error; err != nil {
+		if err := tx.Model(&model.Trip{}).Where("id = ?", t.ID).Updates(tu.upd).Error; err != nil {
 			return err
 		}
-		if datesChanged {
-			days := service.DateSpan(t.StartDate, t.EndDate)
-			if days == 0 {
-				days = t.PlanDays
-			}
-			if days > 0 && days < oldDays {
-				ids, err := service.ShrinkDays(tx, t.ID, days)
-				if err != nil {
-					return err
-				}
-				if err := h.svc.RecomputePlaces(tx, ids); err != nil {
-					return err
-				}
-			}
+		if err := h.finishTripUpdate(tx, tu); err != nil {
+			return err
+		}
+		if tu.datesChanged {
 			if err := h.svc.RecomputeTrip(tx, t.ID); err != nil {
 				return err
 			}
 		}
-		// Place statistics count public trips, ongoing ones only with live
-		// sharing (see service.RecomputePlaces).
-		if oldVis != t.Visibility || oldPhase != t.Phase || oldLive != t.LiveShare {
-			ids, err := service.TripPlaceIDs(tx, t.ID)
-			if err != nil {
-				return err
-			}
-			if err := h.svc.RecomputePlaces(tx, ids); err != nil {
-				return err
-			}
-		}
-		if firstPublic && t.Status == model.TripNormal { // a pending trip earns it when approved
-			return h.svc.AwardExp(tx, t.OwnerID, service.ExpKey("trip_public", t.ID), service.ExpFirstPublic, "trip_public")
-		}
-		return nil
+		_, err := service.TouchTrip(tx, t.ID, currentUserID(c))
+		return err
 	})
 	if err != nil {
 		return err
 	}
-	return h.respondTripDetail(c, t.ID)
+	err = h.respondTripDetail(c, t.ID)
+	if err == errTripNotFound && sc.change && !a.Owner {
+		// The space's owner took someone else's trip out of the space, and
+		// with it their own access to it: there is nothing to show them.
+		c.JSON(http.StatusOK, gin.H{})
+		return nil
+	}
+	return err
 }
 
 func (h *Handler) deleteTrip(c *gin.Context) error {
@@ -807,7 +999,13 @@ func (h *Handler) resetShareCode(c *gin.Context) error {
 	db := h.db.WithContext(c.Request.Context())
 	for attempt := 0; ; attempt++ {
 		code := service.NewShareCode()
-		err := db.Model(&model.Trip{}).Where("id = ?", t.ID).UpdateColumn("share_code", code).Error
+		err := db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Model(&model.Trip{}).Where("id = ?", t.ID).UpdateColumn("share_code", code).Error; err != nil {
+				return err
+			}
+			_, err := service.TouchTrip(tx, t.ID, currentUserID(c))
+			return err
+		})
 		if err == nil {
 			c.JSON(http.StatusOK, gin.H{"share_code": code})
 			return nil

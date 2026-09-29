@@ -173,7 +173,8 @@ func (h *Handler) recountTripComments(tx *gorm.DB, tripID int64) error {
 // visiblePlaceIDs returns which of the places ids the viewer u (nil = guest)
 // may open: places with public check-ins, an AMap POI ID, or used by a
 // public trip are public; others are visible only to members (accepted or
-// invited) of a trip using them, and to admins.
+// invited, or members of the trip's space) of a trip using them, and to
+// admins.
 func (h *Handler) visiblePlaceIDs(ctx context.Context, u *model.User, ids []int64) (map[int64]bool, error) {
 	out := map[int64]bool{}
 	if len(ids) == 0 {
@@ -187,9 +188,8 @@ func (h *Handler) visiblePlaceIDs(ctx context.Context, u *model.User, ids []int6
 		}
 		q = q.Where(`(checkin_count > 0 OR amap_id <> '' OR EXISTS (
   SELECT 1 FROM waypoints w JOIN trips t ON t.id = w.trip_id WHERE w.place_id = places.id AND (
-    (t.visibility = ? AND t.status = ?) OR
-    w.trip_id IN (SELECT trip_id FROM trip_members WHERE user_id = ? AND status IN ?))))`,
-			model.VisPublic, model.TripNormal, uid, []string{model.MemberAccepted, model.MemberPending})
+    (t.visibility = ? AND t.status = ?) OR w.trip_id IN (?))))`,
+			model.VisPublic, model.TripNormal, service.VisibleMemberTripIDs(h.db.WithContext(ctx), uid))
 	}
 	var visible []int64
 	if err := q.Pluck("id", &visible).Error; err != nil {
@@ -316,6 +316,8 @@ func (h *Handler) softDeleteComment(c *gin.Context, cm *model.Comment) error {
 	})
 }
 
+// findComment loads the :id comment, including a deleted one (kept as a
+// placeholder for its replies; see Comment.Deleted).
 func (h *Handler) findComment(c *gin.Context) (*model.Comment, error) {
 	id, err := idParam(c, "id")
 	if err != nil {
@@ -325,12 +327,14 @@ func (h *Handler) findComment(c *gin.Context) (*model.Comment, error) {
 	if err := h.db.WithContext(c.Request.Context()).Limit(1).Find(&cm, id).Error; err != nil {
 		return nil, err
 	}
-	if cm.ID == 0 || cm.Deleted {
+	if cm.ID == 0 {
 		return nil, errNotFound("评论不存在")
 	}
 	return &cm, nil
 }
 
+// deleteComment is DELETE /comments/:id. It is idempotent: deleting a
+// comment that is deleted already answers {} (to whoever may delete it).
 func (h *Handler) deleteComment(c *gin.Context) error {
 	cm, err := h.findComment(c)
 	if err != nil {
@@ -348,8 +352,10 @@ func (h *Handler) deleteComment(c *gin.Context) error {
 	if !allowed {
 		return errForbidden("无权删除该评论")
 	}
-	if err := h.softDeleteComment(c, cm); err != nil {
-		return err
+	if !cm.Deleted {
+		if err := h.softDeleteComment(c, cm); err != nil {
+			return err
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{})
 	return nil

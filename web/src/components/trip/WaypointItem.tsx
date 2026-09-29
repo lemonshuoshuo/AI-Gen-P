@@ -1,6 +1,6 @@
-import type { MouseEvent, ReactNode } from 'react'
+import type { CSSProperties, MouseEvent, ReactNode } from 'react'
 import { Link } from 'react-router'
-import { ArrowUpRight, MessageCircle } from 'lucide-react'
+import { ArrowUpRight, Bed, MessageCircle } from 'lucide-react'
 import { isAvoided } from '@/api'
 import type { Photo, PlaceStats, Waypoint } from '@/api/types'
 import { recommendRate } from '@/components/place/PlaceCard'
@@ -11,14 +11,30 @@ import { categoryOf, waypointStatus } from '@/lib/meta'
 import { NavigateMenu } from './NavigateMenu'
 
 /**
- * 印章式序号（与地图上的 markerHtml 一致）：已到达为象牙白实心，计划中为虚线空心，跳过为淡灰；
- * 右下角小圆点是分类色
+ * 印章式序号（与地图上的标记一致）：已到达为象牙白实心，计划中为虚线空心，跳过为淡灰；
+ * 右下角小圆点是分类色。住宿不编号，是一个床的方章
  */
-export function WaypointNumber({ w, label, className }: { w: Waypoint; label: string; className?: string }) {
+export function WaypointNumber({ w, label, className, style }: { w: Waypoint; label: string; className?: string; style?: CSSProperties }) {
   const skipped = w.status === 'skipped'
   const todo = w.planned && w.status === 'todo'
+  if (w.kind === 'lodging')
+    return (
+      <span
+        title="住宿"
+        style={style}
+        className={cn(
+          'relative flex size-7 shrink-0 items-center justify-center rounded-md border transition-shadow duration-300',
+          w.status === 'visited' ? 'border-ink-900 bg-ink-900 text-paper' : 'border-ink-700 bg-surface-2 text-ink-900',
+          className,
+        )}
+      >
+        <Bed className="size-4" strokeWidth={1.5} />
+        <span className="sr-only">住宿</span>
+      </span>
+    )
   return (
     <span
+      style={style}
       className={cn(
         'font-num relative flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full px-1.5 text-[13px] leading-none font-medium transition-shadow duration-300',
         skipped
@@ -171,6 +187,7 @@ export function WaypointItem({
   actions,
   showStatus,
   plate,
+  caption,
 }: {
   w: Waypoint
   label: string
@@ -183,7 +200,11 @@ export function WaypointItem({
   showStatus?: boolean
   /** 首图版式：wide 整栏横幅（默认），left / right 宽屏上 7/12 宽的竖幅 */
   plate?: 'wide' | 'left' | 'right'
+  /** 元信息行最前面的小字，如住宿的「今晚住 · 第 1 晚」 */
+  caption?: ReactNode
 }) {
+  // 住宿：床的方章、不编号，标题小一号，排在当天最后
+  const lodging = w.kind === 'lodging'
   const st = waypointStatus[w.status]
   const skipped = w.status === 'skipped'
   const address = [w.district, w.address].filter(Boolean).join(' · ') || w.city
@@ -193,7 +214,10 @@ export function WaypointItem({
     <div
       id={`wp-${w.id}`}
       onClick={onSelect}
-      className="group/wp relative grid cursor-pointer scroll-mt-24 grid-cols-[2.25rem_minmax(0,1fr)] gap-x-4 py-10 md:grid-cols-[3.5rem_minmax(0,1fr)] md:gap-x-6 md:py-14"
+      className={cn(
+        'group/wp relative grid cursor-pointer scroll-mt-24 grid-cols-[2.25rem_minmax(0,1fr)] gap-x-4 md:grid-cols-[3.5rem_minmax(0,1fr)] md:gap-x-6',
+        lodging ? 'py-7 md:py-9' : 'py-9 md:py-12',
+      )}
     >
       {/* 选中：印章外圈 + 从印章垂下的一条象牙白细线（在序号栏里，和印章中心对齐） */}
       <div className="relative flex items-start pt-1">
@@ -215,7 +239,8 @@ export function WaypointItem({
       </div>
       <div className={cn('min-w-0', skipped && 'opacity-60')}>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-ink-500">
-          <CategoryChip category={w.category} />
+          {caption && <span className="eyebrow !text-ink-700">{caption}</span>}
+          {!lodging && <CategoryChip category={w.category} />}
           {time && <span className="font-num text-[13px] tracking-wide">{time}</span>}
           {showStatus && w.planned && w.status !== 'todo' && (
             <span className={cn('tracking-wide', w.status === 'visited' ? 'text-emerald-700' : 'text-ink-400')}>{st.label}</span>
@@ -226,7 +251,7 @@ export function WaypointItem({
         </div>
         <h3
           className={cn(
-            'mt-3 text-[28px] leading-[1.14] text-ink-900 md:mt-4 md:text-[40px]',
+            lodging ? 'mt-2 text-[19px] leading-[1.2] text-ink-900 md:text-[22px]' : 'mt-3 text-[22px] leading-[1.18] text-ink-900 md:text-[28px]',
             skipped && 'line-through decoration-ink-300 decoration-1',
           )}
         >

@@ -107,15 +107,13 @@ func (h *Handler) adminUserDTOs(ctx context.Context, users []model.User) ([]admi
 	for _, r := range counts {
 		tripCount[r.OwnerID] = r.N
 	}
-	var parts []model.Partnership
-	if err := db.Where("user_a IN ? OR user_b IN ?", ids, ids).Find(&parts).Error; err != nil {
+	partnerOf, err := service.CouplePartners(db, ids)
+	if err != nil {
 		return nil, err
 	}
-	partnerOf := map[int64]int64{}
 	var pids []int64
-	for _, p := range parts {
-		partnerOf[p.UserA], partnerOf[p.UserB] = p.UserB, p.UserA
-		pids = append(pids, p.UserA, p.UserB)
+	for _, p := range partnerOf {
+		pids = append(pids, p)
 	}
 	partners, err := h.loadUsers(ctx, pids)
 	if err != nil {
@@ -362,6 +360,9 @@ func (h *Handler) adminUpdateTrip(c *gin.Context) error {
 		if err := tx.Model(&model.Trip{}).Where("id = ?", t.ID).UpdateColumns(upd).Error; err != nil {
 			return err
 		}
+		if _, err := service.TouchTrip(tx, t.ID, currentUserID(c)); err != nil {
+			return err
+		}
 		if statusChanged {
 			ids, err := service.TripPlaceIDs(tx, t.ID)
 			if err != nil {
@@ -463,8 +464,10 @@ func (h *Handler) adminDeleteComment(c *gin.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.softDeleteComment(c, cm); err != nil {
-		return err
+	if !cm.Deleted { // deleted already: nothing to do
+		if err := h.softDeleteComment(c, cm); err != nil {
+			return err
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{})
 	return nil

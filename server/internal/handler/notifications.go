@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"triphub/internal/model"
+	"triphub/internal/service"
 )
 
 type notificationDTO struct {
@@ -17,10 +18,15 @@ type notificationDTO struct {
 	CommentID *int64     `json:"comment_id"`
 	Content   string     `json:"content"`
 	Read      bool       `json:"read"`
-	// InvitePending: a trip_invite whose invitation still awaits the
-	// recipient's answer (clients show accept / decline).
-	InvitePending bool   `json:"invite_pending"`
-	CreatedAt     string `json:"created_at"`
+	// InvitePending: a trip_invite or space_invite whose invitation still
+	// awaits the recipient's answer (clients show accept / decline).
+	InvitePending bool `json:"invite_pending"`
+	// Space: the space of a space notice, while the recipient is a member of
+	// it or invited to it; SpaceInviteID: the pending invitation of a
+	// space_invite (for POST /space-invites/:id/accept | decline).
+	Space         *SpaceRef `json:"space"`
+	SpaceInviteID *int64    `json:"space_invite_id"`
+	CreatedAt     string    `json:"created_at"`
 }
 
 func (h *Handler) listNotifications(c *gin.Context) error {
@@ -37,7 +43,7 @@ func (h *Handler) listNotifications(c *gin.Context) error {
 	if err != nil {
 		return err
 	}
-	var actorIDs, tripIDs, placeIDs []int64
+	var actorIDs, tripIDs, placeIDs, spaceIDs []int64
 	for _, n := range ns {
 		if n.ActorID != nil {
 			actorIDs = append(actorIDs, *n.ActorID)
@@ -47,6 +53,9 @@ func (h *Handler) listNotifications(c *gin.Context) error {
 		}
 		if n.PlaceID != nil {
 			placeIDs = append(placeIDs, *n.PlaceID)
+		}
+		if n.SpaceID != nil {
+			spaceIDs = append(spaceIDs, *n.SpaceID)
 		}
 	}
 	users, err := h.loadUsers(ctx, actorIDs)
@@ -58,7 +67,7 @@ func (h *Handler) listNotifications(c *gin.Context) error {
 	invitePending := map[int64]bool{} // trips the recipient is invited to and has not answered
 	if len(tripIDs) > 0 {
 		var ts []model.Trip
-		if err := db.Select("id", "title", "owner_id", "visibility", "status").Where("id IN ?", uniq(tripIDs)).Find(&ts).Error; err != nil {
+		if err := db.Select("id", "title", "owner_id", "visibility", "status", "space_id").Where("id IN ?", uniq(tripIDs)).Find(&ts).Error; err != nil {
 			return err
 		}
 		var memberOf []model.TripMember
@@ -73,10 +82,52 @@ func (h *Handler) listNotifications(c *gin.Context) error {
 				invitePending[m.TripID] = true
 			}
 		}
+		var tripSpaces []int64
 		for _, t := range ts {
-			if u.IsAdmin() || isMember[t.ID] || (t.Visibility == model.VisPublic && t.Status == model.TripNormal) {
+			if t.SpaceID != nil {
+				tripSpaces = append(tripSpaces, *t.SpaceID)
+			}
+		}
+		inSpace := map[int64]bool{}
+		if len(tripSpaces) > 0 {
+			var mine []int64
+			if err := db.Model(&model.SpaceMember{}).Where("user_id = ? AND space_id IN ?", u.ID, uniq(tripSpaces)).
+				Pluck("space_id", &mine).Error; err != nil {
+				return err
+			}
+			for _, id := range mine {
+				inSpace[id] = true
+			}
+		}
+		for _, t := range ts {
+			if u.IsAdmin() || isMember[t.ID] || (t.SpaceID != nil && inSpace[*t.SpaceID]) ||
+				(t.Visibility == model.VisPublic && t.Status == model.TripNormal) {
 				trips[t.ID] = TripRef{ID: t.ID, Title: t.Title}
 			}
+		}
+	}
+	// Spaces: shown to their members and to those invited (with the pending invitation).
+	spaces := map[int64]*SpaceRef{}
+	spaceInvite := map[int64]int64{} // space → the recipient's pending invitation
+	if len(spaceIDs) > 0 {
+		ids := uniq(spaceIDs)
+		var sps []model.Space
+		if err := db.Select("id", "name", "type", "type_label").Where("id IN ? AND (id IN (?) OR id IN (?))", ids,
+			service.SpaceIDsOf(db, u.ID),
+			db.Model(&model.SpaceInvite{}).Select("space_id").Where("invitee_id = ? AND status = ?", u.ID, model.InvitePending)).
+			Find(&sps).Error; err != nil {
+			return err
+		}
+		for i := range sps {
+			spaces[sps[i].ID] = spaceRef(&sps[i])
+		}
+		var invs []model.SpaceInvite
+		if err := db.Select("id", "space_id").Where("invitee_id = ? AND status = ? AND space_id IN ?", u.ID, model.InvitePending, ids).
+			Find(&invs).Error; err != nil {
+			return err
+		}
+		for _, inv := range invs {
+			spaceInvite[inv.SpaceID] = inv.ID
 		}
 	}
 	places := map[int64]PlaceRef{}
@@ -109,6 +160,12 @@ func (h *Handler) listNotifications(c *gin.Context) error {
 		if n.PlaceID != nil {
 			if pl, ok := places[*n.PlaceID]; ok {
 				d.Place = &pl
+			}
+		}
+		if n.SpaceID != nil {
+			d.Space = spaces[*n.SpaceID]
+			if inv, ok := spaceInvite[*n.SpaceID]; ok && n.Type == "space_invite" {
+				d.InvitePending, d.SpaceInviteID = true, &inv
 			}
 		}
 		items = append(items, d)

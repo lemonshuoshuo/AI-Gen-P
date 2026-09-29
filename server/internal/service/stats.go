@@ -371,9 +371,10 @@ func PlaceIDs(ptrs ...*int64) []int64 {
 // waypoint), else by same name within 100 m; new places are only created for
 // waypoints whose name was given by the user (or that carry a verified AMap
 // ID). Name matching only joins places that are public (public check-ins or
-// an AMap ID) or already used in a trip the actor is a member of, since a
-// place's name, address and position come from the waypoint that created
-// it, which may belong to a private trip.
+// an AMap ID) or already used in a trip the actor is a member of (a
+// co-author, or through the trip's space), since a place's name, address
+// and position come from the waypoint that created it, which may belong to
+// a private trip.
 func (s *Service) ResolvePlace(tx *gorm.DB, wp *model.Waypoint, userNamed bool, actorID int64) (*int64, error) {
 	if wp.AmapID != "" {
 		var p model.Place
@@ -409,7 +410,7 @@ func (s *Service) ResolvePlace(tx *gorm.DB, wp *model.Waypoint, userNamed bool, 
 		return nil, nil
 	}
 	minLng, minLat, maxLng, maxLat := geo.BBoxAround(wp.Lng, wp.Lat, 100)
-	own := tx.Model(&model.Waypoint{}).Select("place_id").Where("place_id IS NOT NULL AND trip_id IN (?)", MemberTripIDs(tx, actorID))
+	own := tx.Model(&model.Waypoint{}).Select("place_id").Where("place_id IS NOT NULL AND trip_id IN (?)", AccessibleTripIDs(tx, actorID))
 	var cands []model.Place
 	if err := tx.Where("lower(name) = lower(?) AND lng BETWEEN ? AND ? AND lat BETWEEN ? AND ?", name, minLng, maxLng, minLat, maxLat).
 		Where("(checkin_count > 0 OR amap_id <> '' OR id IN (?))", own).

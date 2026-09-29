@@ -205,6 +205,12 @@ func (h *Handler) deleteMe(c *gin.Context) error {
 	var files []string
 	var orphans, trackTrips []int64
 	err := db.Transaction(func(tx *gorm.DB) error {
+		// Spaces first (they are locked before trips): the user leaves each,
+		// their trips leaving it too, and an owner is succeeded by the
+		// member who joined earliest.
+		if err := h.leaveAllSpaces(tx, u); err != nil {
+			return err
+		}
 		var shared []model.Trip
 		if err := tx.Select("id", "title").Where("owner_id = ?", u.ID).Find(&shared).Error; err != nil {
 			return err
@@ -313,7 +319,17 @@ func (h *Handler) deleteMe(c *gin.Context) error {
 			}
 		}
 
-		// Relations and personal records.
+		// Relations and personal records. The trips whose members change (and
+		// those losing photos or track) count a revision below.
+		changed := append([]int64{}, trackTrips...)
+		for id := range touched {
+			changed = append(changed, id)
+		}
+		var memberTrips []int64
+		if err := tx.Model(&model.TripMember{}).Where("user_id = ?", u.ID).Pluck("trip_id", &memberTrips).Error; err != nil {
+			return err
+		}
+		changed = append(changed, memberTrips...)
 		for _, del := range []struct {
 			q    string
 			args []any
@@ -321,23 +337,12 @@ func (h *Handler) deleteMe(c *gin.Context) error {
 			{"DELETE FROM follows WHERE follower_id = ? OR followee_id = ?", []any{u.ID, u.ID}},
 			{"DELETE FROM trip_members WHERE user_id = ?", []any{u.ID}},
 			{"DELETE FROM partner_invites WHERE from_id = ? OR to_id = ?", []any{u.ID, u.ID}},
+			{"DELETE FROM space_invites WHERE inviter_id = ? OR invitee_id = ?", []any{u.ID, u.ID}},
 			{"DELETE FROM notifications WHERE user_id = ?", []any{u.ID}},
 			{"DELETE FROM exp_logs WHERE user_id = ?", []any{u.ID}},
 			{"DELETE FROM refresh_tokens WHERE user_id = ?", []any{u.ID}},
 		} {
 			if err := tx.Exec(del.q, del.args...).Error; err != nil {
-				return err
-			}
-		}
-		partnerID, p, err := service.PartnerOf(tx, u.ID)
-		if err != nil {
-			return err
-		}
-		if p != nil {
-			if err := tx.Delete(p).Error; err != nil {
-				return err
-			}
-			if err := h.svc.Notify(tx, service.Notice{UserID: partnerID, Type: "system", Content: "对方已注销账号，情侣绑定已解除"}); err != nil {
 				return err
 			}
 		}
@@ -355,6 +360,9 @@ func (h *Handler) deleteMe(c *gin.Context) error {
 			}
 		}
 		if err := h.svc.RecomputePlaces(tx, placeIDs); err != nil {
+			return err
+		}
+		if err := service.TouchTrips(tx, changed, u.ID); err != nil {
 			return err
 		}
 
@@ -381,6 +389,44 @@ func (h *Handler) deleteMe(c *gin.Context) error {
 		h.trackCache.dropTrip(id)
 	}
 	c.JSON(http.StatusOK, gin.H{})
+	return nil
+}
+
+// leaveAllSpaces takes a closing account out of all its spaces (see
+// service.RemoveSpaceMember): a partner learns that the couple ended, a
+// member who becomes a space's owner is told so.
+func (h *Handler) leaveAllSpaces(tx *gorm.DB, u *model.User) error {
+	var ids []int64
+	if err := tx.Model(&model.SpaceMember{}).Where("user_id = ?", u.ID).Order("space_id").Pluck("space_id", &ids).Error; err != nil {
+		return err
+	}
+	for _, id := range ids {
+		sp, err := service.LockSpace(tx, id)
+		if err != nil {
+			return err
+		}
+		if sp == nil {
+			continue
+		}
+		var others []int64
+		if err := tx.Model(&model.SpaceMember{}).Where("space_id = ? AND user_id <> ?", id, u.ID).Pluck("user_id", &others).Error; err != nil {
+			return err
+		}
+		left, err := service.RemoveSpaceMember(tx, sp, u.ID, u.ID)
+		if err != nil {
+			return err
+		}
+		switch {
+		case sp.Type == model.SpaceCouple && len(others) == 1:
+			err = h.svc.Notify(tx, service.Notice{UserID: others[0], Type: "system", SpaceID: id, Content: "对方已注销账号，情侣绑定已解除"})
+		case left.NewOwnerID != 0:
+			err = h.svc.Notify(tx, service.Notice{UserID: left.NewOwnerID, Type: "system", SpaceID: id,
+				Content: "空间「" + sp.Name + "」的创建者注销了账号，你成为了空间的创建者"})
+		}
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -475,10 +521,16 @@ func validVisibility(v string) bool {
 	return v == model.VisPrivate || v == model.VisUnlisted || v == model.VisPublic
 }
 
+// myTrips lists the trips the user takes part in (author or co-author);
+// with include_spaces=true also those of the spaces they belong to.
 func (h *Handler) myTrips(c *gin.Context) error {
 	u := currentUser(c)
 	db := h.db.WithContext(c.Request.Context())
-	q := db.Model(&model.Trip{}).Where("id IN (?)", service.MemberTripIDs(db, u.ID))
+	ids := service.MemberTripIDs(db, u.ID)
+	if queryBool(c, "include_spaces") {
+		ids = service.AccessibleTripIDs(db, u.ID)
+	}
+	q := db.Model(&model.Trip{}).Where("id IN (?)", ids)
 	if p := c.Query("phase"); p != "" {
 		if !validPhase(p) {
 			return errBad("phase 参数无效")
@@ -499,7 +551,7 @@ func (h *Handler) myFavorites(c *gin.Context) error {
 	db := h.db.WithContext(c.Request.Context())
 	p := pageParams(c)
 	visible := db.Model(&model.Trip{}).Select("trips.id").
-		Where("(trips.visibility = ? AND trips.status = ?) OR trips.id IN (?)", model.VisPublic, model.TripNormal, service.MemberTripIDs(db, u.ID))
+		Where("(trips.visibility = ? AND trips.status = ?) OR trips.id IN (?)", model.VisPublic, model.TripNormal, service.AccessibleTripIDs(db, u.ID))
 	q := db.Model(&model.Trip{}).Joins("JOIN favorites f ON f.trip_id = trips.id AND f.user_id = ?", u.ID).
 		Where("trips.id IN (?)", visible)
 	var trips []model.Trip
@@ -574,14 +626,22 @@ func (h *Handler) myInvites(c *gin.Context) error {
 			}
 		}
 	}
-	var invs []model.PartnerInvite
-	if err := db.Where("to_id = ? AND status = ?", u.ID, model.InvitePending).Order("created_at DESC").Find(&invs).Error; err != nil {
+	var invs []model.SpaceInvite
+	if err := db.Where("invitee_id = ? AND status = ?", u.ID, model.InvitePending).Order("created_at DESC, id DESC").Find(&invs).Error; err != nil {
 		return err
 	}
-	pinv, err := h.partnerInviteDTOs(ctx, invs)
+	sinv, err := h.spaceInviteDTOs(ctx, invs)
 	if err != nil {
 		return err
 	}
-	c.JSON(http.StatusOK, gin.H{"trip_invites": tripInvites, "partner_invites": pinv})
+	couple, err := h.coupleInvites(c, true) // deprecated partner_invites: those of couple spaces
+	if err != nil {
+		return err
+	}
+	pinv, err := h.partnerInviteDTOs(ctx, couple)
+	if err != nil {
+		return err
+	}
+	c.JSON(http.StatusOK, gin.H{"trip_invites": tripInvites, "space_invites": sinv, "partner_invites": pinv})
 	return nil
 }

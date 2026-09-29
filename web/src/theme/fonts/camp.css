@@ -1,0 +1,5 @@
+/* 山野 Camp：Bricolage Grotesque（标题、数字）+ Figtree（界面）+ DM Mono（标签）；中文用系统黑体，不加载中文网络字体 */
+@import '@fontsource-variable/bricolage-grotesque/index.css';
+@import '@fontsource-variable/figtree/wght.css';
+@import '@fontsource/dm-mono/400.css';
+@import '@fontsource/dm-mono/500.css';

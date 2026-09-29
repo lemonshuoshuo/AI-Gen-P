@@ -6,10 +6,13 @@ const STORAGE_KEY = 'triphub.tokens'
 export class ApiError extends Error {
   status: number
   code: string
-  constructor(status: number, code: string, message: string) {
+  /** 解析后的完整响应体（如保存计划冲突时的 revision / updated_by / updated_at、某一项出错时的 index）；非 JSON 时为 undefined */
+  data?: unknown
+  constructor(status: number, code: string, message: string, data?: unknown) {
     super(message)
     this.status = status
     this.code = code
+    this.data = data
   }
 }
 
@@ -108,6 +111,8 @@ export interface RequestOptions {
   signal?: AbortSignal
   /** 上传进度（仅 form 请求） */
   onProgress?: (ratio: number) => void
+  /** 页面关闭时也发出（fetch keepalive，如离开编辑页时的「不再编辑」）；不做 token 刷新重试 */
+  keepalive?: boolean
 }
 
 function buildUrl(path: string, query?: Query) {
@@ -190,8 +195,10 @@ async function doRefresh(stale: string): Promise<boolean> {
 async function parseError(res: Response): Promise<ApiError> {
   let code = 'internal'
   let message = `请求失败（${res.status}）`
+  let body: unknown
   try {
     const data = await res.json()
+    body = data
     if (data?.error) {
       code = data.error.code ?? code
       message = data.error.message ?? message
@@ -201,7 +208,7 @@ async function parseError(res: Response): Promise<ApiError> {
   }
   if (res.status === 413 && code === 'internal') message = '文件太大了'
   if (res.status >= 502 && res.status <= 504) message = '服务器暂时无法访问，请稍后再试'
-  return new ApiError(res.status, code, message)
+  return new ApiError(res.status, code, message, body)
 }
 
 function xhrUpload<T>(method: string, url: string, form: FormData, opts: RequestOptions): Promise<T> {
@@ -250,13 +257,13 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
 
   let res: Response
   try {
-    res = await fetch(url, { method, headers, body, signal: opts.signal })
+    res = await fetch(url, { method, headers, body, signal: opts.signal, keepalive: opts.keepalive })
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e
     throw new ApiError(0, 'network', '网络连接失败，请检查网络')
   }
 
-  if (res.status === 401 && retry && sentAccess && !path.startsWith('/auth/')) {
+  if (res.status === 401 && retry && sentAccess && !opts.keepalive && !path.startsWith('/auth/')) {
     // 请求途中 token 已被其他请求或标签页换新：直接用新 token 重试，不再刷新一次
     if (tokens?.access && tokens.access !== sentAccess) return request<T>(method, path, opts, false)
     if (await refreshTokens()) return request<T>(method, path, opts, false)

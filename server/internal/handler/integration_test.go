@@ -199,6 +199,12 @@ func setup(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Each test has its own pool: closed when the test ends (after its
+	// server, cleanups running last-registered first), or the idle
+	// connections of every earlier test would use up the database's.
+	if sqlDB, err := gdb.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
 	if err := gdb.Exec("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").Error; err != nil {
 		t.Fatal(err)
 	}
@@ -1912,7 +1918,8 @@ FROM trips WHERE id = ?`, tid).Scan(&r)
 		t.Fatalf("check-in undone by a concurrent edit: %v", moved)
 	}
 	check("edit and check-in")
-	// Deleting a photo twice at once releases its storage once.
+	// Deleting a photo twice at once releases its storage once (and both
+	// requests succeed: deleting is idempotent).
 	storage := func() float64 { return num(e.must(200, "GET", "/me", alice, nil).obj(t)["storage_used"]) }
 	upload := func() int64 {
 		r := e.upload(fmt.Sprintf("/trips/%d/photos", tid), alice, testJPEG(t, 300, 200), nil)
@@ -1927,7 +1934,7 @@ FROM trips WHERE id = ?`, tid).Scan(&r)
 		p2 := upload()
 		codes := make([]int, 2)
 		parallel(2, func(i int) { codes[i] = e.status("DELETE", fmt.Sprintf("/photos/%d", p2), alice, nil) })
-		if codes[0]+codes[1] != 200+404 {
+		if codes[0] != 200 || codes[1] != 200 {
 			t.Fatalf("round %d: double delete: %v", round, codes)
 		}
 		if s := storage(); s != kept {
@@ -2080,14 +2087,15 @@ func TestCheckinAfterUntimedVisits(t *testing.T) {
 }
 
 // Accepting and withdrawing / declining an invite at the same moment has one
-// winner: a withdrawn invite never binds the couple, an accepted one stays accepted.
+// winner: a withdrawn invite never binds the couple, an accepted one stays
+// accepted. (The deprecated /partner invitations are couple-space invitations.)
 func TestPartnerInviteRace(t *testing.T) {
 	e := setup(t)
 	alice, _, aliceID := e.register("alice")
 	bob, _, bobID := e.register("bob")
 	inviteStatus := func(inv int64) string {
 		var s string
-		e.svc.DB.Raw("SELECT status FROM partner_invites WHERE id = ?", inv).Scan(&s)
+		e.svc.DB.Raw("SELECT status FROM space_invites WHERE id = ?", inv).Scan(&s)
 		return s
 	}
 	// waitLock waits until a request is blocked on a row lock.
@@ -2120,11 +2128,11 @@ func TestPartnerInviteRace(t *testing.T) {
 	if code := <-done; code != 404 {
 		t.Fatalf("accepting a withdrawn invite: %d", code)
 	}
-	if p := e.must(200, "GET", "/partner", alice, nil).obj(t); p["partner"] != nil || inviteStatus(inv) != "canceled" {
+	if p := e.must(200, "GET", "/partner", alice, nil).obj(t); p["partner"] != nil || inviteStatus(inv) != "cancelled" {
 		t.Fatalf("withdrawn invite: partner %v, status %s", p["partner"], inviteStatus(inv))
 	}
 	for _, n := range items(t, e.must(200, "GET", "/notifications", alice, nil)) {
-		if n.(map[string]any)["type"] == "partner_accept" {
+		if n.(map[string]any)["type"] == "space_accept" {
 			t.Fatalf("notified of a lost accept: %v", n)
 		}
 	}
@@ -2132,7 +2140,7 @@ func TestPartnerInviteRace(t *testing.T) {
 	// An accept commits while the withdrawal waits for the invite's row: the withdrawal loses.
 	inv2 := id(e.must(200, "POST", "/partner/invites", alice, map[string]any{"username": "bob"}).obj(t))
 	blocker = e.svc.DB.Begin()
-	if err := blocker.Exec("UPDATE partner_invites SET status = 'accepted' WHERE id = ?", inv2).Error; err != nil {
+	if err := blocker.Exec("UPDATE space_invites SET status = 'accepted' WHERE id = ?", inv2).Error; err != nil {
 		t.Fatal(err)
 	}
 	go func() { done <- e.status("DELETE", fmt.Sprintf("/partner/invites/%d", inv2), alice, nil) }()
@@ -2496,7 +2504,8 @@ func TestLiveCheckinsHiddenFromPlaces(t *testing.T) {
 	}
 }
 
-// The partner_invite notice carries only the sender's own message.
+// The space_invite notice (also of a /partner invitation) carries only the
+// sender's own message, and the invitation to answer.
 func TestPartnerInviteNotice(t *testing.T) {
 	e := setup(t)
 	alice, _, _ := e.register("alice")
@@ -2506,12 +2515,15 @@ func TestPartnerInviteNotice(t *testing.T) {
 	e.must(200, "POST", "/partner/invites", carol, map[string]any{"username": "bob", "message": "一起记录吧"})
 	content := map[string]any{}
 	for _, n := range items(t, e.must(200, "GET", "/notifications", bob, nil)) {
-		if m := n.(map[string]any); m["type"] == "partner_invite" {
+		if m := n.(map[string]any); m["type"] == "space_invite" {
 			content[m["actor"].(map[string]any)["username"].(string)] = m["content"]
+			if m["invite_pending"] != true || m["space_invite_id"] == nil || m["space"].(map[string]any)["type"] != "couple" {
+				t.Fatalf("space_invite notice: %v", m)
+			}
 		}
 	}
 	if len(content) != 2 || content["alice"] != "" || content["carol"] != "一起记录吧" {
-		t.Fatalf("partner_invite contents: %v", content)
+		t.Fatalf("space_invite contents: %v", content)
 	}
 }
 

@@ -14,6 +14,7 @@ type Notice struct {
 	TripID    int64
 	PlaceID   int64
 	CommentID int64
+	SpaceID   int64
 	Content   string
 }
 
@@ -47,7 +48,7 @@ func (s *Service) Notify(tx *gorm.DB, n Notice) error {
 	}
 	return tx.Create(&model.Notification{
 		UserID: n.UserID, Type: n.Type, ActorID: ptrOrNil(n.ActorID), TripID: ptrOrNil(n.TripID),
-		PlaceID: ptrOrNil(n.PlaceID), CommentID: ptrOrNil(n.CommentID), Content: Truncate(n.Content, 200),
+		PlaceID: ptrOrNil(n.PlaceID), CommentID: ptrOrNil(n.CommentID), SpaceID: ptrOrNil(n.SpaceID), Content: Truncate(n.Content, 200),
 	}).Error
 }
 

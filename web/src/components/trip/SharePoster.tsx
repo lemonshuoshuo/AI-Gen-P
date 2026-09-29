@@ -1,10 +1,17 @@
 // 旅程分享海报：朋友圈、小红书以图片为主（小红书不能发链接），在浏览器里用 canvas 画一张竖图
+// 配色与字体跟随当前主题和深浅色（手帐是米白纸 + 砖红、夜航是近黑 + 象牙白…）
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
-// 海报的数字用 Cormorant 的等高数字：画布不能设置 font-variant-numeric，改为注册一个默认开启 lnum 的字体别名
+// 海报的数字用各主题的数字字体：画布不能设置 font-variant-numeric，改为注册一个默认开启 lnum / tnum 的字体别名
 import cormorantLatin from '@fontsource-variable/cormorant-garamond/files/cormorant-garamond-latin-wght-normal.woff2?url'
+import frauncesLatin from '@fontsource-variable/fraunces/files/fraunces-latin-opsz-normal.woff2?url'
+import bricolageLatin from '@fontsource-variable/bricolage-grotesque/files/bricolage-grotesque-latin-wght-normal.woff2?url'
+import instrumentSerifLatin from '@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2?url'
+import newsreaderLatin from '@fontsource-variable/newsreader/files/newsreader-latin-opsz-normal.woff2?url'
 import { Download, Share2 } from 'lucide-react'
 import { Button, Modal, Spinner, buttonClass } from '@/components/ui'
+import { ensureThemeFonts, getResolvedTheme } from '@/theme/runtime'
+import type { ThemeId } from '@/theme/themes'
 
 type LngLat = [number, number]
 
@@ -32,19 +39,88 @@ export interface PosterOptions {
 const W = 1080
 const H = 1620
 const M = 84
-// 「夜航」：近黑底、象牙白字、极细分隔线；朱砂（情侣空间用胭脂）只是字标旁一个小圆点
-const BG = '#0b0b0a'
-const SURFACE = '#121211'
-const IVORY = '#f2eee6'
-const INK5 = '#948e84'
-const LINE = '#2a2926'
-const SANS = '"Manrope Variable",-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif'
-const SERIF = '"Cormorant Garamond Variable","Noto Serif SC","Songti SC","STSong",serif'
-const NUM_FAMILY = 'TripHub Poster Numerals'
-const NUM = `"${NUM_FAMILY}","Cormorant Garamond Variable",Georgia,"Noto Serif SC",serif`
 const THEMES = {
-  brand: { accent: '#cf6041', tagline: '记录旅程 · 分享路线 · 打卡避雷' },
-  love: { accent: '#bc7889', tagline: '我们一起走过的地方' },
+  brand: { tagline: '记录旅程 · 分享路线 · 打卡避雷' },
+  love: { tagline: '我们一起走过的地方' },
+}
+
+/** 海报用到的颜色与字体：取自当前主题（页面底色、主文字、次要文字、细线、强调色） */
+interface Palette {
+  bg: string
+  surface: string
+  ink: string
+  muted: string
+  line: string
+  /** 字标旁的小圆点：强调色（情侣空间用胭脂） */
+  accent: string
+  love: string
+  dark: boolean
+  sans: string
+  serif: string
+  num: string
+  displayWeight: number
+  numWeight: number
+}
+
+// 没读到主题变量时（不应发生）退回原来的「夜航」
+const FALLBACK: Palette = {
+  bg: '#0b0b0a',
+  surface: '#121211',
+  ink: '#f2eee6',
+  muted: '#948e84',
+  line: '#2a2926',
+  accent: '#cf6041',
+  love: '#bc7889',
+  dark: true,
+  sans: '"Manrope Variable",-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif',
+  serif: '"Cormorant Garamond Variable","Noto Serif SC","Songti SC","STSong",serif',
+  num: '"Cormorant Garamond Variable",Georgia,"Noto Serif SC",serif',
+  displayWeight: 400,
+  numWeight: 300,
+}
+
+function readPalette(): Palette {
+  const cs = getComputedStyle(document.documentElement)
+  const v = (name: string, fb: string) => cs.getPropertyValue(name).trim() || fb
+  const n = (name: string, fb: number) => Number(cs.getPropertyValue(name).trim()) || fb
+  return {
+    bg: v('--color-paper', FALLBACK.bg),
+    surface: v('--color-surface', FALLBACK.surface),
+    ink: v('--color-ink-900', FALLBACK.ink),
+    muted: v('--color-ink-500', FALLBACK.muted),
+    line: v('--color-line', FALLBACK.line),
+    accent: v('--color-brand-600', FALLBACK.accent),
+    love: v('--color-pink-600', FALLBACK.love),
+    dark: getResolvedTheme().mode === 'dark',
+    sans: v('--font-sans', FALLBACK.sans),
+    serif: v('--font-display', FALLBACK.serif),
+    num: v('--font-num', FALLBACK.num),
+    displayWeight: n('--display-weight', FALLBACK.displayWeight),
+    numWeight: n('--num-weight', FALLBACK.numWeight),
+  }
+}
+
+/** 任意 CSS 颜色 → [r, g, b]（借画布解析） */
+function toRgb(color: string): [number, number, number] {
+  const c = document.createElement('canvas').getContext('2d')
+  if (!c) return [0, 0, 0]
+  c.fillStyle = '#000'
+  c.fillStyle = color
+  const s = String(c.fillStyle)
+  if (s.startsWith('#')) return [1, 3, 5].map((i) => parseInt(s.slice(i, i + 2), 16)) as [number, number, number]
+  const m = s.match(/[\d.]+/g)?.map(Number) ?? [0, 0, 0]
+  return [m[0], m[1], m[2]]
+}
+const rgba = (rgb: [number, number, number], a: number) => `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a})`
+const luminance = ([r, g, b]: [number, number, number]) => 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+// 各主题数字字体的西文切片与字重范围
+const NUM_FONTS: Record<ThemeId, { url: string; weight: string }> = {
+  journal: { url: frauncesLatin, weight: '100 900' },
+  camp: { url: bricolageLatin, weight: '200 800' },
+  coast: { url: instrumentSerifLatin, weight: '400' },
+  dusk: { url: newsreaderLatin, weight: '100 900' },
+  voyage: { url: cormorantLatin, weight: '300 700' },
 }
 
 function loadImg(src: string, cors = false): Promise<HTMLImageElement> {
@@ -58,18 +134,24 @@ function loadImg(src: string, cors = false): Promise<HTMLImageElement> {
   })
 }
 
-let numFont: Promise<void> | null = null
-/** 注册等高数字字体（FontFace 的 featureSettings 不支持时退回普通的 Cormorant，数字是旧式的） */
-function ensureNumFont() {
-  numFont ??= (async () => {
-    try {
-      const face = new FontFace(NUM_FAMILY, `url(${cormorantLatin})`, { weight: '300 700', featureSettings: '"lnum" 1' })
-      document.fonts.add(await face.load())
-    } catch {
-      /* 用普通的 Cormorant */
-    }
-  })()
-  return numFont
+const numFonts = new Map<ThemeId, Promise<void>>()
+const numFamily = (theme: ThemeId) => `TripHub Poster Numerals ${theme}`
+/** 注册等高数字字体（FontFace 的 featureSettings 不支持时退回主题的数字字体本身） */
+function ensureNumFont(theme: ThemeId) {
+  let job = numFonts.get(theme)
+  if (!job) {
+    job = (async () => {
+      try {
+        const f = NUM_FONTS[theme]
+        const face = new FontFace(numFamily(theme), `url(${f.url})`, { weight: f.weight, featureSettings: '"lnum" 1, "tnum" 1' })
+        document.fonts.add(await face.load())
+      } catch {
+        /* 用主题的数字字体 */
+      }
+    })()
+    numFonts.set(theme, job)
+  }
+  return job
 }
 
 /** 画布用到的网页字体（宋体按字切片，要带上实际文字才会下载对应分片）；最多等 3 秒，超时就用系统字体 */
@@ -128,7 +210,7 @@ function drawCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: numb
   ctx.drawImage(img, (img.naturalWidth - sw) / 2, (img.naturalHeight - sh) / 2, sw, sh, x, y, w, h)
 }
 
-function hairline(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color = LINE, width = 1.5) {
+function hairline(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, width = 1.5) {
   ctx.save()
   ctx.strokeStyle = color
   ctx.lineWidth = width
@@ -139,8 +221,8 @@ function hairline(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: num
   ctx.restore()
 }
 
-/** 胶片颗粒：极淡的亮色噪点，小图块平铺，避免大面积纯黑死板 */
-function grain(ctx: CanvasRenderingContext2D) {
+/** 纸纹 / 胶片颗粒：极淡的噪点（深色海报用亮点、浅色海报用墨点），小图块平铺，避免大面积纯色死板 */
+function grain(ctx: CanvasRenderingContext2D, speck: [number, number, number]) {
   const tile = document.createElement('canvas')
   try {
     tile.width = tile.height = 128
@@ -148,9 +230,9 @@ function grain(ctx: CanvasRenderingContext2D) {
     if (!t) return
     const img = t.createImageData(128, 128)
     for (let i = 0; i < img.data.length; i += 4) {
-      img.data[i] = 255
-      img.data[i + 1] = 248
-      img.data[i + 2] = 235
+      img.data[i] = speck[0]
+      img.data[i + 1] = speck[1]
+      img.data[i + 2] = speck[2]
       img.data[i + 3] = Math.random() < 0.5 ? Math.floor(Math.random() * 9) : 0
     }
     t.putImageData(img, 0, 0)
@@ -166,7 +248,8 @@ function grain(ctx: CanvasRenderingContext2D) {
 }
 
 /** 细线邮戳：双圈 + 沿圈小字 + 中间细字大数字 */
-function postmark(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, color: string, value: string, unit: string, ring: string) {
+function postmark(ctx: CanvasRenderingContext2D, p: Palette, NUM: string, cx: number, cy: number, r: number, color: string, value: string, unit: string, ring: string) {
+  const SANS = p.sans
   ctx.save()
   ctx.translate(cx, cy)
   ctx.rotate((-8 * Math.PI) / 180)
@@ -196,7 +279,7 @@ function postmark(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: numb
     ctx.fillText(c, 0, -r * 0.83)
     ctx.restore()
   })
-  ctx.font = `300 ${Math.round(r * 0.52)}px ${NUM}`
+  ctx.font = `${p.numWeight} ${Math.round(r * 0.52)}px ${NUM}`
   ctx.fillText(value, 0, -r * 0.08)
   ctx.lineWidth = 1
   ctx.beginPath()
@@ -208,8 +291,10 @@ function postmark(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: numb
   ctx.restore()
 }
 
-/** 路线示意：经度按平均纬度压缩后等比缩放到框内；象牙白细线 + 空心圆点，起点实心 */
-function drawRoute(ctx: CanvasRenderingContext2D, path: LngLat[], dots: { lng: number; lat: number; color: string }[], box: { x: number; y: number; w: number; h: number }) {
+/** 路线示意：经度按平均纬度压缩后等比缩放到框内；主文字色细线 + 空心圆点，起点实心 */
+function drawRoute(ctx: CanvasRenderingContext2D, pal: Palette, path: LngLat[], dots: { lng: number; lat: number; color: string }[], box: { x: number; y: number; w: number; h: number }) {
+  const INK = pal.ink
+  const BG = pal.bg
   const all: LngLat[] = [...path, ...dots.map((d) => [d.lng, d.lat] as LngLat)]
   if (!all.length) return
   const k = Math.cos((all.reduce((a, p) => a + p[1], 0) / all.length) * (Math.PI / 180))
@@ -235,7 +320,7 @@ function drawRoute(ctx: CanvasRenderingContext2D, path: LngLat[], dots: { lng: n
     ctx.save()
     ctx.lineJoin = 'round'
     ctx.lineCap = 'round'
-    ctx.strokeStyle = IVORY
+    ctx.strokeStyle = INK
     ctx.lineWidth = 2.5
     ctx.beginPath()
     path.forEach((p, i) => {
@@ -261,7 +346,7 @@ function drawRoute(ctx: CanvasRenderingContext2D, path: LngLat[], dots: { lng: n
     ctx.fillStyle = fill
     ctx.fill()
     ctx.lineWidth = 2
-    ctx.strokeStyle = IVORY
+    ctx.strokeStyle = INK
     ctx.stroke()
   }
   groups
@@ -269,11 +354,11 @@ function drawRoute(ctx: CanvasRenderingContext2D, path: LngLat[], dots: { lng: n
     .sort((a, b) => Number(a.start) - Number(b.start))
     .forEach((g) => {
       if (!g.start) return ring(g.x, g.y, g.n > 1 ? 9 : 7, BG)
-      if (g.n === 1) return ring(g.x, g.y, 9, IVORY)
+      if (g.n === 1) return ring(g.x, g.y, 9, INK)
       ring(g.x, g.y, 13, BG)
       ctx.beginPath()
       ctx.arc(g.x, g.y, 6, 0, Math.PI * 2)
-      ctx.fillStyle = IVORY
+      ctx.fillStyle = INK
       ctx.fill()
     })
 }
@@ -281,12 +366,21 @@ function drawRoute(ctx: CanvasRenderingContext2D, path: LngLat[], dots: { lng: n
 /** 画海报，返回 JPEG 的 data URL（微信里长按保存不支持 blob: 链接） */
 export async function drawPoster(o: PosterOptions): Promise<string> {
   const theme = THEMES[o.theme]
+  const siteTheme = getResolvedTheme().theme
+  const P = readPalette()
+  const { bg: BG, surface: SURFACE, ink: INK, muted: INK5, line: LINE, sans: SANS, serif: SERIF } = P
+  const NUM = `"${numFamily(siteTheme)}",${P.num}`
+  const DW = P.displayWeight
+  const NW = P.numWeight
+  const accent = o.theme === 'love' ? P.love : P.accent
+  const bgRgb = toRgb(BG)
+  const inkRgb = toRgb(INK)
   const statText = o.stats.map((s) => s.label + (s.unit ?? '')).join('')
-  await Promise.race([ensureNumFont(), new Promise((r) => setTimeout(r, 3000))])
+  await Promise.race([Promise.all([ensureThemeFonts(siteTheme), ensureNumFont(siteTheme)]), new Promise((r) => setTimeout(r, 3000))])
   await ensureFonts([
-    [`400 84px ${SERIF}`, o.title + (o.lead ?? '') + statText],
-    [`400 60px ${SERIF}`, o.siteName + 'TripHub'],
-    [`300 100px ${NUM}`, '0123456789.,-—' + o.stats.map((s) => s.value).join('')],
+    [`${DW} 84px ${SERIF}`, o.title + (o.lead ?? '') + statText],
+    [`${DW} 60px ${SERIF}`, o.siteName + 'TripHub'],
+    [`${NW} 100px ${NUM}`, '0123456789.,-—' + o.stats.map((s) => s.value).join('')],
     [`500 20px ${SANS}`, 'TRAVELJOURNAYSDKMROUTE·' + (o.subtitle ?? '') + theme.tagline],
   ])
   const canvas = document.createElement('canvas')
@@ -300,7 +394,7 @@ export async function drawPoster(o: PosterOptions): Promise<string> {
     const CW = W - 2 * M
     ctx.textBaseline = 'alphabetic'
 
-    // 首屏：整幅出血的封面照片，底部渐隐到近黑；没有照片时是近黑底上的超大宋体地名 + 细线邮戳
+    // 首屏：整幅出血的封面照片，底部渐隐到页面底色；没有照片时是底色上的超大标题字地名 + 细线邮戳
     const coverH = 900
     let drawn = false
     if (o.coverUrl) {
@@ -316,8 +410,8 @@ export async function drawPoster(o: PosterOptions): Promise<string> {
         ctx.fillStyle = top
         ctx.fillRect(0, 0, W, 260)
         const fade = ctx.createLinearGradient(0, coverH * 0.42, 0, coverH)
-        fade.addColorStop(0, 'rgba(11,11,10,0)')
-        fade.addColorStop(0.7, 'rgba(11,11,10,0.78)')
+        fade.addColorStop(0, rgba(bgRgb, 0))
+        fade.addColorStop(0.7, rgba(bgRgb, 0.8))
         fade.addColorStop(1, BG)
         ctx.fillStyle = fade
         ctx.fillRect(0, coverH * 0.42 - 1, W, coverH * 0.58 + 2)
@@ -330,44 +424,44 @@ export async function drawPoster(o: PosterOptions): Promise<string> {
       ctx.fillStyle = SURFACE
       ctx.fillRect(0, 0, W, coverH - 150)
       const fade = ctx.createLinearGradient(0, coverH - 400, 0, coverH - 150)
-      fade.addColorStop(0, 'rgba(11,11,10,0)')
+      fade.addColorStop(0, rgba(bgRgb, 0))
       fade.addColorStop(1, BG)
       ctx.fillStyle = fade
       ctx.fillRect(0, coverH - 400, W, 251)
       // 极淡的经纬网
       ctx.save()
       ctx.setLineDash([2, 10])
-      for (let gx = 1; gx < 4; gx++) hairline(ctx, (W * gx) / 4, 190, (W * gx) / 4, coverH - 180, 'rgba(242,238,230,0.07)', 1)
+      for (let gx = 1; gx < 4; gx++) hairline(ctx, (W * gx) / 4, 190, (W * gx) / 4, coverH - 180, rgba(inkRgb, 0.08), 1)
       ctx.restore()
       const lead = o.lead || o.siteName
       const n = [...lead].length
       const size = n <= 2 ? 330 : n <= 3 ? 250 : n <= 4 ? 196 : 130
-      ctx.fillStyle = IVORY
-      ctx.font = `400 ${size}px ${SERIF}`
+      ctx.fillStyle = INK
+      ctx.font = `${DW} ${size}px ${SERIF}`
       ctx.fillText(wrap(ctx, lead, CW, 1)[0], M - size * 0.04, 640)
-      if (o.stamp) postmark(ctx, W - M - 118, 320, 118, INK5, o.stamp.value, o.stamp.unit, `${o.siteName} · Travel Journal · `)
+      if (o.stamp) postmark(ctx, P, NUM, W - M - 118, 320, 118, INK5, o.stamp.value, o.stamp.unit, `${o.siteName} · Travel Journal · `)
     }
-    grain(ctx)
+    grain(ctx, P.dark ? [255, 248, 235] : inkRgb)
 
     // 报头：字标 + 小圆点，右侧小字
-    ctx.fillStyle = drawn ? '#ffffff' : IVORY
-    ctx.font = `400 50px ${SERIF}`
+    ctx.fillStyle = drawn ? '#ffffff' : INK
+    ctx.font = `${DW} 50px ${SERIF}`
     const name = wrap(ctx, o.siteName, CW * 0.55, 1)[0]
     ctx.fillText(name, M, 120)
     const nameW = ctx.measureText(name).width
     ctx.beginPath()
     ctx.arc(M + nameW + 16, 106, 5, 0, Math.PI * 2)
-    ctx.fillStyle = theme.accent
+    ctx.fillStyle = accent
     ctx.fill()
     ctx.fillStyle = drawn ? 'rgba(255,255,255,0.72)' : INK5
     ctx.font = `500 18px ${SANS}`
     spaced(ctx, 'TRAVEL JOURNAL', W - M, 116, 5, 'right')
 
-    // 标题：超大宋体，最后一行压在照片渐隐处
-    ctx.font = `400 84px ${SERIF}`
+    // 标题：主题的标题字体，最后一行压在照片渐隐处（渐隐到页面底色，所以用主文字色）
+    ctx.font = `${DW} 84px ${SERIF}`
     const lines = wrap(ctx, o.title, CW, 2)
     let y = 880 - (lines.length - 1) * 104
-    ctx.fillStyle = drawn ? '#ffffff' : IVORY
+    ctx.fillStyle = INK
     for (const line of lines) {
       ctx.fillText(line, M - 4, y)
       y += 104
@@ -382,7 +476,7 @@ export async function drawPoster(o: PosterOptions): Promise<string> {
     const hasRoute = o.path.length > 0 || (o.dots?.length ?? 0) > 0
     const panelY = 1010
     const panelH = 330
-    hairline(ctx, M, panelY, W - M, panelY)
+    hairline(ctx, M, panelY, W - M, panelY, LINE)
     const statsW = hasRoute ? 470 : CW
     const cols = hasRoute ? 2 : Math.max(1, o.stats.length)
     const rows = Math.ceil(o.stats.length / cols)
@@ -393,8 +487,8 @@ export async function drawPoster(o: PosterOptions): Promise<string> {
       const r = Math.floor(i / cols)
       const sx = M + c * cellW + (c ? 28 : 0)
       const sy = panelY + r * cellH
-      if (c) hairline(ctx, M + c * cellW, sy + 26, M + c * cellW, sy + cellH - 22)
-      if (r) hairline(ctx, M, sy, M + statsW, sy)
+      if (c) hairline(ctx, M + c * cellW, sy + 26, M + c * cellW, sy + cellH - 22, LINE)
+      if (r) hairline(ctx, M, sy, M + statsW, sy, LINE)
       ctx.fillStyle = INK5
       ctx.font = `500 20px ${SANS}`
       spaced(ctx, st.label, sx, sy + 54, 6)
@@ -403,12 +497,12 @@ export async function drawPoster(o: PosterOptions): Promise<string> {
       const fits = () => {
         ctx.font = `400 22px ${SANS}`
         const uw = ctx.measureText(unit).width
-        ctx.font = `300 ${size}px ${NUM}`
+        ctx.font = `${NW} ${size}px ${NUM}`
         return ctx.measureText(st.value).width + uw <= cellW - 44
       }
       while (size > 40 && !fits()) size -= 4
-      ctx.fillStyle = IVORY
-      ctx.font = `300 ${size}px ${NUM}`
+      ctx.fillStyle = INK
+      ctx.font = `${NW} ${size}px ${NUM}`
       const vw = ctx.measureText(st.value).width
       ctx.fillText(st.value, sx - 2, sy + 142)
       if (unit) {
@@ -419,35 +513,37 @@ export async function drawPoster(o: PosterOptions): Promise<string> {
     })
     if (hasRoute) {
       const box = { x: M + statsW + 40, y: panelY + 26, w: CW - statsW - 40, h: panelH - 26 }
-      hairline(ctx, box.x - 20, panelY + 26, box.x - 20, panelY + panelH - 22)
+      hairline(ctx, box.x - 20, panelY + 26, box.x - 20, panelY + panelH - 22, LINE)
       // 极淡的经纬网
       ctx.save()
       ctx.setLineDash([2, 9])
-      for (let gx = 1; gx < 4; gx++) hairline(ctx, box.x + (box.w * gx) / 4, box.y, box.x + (box.w * gx) / 4, box.y + box.h, 'rgba(242,238,230,0.1)', 1)
-      for (let gy = 1; gy < 3; gy++) hairline(ctx, box.x, box.y + (box.h * gy) / 3, box.x + box.w, box.y + (box.h * gy) / 3, 'rgba(242,238,230,0.1)', 1)
+      for (let gx = 1; gx < 4; gx++) hairline(ctx, box.x + (box.w * gx) / 4, box.y, box.x + (box.w * gx) / 4, box.y + box.h, rgba(inkRgb, 0.11), 1)
+      for (let gy = 1; gy < 3; gy++) hairline(ctx, box.x, box.y + (box.h * gy) / 3, box.x + box.w, box.y + (box.h * gy) / 3, rgba(inkRgb, 0.11), 1)
       ctx.restore()
-      drawRoute(ctx, o.path, o.dots ?? [], box)
+      drawRoute(ctx, P, o.path, o.dots ?? [], box)
       ctx.fillStyle = INK5
       ctx.font = `500 16px ${SANS}`
       spaced(ctx, 'ROUTE', box.x, box.y + 28, 4)
     }
 
-    // 页脚：细线 + 字标与一句话；右侧象牙白底的二维码
+    // 页脚：细线 + 字标与一句话；右侧浅底深码的二维码
     const fy = 1390
-    hairline(ctx, M, fy, W - M, fy)
+    hairline(ctx, M, fy, W - M, fy, LINE)
     const qs = 150
     const textW = CW - (o.qrUrl ? qs + 60 : 0)
-    ctx.fillStyle = IVORY
+    ctx.fillStyle = INK
     ctx.font = `400 26px ${SANS}`
     ctx.fillText(wrap(ctx, o.qrUrl ? '扫码查看完整路线和打卡点评' : theme.tagline, textW, 1)[0], M, fy + 66)
     ctx.fillStyle = INK5
     ctx.font = `400 22px ${SANS}`
     ctx.fillText(wrap(ctx, o.qrUrl ? theme.tagline : o.siteName, textW, 1)[0], M, fy + 104)
     if (o.qrUrl) {
-      const qr = await loadImg(await QRCode.toDataURL(o.qrUrl, { margin: 1, width: 260, color: { dark: BG, light: IVORY } }))
+      // 二维码永远是浅底深码：深色海报用「底色码 + 主文字色底」，浅色海报反过来
+      const [qrDark, qrLight] = luminance(bgRgb) < luminance(inkRgb) ? [BG, INK] : [INK, SURFACE]
+      const qr = await loadImg(await QRCode.toDataURL(o.qrUrl, { margin: 1, width: 260, color: { dark: qrDark, light: qrLight } }))
       const qx = W - M - qs
       const qy = fy + 34
-      ctx.fillStyle = IVORY
+      ctx.fillStyle = qrLight
       ctx.fillRect(qx - 8, qy - 8, qs + 16, qs + 16)
       ctx.drawImage(qr, qx, qy, qs, qs)
     }

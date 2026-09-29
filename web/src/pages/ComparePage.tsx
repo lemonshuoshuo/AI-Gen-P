@@ -5,7 +5,10 @@ import { ArrowLeft, Box, Footprints, PenLine, Share2 } from 'lucide-react'
 import { api, errorMessage, type Waypoint } from '@/api'
 import { rememberedShareCode } from '@/api/client'
 import { BaseMap } from '@/components/map/BaseMap'
-import { FitOnce, RouteLines, WaypointMarkers } from '@/components/map/layers'
+import { useTripLegs } from '@/components/editor/RouteLegs'
+import { FitOnce, RouteLines, RouteSegments } from '@/components/map/layers'
+import { PlanMarkers, planMarkerItems } from '@/components/trip/PlanMarkers'
+import { actualSegments, dayTone, groupPlan, isLodging, plannedSegments } from '@/components/trip/plan'
 import { CjkWords } from '@/components/trip/CjkWords'
 import { Reveal } from '@/components/trip/Reveal'
 import { ShareDialog } from '@/components/trip/ShareDialog'
@@ -15,7 +18,7 @@ import { invalidateTripLists } from '@/lib/cache'
 import { cn } from '@/lib/cn'
 import { formatKm } from '@/lib/geo'
 import { categoryOf } from '@/lib/meta'
-import { bySeq, trackSegments } from '@/lib/trip'
+import { bySeq, trackSegments, visitedInOrder } from '@/lib/trip'
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
 
@@ -74,7 +77,7 @@ function BigNum({ label, value, unit, note, extra, className }: { label: string;
     <div className={cn('min-w-0 py-8 md:py-10', className)}>
       <p className="eyebrow">{label}</p>
       <div className="mt-5 flex flex-wrap items-baseline gap-x-2 md:mt-7">
-        <span className="font-num text-[3.25rem] leading-[0.85] font-light tracking-[-0.01em] whitespace-nowrap text-ink-900 sm:text-[4.5rem] lg:text-[5.5rem]">
+        <span className="font-num text-[2.5rem] leading-[0.85] font-light tracking-[-0.01em] whitespace-nowrap text-ink-900 sm:text-[3rem] lg:text-[3.5rem]">
           {value}
         </span>
         {unit && <span className="text-xs text-ink-500">{unit}</span>}
@@ -108,6 +111,18 @@ export default function ComparePage() {
     cmp.todo.forEach((w) => (l[w.id] = '?'))
     return l
   }, [cmp])
+  // 计划路线（虚线，每天一色）与实际走过的路线（实线）都按实际道路画
+  const legs = useTripLegs(trip?.id, trip?.waypoints ?? [], trip?.travel_mode, { geometry: true })
+  const groups = useMemo(() => groupPlan(trip?.waypoints ?? [], trip?.days ?? 0), [trip])
+  const routeSegs = useMemo(
+    () => (trip ? [...plannedSegments(groups, legs.data?.legs, { icons: false }), ...actualSegments(visitedInOrder(trip.waypoints), legs.data?.legs)] : []),
+    [trip, groups, legs.data],
+  )
+  // 标记：游玩点用对比的记号（✓ + × ?），住宿是床的方章
+  const markers = useMemo(
+    () => planMarkerItems(groups, new Map()).map((m) => (isLodging(m.w) ? m : { ...m, pool: false, label: labels[m.w.id] ?? '' })),
+    [groups, labels],
+  )
   useDocumentTitle(trip && `${trip.title} · 计划 vs 实际`)
 
   if (tripQ.isLoading || cmpQ.isLoading) return <PageLoader />
@@ -231,7 +246,7 @@ export default function ComparePage() {
           <div className="min-w-0 lg:col-span-7">
             <p
               className="font-num animate-slide-up leading-[0.78] font-light tracking-[-0.04em] text-ink-900"
-              style={{ fontSize: 'clamp(8.5rem, 24vw, 21rem)' }}
+              style={{ fontSize: 'clamp(4.5rem, 14vw, 9rem)' }}
               aria-label={`完成 ${pct}%`}
             >
               {pct}
@@ -257,7 +272,7 @@ export default function ComparePage() {
             </div>
           </div>
           <div className="min-w-0 lg:col-span-4 lg:col-start-9 lg:self-end">
-            <p className="font-display text-[26px] leading-[1.45] text-ink-800 md:text-[32px]">{verdict}</p>
+            <p className="font-display text-[20px] leading-[1.5] text-ink-800 md:text-[24px]">{verdict}</p>
             <dl className="mt-10 divide-y divide-ink-200 border-y border-ink-200">
               {counts.map((c) => (
                 <div key={c.label} className="flex items-baseline justify-between gap-4 py-4">
@@ -304,12 +319,16 @@ export default function ComparePage() {
           aside={
             <span className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] tracking-[0.06em]">
               <span className="flex items-center gap-2">
-                <span className="inline-block h-px w-5 bg-brand-500" />
+                <span className="inline-block h-0.5 w-5 bg-brand-500" />
                 实际路线
               </span>
               <span className="flex items-center gap-2">
-                <span className="inline-block w-5 border-t border-dashed border-sky-500" />
-                计划路线
+                <span className="flex items-center gap-0.5" aria-hidden>
+                  {[1, 2, 3].map((d) => (
+                    <span key={d} className={cn('inline-block w-2 border-t-2 border-dashed', dayTone(d).border)} />
+                  ))}
+                </span>
+                计划路线{groups.dayCount > 1 ? ' · 每天一色' : ''}
               </span>
               {segments.length > 0 && (
                 <span className="flex items-center gap-2">
@@ -323,8 +342,9 @@ export default function ComparePage() {
         <figure className="mt-8 md:mt-10">
           <div className="-mx-4 overflow-hidden border-y border-ink-200 md:mx-0 md:rounded-sm md:border-0 md:ring-1 md:ring-ink-200">
             <BaseMap className="h-[60svh] min-h-80 md:h-[72vh]" kindSwitcher>
-              <RouteLines planned={cmp.planned.path} actual={cmp.actual.path} track={segments} idPrefix="cmp" />
-              <WaypointMarkers waypoints={sorted} labels={labels} />
+              <RouteLines track={segments} idPrefix="cmp" />
+              <RouteSegments segments={routeSegs} idPrefix="cmp-legs" icons={false} />
+              <PlanMarkers items={markers} />
               <FitOnce points={allPts} fitKey={`cmp-${trip.id}`} />
             </BaseMap>
           </div>

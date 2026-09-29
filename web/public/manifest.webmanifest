@@ -4,11 +4,21 @@
   "description": "规划路线、按图出行、打卡避雷、点亮走过的地方",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0b0b0a",
-  "theme_color": "#0b0b0a",
+  "background_color": "#fbf6ea",
+  "theme_color": "#fbf6ea",
   "lang": "zh-CN",
   "icons": [
-    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
   ]
 }

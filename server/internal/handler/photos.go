@@ -209,6 +209,9 @@ func (h *Handler) uploadPhoto(c *gin.Context) error {
 		if err := h.svc.RecomputeTrip(tx, t.ID); err != nil {
 			return err
 		}
+		if _, err := service.TouchTrip(tx, t.ID, u.ID); err != nil {
+			return err
+		}
 		if resultWP != nil {
 			return h.svc.RecomputePlaces(tx, service.PlaceIDs(resultWP.PlaceID))
 		}
@@ -276,7 +279,7 @@ func (h *Handler) autoWaypoint(ctx context.Context, tx *gorm.DB, t *model.Trip, 
 		// A photo taken at a planned stop during the trip proves the visit.
 		if wp.Planned && wp.Status == model.WPTodo && takenAt != nil && t.Phase != model.PhasePlanning &&
 			geo.Haversine(lng, lat, wp.Lng, wp.Lat) <= photoVisitRadius {
-			if err := markVisited(tx, &wp, *takenAt, true); err != nil {
+			if _, err := markVisited(tx, &wp, *takenAt, true); err != nil {
 				return nil, false, err
 			}
 		}
@@ -302,6 +305,16 @@ func (h *Handler) autoWaypoint(ctx context.Context, tx *gorm.DB, t *model.Trip, 
 
 // photoForEdit loads the :id photo and requires trip membership.
 func (h *Handler) photoForEdit(c *gin.Context) (*model.Photo, *model.Trip, error) {
+	p, t, err := h.findPhotoForEdit(c)
+	if err == nil && p == nil {
+		return nil, nil, errNotFound("照片不存在")
+	}
+	return p, t, err
+}
+
+// findPhotoForEdit is photoForEdit, but a photo that does not exist (any
+// more) is no error: all three results are nil.
+func (h *Handler) findPhotoForEdit(c *gin.Context) (*model.Photo, *model.Trip, error) {
 	id, err := idParam(c, "id")
 	if err != nil {
 		return nil, nil, err
@@ -311,7 +324,7 @@ func (h *Handler) photoForEdit(c *gin.Context) (*model.Photo, *model.Trip, error
 		return nil, nil, err
 	}
 	if p.ID == 0 {
-		return nil, nil, errNotFound("照片不存在")
+		return nil, nil, nil
 	}
 	t, a, err := h.loadTrip(c, p.TripID, "")
 	if err != nil {
@@ -392,6 +405,9 @@ func (h *Handler) updatePhoto(c *gin.Context) error {
 			if err := tx.Model(&model.Photo{}).Where("id = ?", p.ID).Updates(upd).Error; err != nil {
 				return err
 			}
+			if _, err := service.TouchTrip(tx, t.ID, currentUserID(c)); err != nil {
+				return err
+			}
 			if req.WaypointID == nil {
 				return nil
 			}
@@ -406,10 +422,16 @@ func (h *Handler) updatePhoto(c *gin.Context) error {
 }
 
 func (h *Handler) deletePhoto(c *gin.Context) error {
-	p, t, err := h.photoForEdit(c)
-	if err != nil {
+	// Idempotent: a photo that no longer exists (a second tap while the first
+	// request was under way, or deleted by another member) answers {} too.
+	p, t, err := h.findPhotoForEdit(c)
+	if err != nil || p == nil {
+		if err == nil {
+			c.JSON(http.StatusOK, gin.H{})
+		}
 		return err
 	}
+	removed := false
 	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
 		// Lock the trip, then reload the photo: a concurrent delete of the same
 		// photo must not release its storage twice.
@@ -421,9 +443,9 @@ func (h *Handler) deletePhoto(c *gin.Context) error {
 			return err
 		}
 		if cur.ID == 0 {
-			return errNotFound("照片不存在")
+			return nil
 		}
-		*p = cur
+		*p, removed = cur, true
 		places := h.waypointPlace(tx, p.WaypointID)
 		if err := tx.Delete(&model.Photo{}, p.ID).Error; err != nil {
 			return err
@@ -440,12 +462,17 @@ func (h *Handler) deletePhoto(c *gin.Context) error {
 		if err := h.svc.RecomputeTrip(tx, t.ID); err != nil {
 			return err
 		}
+		if _, err := service.TouchTrip(tx, t.ID, currentUserID(c)); err != nil {
+			return err
+		}
 		return h.svc.RecomputePlaces(tx, places)
 	})
 	if err != nil {
 		return err
 	}
-	h.svc.Media.Remove(p.Path, p.ThumbPath)
+	if removed {
+		h.svc.Media.Remove(p.Path, p.ThumbPath)
+	}
 	c.JSON(http.StatusOK, gin.H{})
 	return nil
 }

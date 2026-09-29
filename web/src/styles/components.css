@@ -1,0 +1,434 @@
+/*
+ * 公共组件的主题化样式（components/ui 使用；页面也可以直接用这些类）。
+ * 形状、描边、底色都读 styles/themes.css 里的主题变量，所以同一个组件在手帐里是虚线纸片、
+ * 在山野里是圆润的实心卡片、在夜航里是细线——组件的 API 不变。
+ * 放在 components 层：页面传入的 Tailwind 工具类（utilities 层）总能覆盖这里。
+ *
+ * 选中态统一规则（docs/DESIGN.md「选中态」）：强调色描边 + 浅色底纹 + 实心勾选徽章 + 强调色标题；
+ * 未选中的标题保持 ink-900，绝不把未选中项变灰。
+ * 状态挂在 aria 属性上：[aria-checked=true] / [aria-selected=true] / [aria-pressed=true] /
+ * [aria-current=page|true]，或者 .is-selected（selectedClass() 会加上）。
+ */
+
+@layer components {
+  /* ---------------- 按钮 ---------------- */
+  .th-btn {
+    border-radius: var(--radius-btn);
+    font-weight: var(--btn-weight);
+    letter-spacing: var(--btn-tracking);
+  }
+  .th-btn-primary {
+    background-color: var(--btn-primary-bg);
+    color: var(--btn-primary-fg);
+  }
+  .th-btn-accent {
+    background-color: var(--btn-accent-bg);
+    color: var(--btn-accent-fg);
+  }
+  .th-btn-danger {
+    background-color: var(--color-red-600);
+    color: var(--color-paper);
+  }
+  .th-btn-dark {
+    background-color: var(--color-ink-900);
+    color: var(--color-paper);
+  }
+  /* 实心按钮悬停 / 按下：朝黑色压暗一档（浅色、深色模式下都看得出） */
+  .th-btn-primary:hover:not(:disabled) {
+    background-color: color-mix(in oklab, var(--btn-primary-bg) 88%, var(--btn-hover-mix));
+  }
+  .th-btn-accent:hover:not(:disabled) {
+    background-color: color-mix(in oklab, var(--btn-accent-bg) 88%, var(--btn-hover-mix));
+  }
+  .th-btn-danger:hover:not(:disabled) {
+    background-color: color-mix(in oklab, var(--color-red-600) 88%, var(--btn-hover-mix));
+  }
+  .th-btn-dark:hover:not(:disabled) {
+    background-color: color-mix(in oklab, var(--color-ink-900) 86%, var(--btn-hover-mix));
+  }
+  .th-btn-primary:active:not(:disabled),
+  .th-btn-accent:active:not(:disabled),
+  .th-btn-danger:active:not(:disabled),
+  .th-btn-dark:active:not(:disabled) {
+    filter: brightness(0.94);
+  }
+  :is(.th-btn-primary, .th-btn-accent, .th-btn-danger, .th-btn-dark):disabled {
+    background-color: var(--color-ink-200);
+    color: var(--color-ink-500);
+  }
+  .th-btn-secondary {
+    background-color: var(--color-ink-100);
+    color: var(--color-ink-900);
+  }
+  .th-btn-secondary:hover:not(:disabled) {
+    background-color: var(--color-ink-200);
+  }
+  /* 细线按钮：山野、暮色是 ink-900 描边（Raus / Hôtel Weekend 的次要按钮），其他主题是 ink-300 细线 */
+  .th-btn-outline {
+    border: 1px solid var(--btn-outline-border);
+    background-color: transparent;
+    color: var(--color-ink-900);
+  }
+  .th-btn-outline:hover:not(:disabled) {
+    border-color: var(--color-ink-900);
+    background-color: color-mix(in oklab, var(--color-ink-900) 5%, transparent);
+  }
+  .th-btn-ghost {
+    color: var(--color-ink-700);
+  }
+  .th-btn-ghost:hover:not(:disabled) {
+    background-color: color-mix(in oklab, var(--color-ink-900) 6%, transparent);
+    color: var(--color-ink-900);
+  }
+  .th-btn-love {
+    border: 1px solid color-mix(in oklab, var(--color-pink-500) 60%, transparent);
+    color: var(--color-pink-700);
+  }
+  .th-btn-love:hover:not(:disabled) {
+    border-color: var(--color-pink-600);
+    color: var(--color-pink-800);
+  }
+
+  /* ---------------- 输入框 ---------------- */
+  .th-field {
+    border-radius: var(--radius-field);
+    border: 1px solid var(--field-border);
+    background-color: var(--field-bg);
+    color: var(--color-ink-900);
+    transition:
+      border-color 0.2s,
+      background-color 0.2s,
+      box-shadow 0.2s;
+  }
+  .th-field:hover:not(:disabled):not(:focus) {
+    border-color: var(--color-ink-300);
+  }
+  .th-field:focus {
+    border-color: var(--color-brand-600);
+    background-color: var(--color-surface);
+    box-shadow: 0 0 0 3px var(--field-focus-ring);
+    outline: none;
+  }
+
+  /* ---------------- 卡片（Card） ---------------- */
+  .th-card {
+    border-radius: var(--radius-card);
+    border: var(--card-border-width) var(--card-border-style) var(--card-border);
+    background-color: var(--card-bg);
+    box-shadow: var(--card-shadow);
+  }
+
+  /* ---------------- 选项卡片：OptionCard / selectedClass('card') ---------------- */
+  .th-option,
+  .th-sel-card {
+    position: relative;
+    border-radius: var(--radius-option);
+    border-width: var(--option-border-width);
+    border-style: var(--option-border-style);
+    border-color: var(--option-border);
+    background-color: var(--option-bg);
+    box-shadow: var(--option-shadow);
+    transition:
+      border-color 0.25s,
+      background-color 0.25s,
+      box-shadow 0.25s,
+      translate 0.2s;
+  }
+  .th-option {
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 1rem 3rem 1.125rem 1rem;
+    text-align: left;
+    color: var(--color-ink-900);
+  }
+  /*
+   * 悬停只作用于未选中的卡片（否则刚点选的卡片在指针下会丢掉强调色描边）：
+   * 手帐 / 暮色 / 夜航描边变 ink-300 实线；山野上浮 2px + 浮起阴影；晴海阴影加深
+   */
+  :is(.th-option, .th-sel-card):not(:disabled):not([aria-checked='true'], [aria-selected='true'], [aria-pressed='true'], .is-selected):hover {
+    border-style: solid;
+    border-color: var(--option-hover-border);
+    box-shadow: var(--option-hover-shadow);
+    translate: 0 var(--option-hover-lift);
+  }
+  :is(.th-option, .th-sel-card):disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+  :is(.th-option, .th-sel-card):is([aria-checked='true'], [aria-selected='true'], [aria-pressed='true'], .is-selected) {
+    border-style: solid;
+    border-color: var(--option-on-border);
+    background-color: var(--option-on-bg);
+    box-shadow: var(--option-on-ring);
+  }
+  .th-option-num {
+    font-family: var(--font-num);
+    font-weight: var(--num-weight);
+    font-size: 1.375rem;
+    line-height: 1;
+    font-variant-numeric: lining-nums tabular-nums;
+    color: var(--color-ink-400);
+    transition: color 0.25s;
+  }
+  .th-option-title {
+    display: block;
+    font-family: var(--font-display);
+    font-weight: var(--display-weight);
+    font-variation-settings: var(--display-variation);
+    font-feature-settings: 'halt' 1;
+    font-size: var(--text-card);
+    line-height: 1.3;
+    color: var(--color-ink-900);
+    transition: color 0.25s;
+  }
+  .th-option-desc {
+    display: block;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--color-ink-500);
+  }
+  :is([aria-checked='true'], [aria-selected='true'], [aria-pressed='true'], .is-selected) .th-option-title {
+    color: var(--option-on-title);
+    font-weight: var(--option-on-weight);
+  }
+  :is([aria-checked='true'], [aria-selected='true'], [aria-pressed='true'], .is-selected) .th-option-num {
+    color: var(--color-brand-600);
+  }
+
+  /* 勾选徽章：未选中是空心圆 / 方框（ink-300），选中是实心 + 勾（手帐是略微歪着的方形邮戳） */
+  .th-check {
+    display: inline-flex;
+    width: 1.375rem;
+    height: 1.375rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--check-radius);
+    border: 1.5px solid var(--color-ink-300);
+    color: transparent;
+    transition:
+      background-color 0.2s,
+      border-color 0.2s,
+      color 0.2s;
+  }
+  .th-option > .th-check {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+  }
+  .th-check svg {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+  :is([aria-checked='true'], [aria-selected='true'], [aria-pressed='true'], .is-selected) .th-check,
+  .th-check.is-selected {
+    border-color: var(--check-on-bg);
+    background-color: var(--check-on-bg);
+    color: var(--check-on-fg);
+    transform: rotate(var(--check-rotate));
+    animation: th-check-pop 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes th-check-pop {
+    from {
+      transform: scale(0.6) rotate(calc(var(--check-rotate) * 3));
+    }
+    to {
+      transform: scale(1) rotate(var(--check-rotate));
+    }
+  }
+
+  /* ---------------- 筛选 chip：ChoiceChip / selectedClass('chip') ---------------- */
+  .th-chip {
+    display: inline-flex;
+    height: 2rem;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.3125rem;
+    border-radius: 999px;
+    border: 1px solid var(--chip-border);
+    background-color: var(--chip-bg);
+    padding: 0 0.875rem;
+    font-size: 13px;
+    line-height: 1;
+    white-space: nowrap;
+    color: var(--chip-fg);
+    transition:
+      background-color 0.2s,
+      border-color 0.2s,
+      color 0.2s;
+  }
+  .th-chip:hover:not(:disabled) {
+    border-color: var(--color-ink-300);
+    color: var(--color-ink-900);
+  }
+  .th-chip:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+  .th-chip:is([aria-checked='true'], [aria-selected='true'], [aria-pressed='true'], .is-selected),
+  .th-chip:is([aria-checked='true'], [aria-selected='true'], [aria-pressed='true'], .is-selected):hover {
+    border-color: var(--chip-on-bg);
+    background-color: var(--chip-on-bg);
+    color: var(--chip-on-fg);
+    font-weight: 600;
+  }
+  .th-chip svg {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+
+  /* ---------------- Tab：TabBar / selectedClass('tab') ---------------- */
+  .th-tabs {
+    display: flex;
+    width: var(--tabs-width);
+    max-width: 100%;
+    gap: var(--tabs-gap);
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-radius: var(--tabs-radius);
+    background-color: var(--tabs-bg);
+    padding: var(--tabs-pad);
+    /* 底部细线用内阴影画，选中项的下划线压在它上面 */
+    box-shadow: inset 0 -1px 0 var(--tabs-border);
+  }
+  .th-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .th-tab {
+    position: relative;
+    flex-shrink: 0;
+    border-radius: var(--tab-radius);
+    padding: var(--tab-pad);
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    color: var(--tab-fg);
+    transition:
+      color 0.2s,
+      background-color 0.2s;
+  }
+  .th-tab:hover {
+    color: var(--color-ink-900);
+  }
+  .th-tab:is([aria-selected='true'], [aria-checked='true'], [aria-pressed='true'], [aria-current='page'], .is-selected) {
+    background-color: var(--tab-on-bg);
+    color: var(--tab-on-fg);
+    font-weight: 600;
+  }
+  .th-tab:is([aria-selected='true'], [aria-checked='true'], [aria-pressed='true'], [aria-current='page'], .is-selected)::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    border-radius: 2px;
+    background-color: var(--tab-bar);
+  }
+
+  /* ---------------- 文字筛选：selectedClass('filter') ----------------
+   * 「全部 / 游记 / 路线攻略」这类文字链接也用主题的 Tab 语言：下划线主题（手帐、晴海、夜航）选中项
+   * ink-900 + 600 字重 + 2px 强调色下划线；胶囊主题（山野、暮色）选中项是实心胶囊（请给元素留出 px-3 左右的内边距）。
+   * 未选中是 ink-500（山野 ink-600）——不靠「未选中变灰」表达选中。 */
+  .th-filter {
+    border-radius: var(--tab-radius);
+    color: var(--tab-fg);
+    text-decoration-line: underline;
+    text-decoration-color: transparent;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 0.55em;
+    transition:
+      color 0.2s,
+      background-color 0.2s,
+      text-decoration-color 0.2s;
+  }
+  .th-filter:not(:disabled):not([aria-pressed='true'], [aria-checked='true'], [aria-selected='true'], [aria-current='page'], [aria-current='true'], .is-selected):hover {
+    color: var(--color-ink-900);
+  }
+  .th-filter:is([aria-pressed='true'], [aria-checked='true'], [aria-selected='true'], [aria-current='page'], [aria-current='true'], .is-selected) {
+    background-color: var(--tab-on-bg);
+    color: var(--tab-on-fg);
+    font-weight: 600;
+    text-decoration-color: var(--tab-bar);
+  }
+
+  /* ---------------- 分段选择：Segmented ---------------- */
+  .th-seg {
+    display: inline-flex;
+    border-radius: 999px;
+    border: 1px solid var(--seg-track-border);
+    background-color: var(--seg-track-bg);
+    padding: 2px;
+  }
+  .th-seg-item {
+    border-radius: 999px;
+    white-space: nowrap;
+    color: var(--color-ink-500);
+    transition:
+      color 0.2s,
+      background-color 0.2s;
+  }
+  .th-seg-item:hover {
+    color: var(--color-ink-900);
+  }
+  .th-seg-item:is([aria-checked='true'], [aria-selected='true'], [aria-pressed='true'], .is-selected) {
+    background-color: var(--seg-on-bg);
+    color: var(--seg-on-fg);
+    font-weight: 600;
+  }
+
+  /* ---------------- 列表行：selectedClass('row') ---------------- */
+  .th-sel-row {
+    position: relative;
+    transition: background-color 0.2s;
+  }
+  .th-sel-row:is([aria-selected='true'], [aria-checked='true'], [aria-pressed='true'], [aria-current='page'], [aria-current='true'], [aria-current='step'], .is-selected) {
+    background-color: var(--row-on-bg);
+  }
+  .th-sel-row:is([aria-selected='true'], [aria-checked='true'], [aria-pressed='true'], [aria-current='page'], [aria-current='true'], [aria-current='step'], .is-selected)::before {
+    content: '';
+    position: absolute;
+    inset: var(--row-marker-inset);
+    width: var(--row-marker-w);
+    height: var(--row-marker-h);
+    border-radius: var(--row-marker-radius);
+    background-color: var(--row-marker);
+  }
+  .th-sel-row:is([aria-selected='true'], [aria-checked='true'], [aria-pressed='true'], [aria-current='page'], [aria-current='true'], [aria-current='step'], .is-selected) .th-sel-title {
+    color: var(--row-on-title);
+    font-weight: var(--row-on-weight);
+  }
+
+  /* ---------------- 图标描边随主题（lucide） ----------------
+   * --icon-stroke：手帐、晴海 1.5，山野 1.75（配粗 grotesk），暮色 1.25，夜航 1.4。
+   * 页面上常用的描边（1.25 / 1.4 / 1.5 / 1.75 / 默认 2）以 1.5 为基准等比换算成主题的粗细；
+   * 细线装饰图标（< 1.25）和勾选之类的加粗图标（> 2）保持原样；[&_svg]:stroke-[…] 等工具类仍可覆盖 */
+  /* 1.25 常见于 14px 的小图标：暮色（基准 1.25）等比换算后只剩 1.04，设个下限免得细到看不清 */
+  :where(.lucide)[stroke-width='1.25'] {
+    stroke-width: max(1.15, calc(var(--icon-stroke) * 5 / 6));
+  }
+  :where(.lucide)[stroke-width='1.4'] {
+    stroke-width: calc(var(--icon-stroke) * 14 / 15);
+  }
+  :where(.lucide)[stroke-width='1.5'] {
+    stroke-width: var(--icon-stroke);
+  }
+  :where(.lucide)[stroke-width='1.75'] {
+    stroke-width: calc(var(--icon-stroke) * 7 / 6);
+  }
+  :where(.lucide)[stroke-width='2'] {
+    stroke-width: calc(var(--icon-stroke) * 4 / 3);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .th-option,
+    .th-sel-card {
+      transition: none;
+    }
+    :is(.th-option, .th-sel-card):hover {
+      translate: none !important;
+    }
+  }
+}

@@ -439,6 +439,9 @@ func (h *Handler) createWaypoint(c *gin.Context) error {
 		if err := h.svc.RecomputeTrip(tx, t.ID); err != nil {
 			return err
 		}
+		if _, err := service.TouchTrip(tx, t.ID, wp.CreatedByID); err != nil {
+			return err
+		}
 		return h.svc.RecomputePlaces(tx, service.PlaceIDs(wp.PlaceID))
 	})
 	if err != nil {
@@ -543,6 +546,9 @@ func (h *Handler) batchWaypoints(c *gin.Context) error {
 		if err := h.svc.RecomputeTrip(tx, t.ID); err != nil {
 			return err
 		}
+		if _, err := service.TouchTrip(tx, t.ID, uid); err != nil {
+			return err
+		}
 		return h.svc.RecomputePlaces(tx, placeIDs)
 	})
 	if err != nil {
@@ -562,6 +568,16 @@ func (h *Handler) batchWaypoints(c *gin.Context) error {
 
 // waypointForEdit loads the :id waypoint and its trip, requiring membership.
 func (h *Handler) waypointForEdit(c *gin.Context) (*model.Waypoint, *model.Trip, error) {
+	wp, t, err := h.findWaypointForEdit(c)
+	if err == nil && wp == nil {
+		return nil, nil, errNotFound("打卡点不存在")
+	}
+	return wp, t, err
+}
+
+// findWaypointForEdit is waypointForEdit, but a waypoint that does not
+// exist (any more) is no error: all three results are nil.
+func (h *Handler) findWaypointForEdit(c *gin.Context) (*model.Waypoint, *model.Trip, error) {
 	id, err := idParam(c, "id")
 	if err != nil {
 		return nil, nil, err
@@ -571,7 +587,7 @@ func (h *Handler) waypointForEdit(c *gin.Context) (*model.Waypoint, *model.Trip,
 		return nil, nil, err
 	}
 	if wp.ID == 0 {
-		return nil, nil, errNotFound("打卡点不存在")
+		return nil, nil, nil
 	}
 	t, a, err := h.loadTrip(c, wp.TripID, "")
 	if err != nil {
@@ -666,6 +682,9 @@ func (h *Handler) saveWaypointChanges(ctx context.Context, wp, orig *model.Waypo
 			if err := tx.Model(&model.Waypoint{ID: wp.ID}).Select(cols).Updates(wp).Error; err != nil {
 				return err
 			}
+			if _, err := service.TouchTrip(tx, wp.TripID, actorID); err != nil {
+				return err
+			}
 		}
 		if err := h.svc.RecomputeTrip(tx, wp.TripID); err != nil {
 			return err
@@ -693,16 +712,17 @@ func (h *Handler) updateWaypoint(c *gin.Context) error {
 	} else if ch.relink {
 		h.svc.WarmPOI(c.Request.Context(), wp.AmapID)
 	}
-	if err := h.saveWaypointChanges(c.Request.Context(), wp, &orig, ch.relink, currentUserID(c)); err != nil {
+	uid := currentUserID(c)
+	if err := h.saveWaypointChanges(c.Request.Context(), wp, &orig, ch.relink, uid); err != nil {
 		return err
 	}
 	switch {
 	case in.Seq != nil && *in.Seq != wp.Seq:
-		if err := h.moveWaypoint(c.Request.Context(), wp, *in.Seq); err != nil {
+		if err := h.moveWaypoint(c.Request.Context(), wp, *in.Seq, uid); err != nil {
 			return err
 		}
 	case wp.IsLodging() && (wp.Kind != orig.Kind || wp.Day != orig.Day):
-		if err := h.moveWaypoint(c.Request.Context(), wp, -1); err != nil { // after its day
+		if err := h.moveWaypoint(c.Request.Context(), wp, -1, uid); err != nil { // after its day
 			return err
 		}
 	}
@@ -710,8 +730,9 @@ func (h *Handler) updateWaypoint(c *gin.Context) error {
 }
 
 // moveWaypoint moves a waypoint to position seq within its trip; -1 moves
-// a lodging to the place of its night (service.LodgingSeq).
-func (h *Handler) moveWaypoint(ctx context.Context, wp *model.Waypoint, seq int) error {
+// a lodging to the place of its night (service.LodgingSeq). actorID is the
+// user moving it.
+func (h *Handler) moveWaypoint(ctx context.Context, wp *model.Waypoint, seq int, actorID int64) error {
 	return h.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := service.LockTrip(tx, wp.TripID); err != nil {
 			return err
@@ -720,6 +741,7 @@ func (h *Handler) moveWaypoint(ctx context.Context, wp *model.Waypoint, seq int)
 		if err != nil {
 			return err
 		}
+		before := slices.Clone(ids)
 		ids = slices.DeleteFunc(ids, func(id int64) bool { return id == wp.ID })
 		if seq == -1 && wp.IsLodging() {
 			seq = service.LodgingSeq(ids, dayOf, wp.Day)
@@ -731,10 +753,17 @@ func (h *Handler) moveWaypoint(ctx context.Context, wp *model.Waypoint, seq int)
 			seq = len(ids)
 		}
 		ids = slices.Insert(ids, seq, wp.ID)
+		if slices.Equal(ids, before) {
+			return nil
+		}
 		if err := applyOrder(tx, wp.TripID, ids); err != nil {
 			return err
 		}
-		return h.svc.RecomputeTrip(tx, wp.TripID)
+		if err := h.svc.RecomputeTrip(tx, wp.TripID); err != nil {
+			return err
+		}
+		_, err = service.TouchTrip(tx, wp.TripID, actorID)
+		return err
 	})
 }
 
@@ -747,36 +776,75 @@ func applyOrder(tx *gorm.DB, tripID int64, ids []int64) error {
 		"{"+strings.Join(parts, ",")+"}", tripID).Error
 }
 
+// removeWaypoint deletes waypoint wid of trip tripID, taking the trip lock:
+// its photos and comments are kept, unlinked, and a revision of the trip is
+// counted. A waypoint that is not there (any more) is no error; removed
+// then reports false.
+func (h *Handler) removeWaypoint(tx *gorm.DB, tripID, wid, actorID int64) (removed bool, err error) {
+	if err := service.LockTrip(tx, tripID); err != nil {
+		return false, err
+	}
+	var wp model.Waypoint
+	if err := tx.Where("id = ? AND trip_id = ?", wid, tripID).Limit(1).Find(&wp).Error; err != nil {
+		return false, err
+	}
+	if wp.ID == 0 {
+		return false, nil
+	}
+	if err := service.DeleteWaypoints(tx, tripID, []int64{wp.ID}); err != nil {
+		return false, err
+	}
+	if err := h.svc.RecomputeTrip(tx, tripID); err != nil {
+		return false, err
+	}
+	if _, err := service.TouchTrip(tx, tripID, actorID); err != nil {
+		return false, err
+	}
+	return true, h.svc.RecomputePlaces(tx, service.PlaceIDs(wp.PlaceID))
+}
+
+// deleteWaypoint is DELETE /waypoints/:id. It is idempotent: a waypoint
+// that no longer exists (a second tap on 删除 while the first request was
+// under way, or deleted by another member) answers {} like a deletion.
 func (h *Handler) deleteWaypoint(c *gin.Context) error {
-	wp, _, err := h.waypointForEdit(c)
+	wp, _, err := h.findWaypointForEdit(c)
+	if err != nil {
+		return err
+	}
+	if wp != nil {
+		err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+			_, err := h.removeWaypoint(tx, wp.TripID, wp.ID, currentUserID(c))
+			return err
+		})
+		if err != nil {
+			return err
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{})
+	return nil
+}
+
+// deleteTripWaypoint is DELETE /trips/:id/waypoints/:wid: the waypoint is
+// gone afterwards, whether this request deleted it or it was deleted
+// before (or is not in this trip), so the answer is always 204 for a
+// member of the trip.
+func (h *Handler) deleteTripWaypoint(c *gin.Context) error {
+	t, _, err := h.tripForEdit(c)
+	if err != nil {
+		return err
+	}
+	wid, err := idParam(c, "wid")
 	if err != nil {
 		return err
 	}
 	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
-		if err := lockWaypoint(tx, wp); err != nil {
-			return err
-		}
-		if err := tx.Model(&model.Photo{}).Where("waypoint_id = ?", wp.ID).Update("waypoint_id", nil).Error; err != nil {
-			return err
-		}
-		if err := tx.Model(&model.Comment{}).Where("waypoint_id = ?", wp.ID).Update("waypoint_id", nil).Error; err != nil {
-			return err
-		}
-		if err := tx.Delete(&model.Waypoint{}, wp.ID).Error; err != nil {
-			return err
-		}
-		if err := service.CompactSeq(tx, wp.TripID); err != nil {
-			return err
-		}
-		if err := h.svc.RecomputeTrip(tx, wp.TripID); err != nil {
-			return err
-		}
-		return h.svc.RecomputePlaces(tx, service.PlaceIDs(wp.PlaceID))
+		_, err := h.removeWaypoint(tx, t.ID, wid, currentUserID(c))
+		return err
 	})
 	if err != nil {
 		return err
 	}
-	c.JSON(http.StatusOK, gin.H{})
+	c.Status(http.StatusNoContent)
 	return nil
 }
 
@@ -814,10 +882,21 @@ func (h *Handler) orderWaypoints(c *gin.Context) error {
 			}
 			seen[id] = true
 		}
+		cur, _, err := tripOrder(tx, t.ID)
+		if err != nil {
+			return err
+		}
+		if slices.Equal(cur, req.IDs) {
+			return nil
+		}
 		if err := applyOrder(tx, t.ID, req.IDs); err != nil {
 			return err
 		}
-		return h.svc.RecomputeTrip(tx, t.ID)
+		if err := h.svc.RecomputeTrip(tx, t.ID); err != nil {
+			return err
+		}
+		_, err = service.TouchTrip(tx, t.ID, currentUserID(c))
+		return err
 	})
 	if err != nil {
 		return err

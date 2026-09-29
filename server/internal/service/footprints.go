@@ -100,6 +100,21 @@ func EmptyFootprints() *Footprints {
 // BuildFootprints aggregates visited waypoints of the trips selected by tripIDs
 // (a subquery selecting trip IDs).
 func (s *Service) BuildFootprints(db *gorm.DB, tripIDs *gorm.DB) (*Footprints, error) {
+	return s.buildFootprints(db, tripIDs, true)
+}
+
+// FootprintStats is the stats of BuildFootprints alone.
+func (s *Service) FootprintStats(db *gorm.DB, tripIDs *gorm.DB) (FootStats, error) {
+	fp, err := s.buildFootprints(db, tripIDs, false)
+	if err != nil {
+		return FootStats{}, err
+	}
+	return fp.Stats, nil
+}
+
+// buildFootprints is BuildFootprints; without thumbs the points carry no
+// photo thumbnails (one query less).
+func (s *Service) buildFootprints(db *gorm.DB, tripIDs *gorm.DB, thumbs bool) (*Footprints, error) {
 	out := EmptyFootprints()
 	var trips []model.Trip
 	if err := db.Select(footTripCols).Where("id IN (?)", tripIDs).Find(&trips).Error; err != nil {
@@ -224,12 +239,14 @@ func (s *Service) BuildFootprints(db *gorm.DB, tripIDs *gorm.DB) (*Footprints, e
 		points = sampled
 	}
 	if points != nil {
-		thumbs, err := firstPhotoThumbs(db, points)
-		if err != nil {
-			return nil, err
-		}
-		for i := range points {
-			points[i].PhotoThumb = thumbs[points[i].WaypointID]
+		if thumbs {
+			byWP, err := firstPhotoThumbs(db, points)
+			if err != nil {
+				return nil, err
+			}
+			for i := range points {
+				points[i].PhotoThumb = byWP[points[i].WaypointID]
+			}
 		}
 		out.Points = points
 	}
@@ -269,9 +286,9 @@ func (s *Service) BuildFootprints(db *gorm.DB, tripIDs *gorm.DB) (*Footprints, e
 // firstPhotoThumbs returns the thumbnail URL of the first photo (by taken_at,
 // then id, as the trip page lists them) of each point's waypoint. The trips
 // of a footprint are ones whose photos the viewer may see (the callers
-// select them: the viewer's own, the couple's shared, or public trips
-// without hidden live progress), and a photo only counts for a waypoint of
-// its own trip.
+// select them: the viewer's own, those of a space the viewer belongs to, or
+// public trips without hidden live progress), and a photo only counts for a
+// waypoint of its own trip.
 func firstPhotoThumbs(db *gorm.DB, points []FootPoint) (map[int64]string, error) {
 	out := map[int64]string{}
 	ids := make([]int64, 0, len(points))

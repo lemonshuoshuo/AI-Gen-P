@@ -30,9 +30,11 @@ type Handler struct {
 	commentLimit *auth.Limiter // comments per user
 	geoLimit     *auth.Limiter // geo search / regeo per user
 	legsLimit    *auth.Limiter // legs planned by 高德 for non-members, per user / IP
+	inviteLimit  *auth.Limiter // space invitations per user
 	views        *auth.Limiter // view-count de-duplication
 
 	trackCache *trackCache // rendered GET /trips/:id/track payloads
+	presence   *presence   // who is editing which trip (POST /trips/:id/editing)
 
 	webui fs.FS
 
@@ -58,17 +60,22 @@ func New(svc *service.Service, webui fs.FS) *Handler {
 		commentLimit: auth.NewLimiter(30, 10*time.Minute),
 		geoLimit:     auth.NewLimiter(120, 10*time.Minute),
 		legsLimit:    auth.NewLimiter(20, 10*time.Minute),
+		inviteLimit:  auth.NewLimiter(60, time.Hour),
 		views:        auth.NewLimiter(1, 30*time.Minute),
 		trackCache:   newTrackCache(trackCacheBytes),
+		presence:     newPresence(presenceTTL),
 		webui:        webui,
 	}
 }
 
-// Cleanup purges expired limiter state and refresh tokens; call periodically.
+// Cleanup purges expired limiter state, editing heartbeats and refresh
+// tokens; call periodically.
 func (h *Handler) Cleanup() {
-	for _, l := range []*auth.Limiter{h.loginAccount, h.loginIP, h.register, h.aiLimit, h.commentLimit, h.geoLimit, h.legsLimit, h.views} {
+	for _, l := range []*auth.Limiter{h.loginAccount, h.loginIP, h.register, h.aiLimit, h.commentLimit, h.geoLimit, h.legsLimit,
+		h.inviteLimit, h.views} {
 		l.Cleanup()
 	}
+	h.presence.cleanup(time.Now())
 	h.db.Exec("DELETE FROM refresh_tokens WHERE expires_at < now()")
 }
 
@@ -113,6 +120,7 @@ func (h *Handler) Router() *gin.Engine {
 	api.GET("/me/favorites", user, w(h.myFavorites))
 	api.GET("/me/footprints", user, w(h.myFootprints))
 	api.GET("/me/invites", user, w(h.myInvites))
+	api.PUT("/me/default-space", user, w(h.setDefaultSpace))
 
 	api.GET("/users/:username", w(h.userProfile))
 	api.GET("/users/:username/trips", w(h.userTrips))
@@ -134,6 +142,10 @@ func (h *Handler) Router() *gin.Engine {
 	api.POST("/trips/:id/favorite", user, w(h.favorite))
 	api.DELETE("/trips/:id/favorite", user, w(h.unfavorite))
 	api.POST("/trips/:id/share-code/reset", user, w(h.resetShareCode))
+	// Collaborative editing (see sync.go).
+	api.GET("/trips/:id/revision", w(h.tripRevision))
+	api.POST("/trips/:id/editing", user, w(h.tripEditing))
+	api.PUT("/trips/:id/plan", user, w(h.savePlan))
 
 	api.GET("/trips/:id/members", user, w(h.listMembers))
 	api.POST("/trips/:id/members", user, w(h.inviteMember))
@@ -148,6 +160,7 @@ func (h *Handler) Router() *gin.Engine {
 	api.PUT("/trips/:id/waypoints/order", user, w(h.orderWaypoints))
 	api.PATCH("/waypoints/:id", user, w(h.updateWaypoint))
 	api.DELETE("/waypoints/:id", user, w(h.deleteWaypoint))
+	api.DELETE("/trips/:id/waypoints/:wid", user, w(h.deleteTripWaypoint))
 
 	api.POST("/trips/:id/checkin", user, w(h.tripCheckin))
 	api.POST("/waypoints/:id/checkin", user, w(h.waypointCheckin))
@@ -189,6 +202,22 @@ func (h *Handler) Router() *gin.Engine {
 	api.GET("/geo/pick", user, w(h.geoPick))
 	api.GET("/geo/atlas", h.geoAtlas)
 
+	// Spaces (see spaces.go).
+	api.GET("/spaces", user, w(h.listSpaces))
+	api.POST("/spaces", user, w(h.createSpace))
+	api.GET("/spaces/:id", user, w(h.getSpace))
+	api.PATCH("/spaces/:id", user, w(h.updateSpace))
+	api.DELETE("/spaces/:id", user, w(h.deleteSpace))
+	api.POST("/spaces/:id/invites", user, w(h.createSpaceInvite))
+	api.DELETE("/spaces/:id/members/:user_id", user, w(h.removeSpaceMember))
+	api.GET("/spaces/:id/trips", user, w(h.spaceTrips))
+	api.GET("/spaces/:id/footprints", user, w(h.spaceFootprints))
+	api.GET("/space-invites", user, w(h.listSpaceInvites))
+	api.POST("/space-invites/:id/accept", user, w(h.acceptSpaceInvite))
+	api.POST("/space-invites/:id/decline", user, w(h.declineSpaceInvite))
+	api.DELETE("/space-invites/:id", user, w(h.cancelSpaceInvite))
+
+	// Deprecated: the couple space through the API of older clients (see partner.go).
 	api.GET("/partner", user, w(h.getPartner))
 	api.PATCH("/partner", user, w(h.updatePartner))
 	api.DELETE("/partner", user, w(h.unbindPartner))
