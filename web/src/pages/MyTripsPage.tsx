@@ -80,7 +80,9 @@ export default function MyTripsPage() {
   const total = q.data?.pages[0]?.total
   const filtered = phase !== '' || visibility !== ''
   const tripInvites = invites.data?.trip_invites ?? []
-  const partnerInvites = invites.data?.partner_invites ?? []
+  // 空间邀请（旧版服务端只有情侣邀请 partner_invites）
+  const spaceInvites = invites.data?.space_invites
+  const partnerInvites = spaceInvites ? [] : (invites.data?.partner_invites ?? [])
 
   return (
     <div className="mx-auto max-w-[90rem] px-4 pt-12 pb-24 [font-variant-numeric:lining-nums] md:px-8 md:pt-20 md:pb-32">
@@ -103,6 +105,20 @@ export default function MyTripsPage() {
           </Button>
         }
       />
+
+      {spaceInvites && spaceInvites.length > 0 && (
+        <Link
+          to="/spaces"
+          className="group mt-14 flex min-h-12 items-center gap-3 border-y border-ink-200 py-3 text-sm text-ink-700 md:mt-20"
+        >
+          <Heart className="size-4 shrink-0 text-pink-500" strokeWidth={1.5} />
+          <span className="min-w-0 flex-1 truncate">
+            <span className="text-ink-900">{spaceInvites[0].inviter.nickname || spaceInvites[0].inviter.username}</span> 邀请你加入「
+            {spaceInvites[0].space.name}」{spaceInvites.length > 1 && ` 等 ${spaceInvites.length} 个空间邀请`}
+          </span>
+          <span className="shrink-0 text-ink-500 transition-colors group-hover:text-ink-900">去看看 →</span>
+        </Link>
+      )}
 
       {partnerInvites.length > 0 && (
         <Link

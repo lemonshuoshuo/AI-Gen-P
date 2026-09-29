@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArrowRight, Bed, Check, Heart, Loader2, MapPin, Sparkles, TriangleAlert, WandSparkles } from 'lucide-react'
+import { ArrowRight, Bed, Check, Loader2, MapPin, Sparkles, TriangleAlert, WandSparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   api,
@@ -22,7 +22,9 @@ import { BaseMap } from '@/components/map/BaseMap'
 import { FitOnce, RouteSegments, type RouteSegment } from '@/components/map/layers'
 import { PlanMarkers, type PlanMarkerItem } from '@/components/trip/PlanMarkers'
 import { dayTone } from '@/components/trip/plan'
-import { Button, CategoryChip, Field, Input, Switch, Textarea } from '@/components/ui'
+import { useSpaces } from '@/components/space'
+import { SpacePicker } from '@/components/space/SpacePicker'
+import { Button, CategoryChip, Field, Input, Textarea } from '@/components/ui'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useSite } from '@/hooks/useSite'
 import { invalidateTripLists } from '@/lib/cache'
@@ -335,7 +337,7 @@ function AIPlanner({
   onUse: (r: AIPlanResult, items: DraftItem[], days: number, startDate: string) => Promise<void>
   /** 表单左侧的引导语 */
   lead: ReactNode
-  /** 表单上方的额外选项（和 TA 一起） */
+  /** 表单上方的额外选项（和谁一起） */
   before?: ReactNode
   /** 情侣同行（给 AI 帮写偏好用） */
   together: boolean
@@ -680,16 +682,22 @@ export default function NewTripPage() {
   const qc = useQueryClient()
   // 自己规划：按日期或按天数（编辑页按天显示页签）
   const [by, setBy] = useState<'days' | 'dates'>('days')
-  const [f, setF] = useState({ title: '', start_date: '', end_date: '', days: 2, with_partner: !!user?.partner })
+  const [f, setF] = useState({ title: '', start_date: '', end_date: '', days: 2 })
   const [creating, setCreating] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
   // AI 规划：路线没保存成功、刚建的旅程也没删掉时记下来，重试前先删，避免留下空旅程
   const orphanTrip = useRef<number | null>(null)
-  // 进入页面后才刷新到的情侣绑定（或刚解除绑定）：同步「和 TA 一起」的默认值
-  const partnerId = user?.partner?.id
-  useEffect(() => {
-    setF((p) => ({ ...p, with_partner: !!partnerId }))
-  }, [partnerId])
+  // 和谁一起：旅程所属的空间。没选过时默认为地址里的 ?space=（从空间页进来）、默认空间、有情侣时的情侣空间
+  const spacesQ = useSpaces()
+  const spaces = spacesQ.data
+  const [pickedSpace, setPickedSpace] = useState<number | null | undefined>(undefined)
+  const paramSpace = Number(params.get('space')) || null
+  const fallbackSpace =
+    spaces?.find((s) => s.id === paramSpace) ?? spaces?.find((s) => s.is_default) ?? spaces?.find((s) => s.type === 'couple' && s.member_count > 1)
+  const spaceId = pickedSpace !== undefined ? pickedSpace : (fallbackSpace?.id ?? null)
+  const space = spaces?.find((s) => s.id === spaceId) ?? null
+  // 情侣空间：同时把情侣加为共同作者（和原来的「和 TA 一起」一样，旅程也算作对方的旅程和足迹）
+  const spaceFields = { space_id: space?.id, with_partner: space?.type === 'couple' && !!user?.partner ? true : undefined }
 
   const dateDays = f.start_date && f.end_date ? dayjs(f.end_date).diff(dayjs(f.start_date), 'day') + 1 : 0
 
@@ -706,7 +714,7 @@ export default function NewTripPage() {
         end_date: useDays ? null : f.end_date || null,
         days: useDays ? f.days : undefined,
         phase,
-        with_partner: f.with_partner && !!user?.partner,
+        ...spaceFields,
       })
       invalidateTripLists(qc)
       nav(`/trips/${t.id}/edit${mode === 'photos' ? '?panel=photos' : ''}`, { replace: true })
@@ -734,7 +742,7 @@ export default function NewTripPage() {
         start_date: start,
         end_date: start ? dayjs(start).add(days - 1, 'day').format('YYYY-MM-DD') : null,
         days: start ? undefined : days,
-        with_partner: f.with_partner && !!user?.partner,
+        ...spaceFields,
       })
       createdId = t.id
       invalidateTripLists(qc)
@@ -784,17 +792,8 @@ export default function NewTripPage() {
     </p>
   )
 
-  const partnerSwitch = user?.partner && (
-    <Switch
-      checked={f.with_partner}
-      onChange={(v) => setF({ ...f, with_partner: v })}
-      label={
-        <span className="inline-flex items-center gap-2 text-[14px]">
-          <Heart className="size-4 text-pink-500" strokeWidth={1.5} />和 {user.partner.nickname || user.partner.username} 一起
-        </span>
-      }
-    />
-  )
+  // 和谁一起：只有我 / 我的空间（选中的空间的成员都能查看、编辑和打卡）
+  const spacePicker = <SpacePicker spaces={spaces} value={spaceId} onChange={setPickedSpace} loading={spacesQ.isLoading} />
 
   return (
     <div className="mx-auto max-w-[90rem] px-4 pt-8 pb-24 md:px-8 md:pt-14 md:pb-32">
@@ -840,7 +839,7 @@ export default function NewTripPage() {
       <section className="mt-12 md:mt-16">
         <LabelRow eyebrow="Details · 旅程信息" note={current?.title} />
         {mode === 'ai' ? (
-          <AIPlanner onUse={useAIPlan} lead={lead} before={partnerSwitch} together={f.with_partner && !!user?.partner} />
+          <AIPlanner onUse={useAIPlan} lead={lead} before={spacePicker} together={space?.type === 'couple'} />
         ) : (
           <DetailGrid lead={lead}>
             <div className="space-y-7">
@@ -912,7 +911,7 @@ export default function NewTripPage() {
                   </Field>
                 </div>
               )}
-              {partnerSwitch}
+              {spacePicker}
               <div className="border-t border-ink-200 pt-6">
                 <Button size="lg" variant="accent" className="w-full sm:w-auto sm:min-w-64" loading={creating} onClick={create}>
                   {mode === 'photos' ? '创建并上传照片' : '创建并开始规划'}

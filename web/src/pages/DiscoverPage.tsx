@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { ArrowRight, ArrowUpRight } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, MapPin } from 'lucide-react'
 import { api, type Phase, type TripCard as Trip } from '@/api'
 import { EmptyNote, FilterLinks, LabelRow, MoreButton, Reveal, SectionHead, TextLink, cityShort, pad2 } from '@/components/editorial'
 import { RouteSketch } from '@/components/editorial/RouteSketch'
@@ -45,7 +45,7 @@ const sections = [
   { t: '计划 vs 实际', d: '路线逐站对照，看看哪里临时改了主意', to: '/trips/new' },
   { t: '打卡地避雷', d: '多人踩雷的地方，出发前就知道', to: '/places?sort=avoid' },
   { t: '3D 足迹', d: '点亮走过的城市，重温每一段路', to: '/footprints' },
-  { t: '我们的足迹', d: '两个人的旅行，记在同一张地图上', to: '/together' },
+  { t: '我们', d: '情侣、闺蜜、家人……每个空间一张共同的足迹地图', to: '/together' },
 ]
 
 type CoverData = {
@@ -157,6 +157,33 @@ function Opening({ cover, pending }: { cover: CoverData | undefined; pending: bo
     </div>
   )
 
+  // 手机底部导航里没有「打卡地」：首屏按钮下方放一个清楚的入口（宽屏顶栏里有）
+  const placesEntry = (
+    <nav aria-label="打卡地" className={cn('mt-5 flex flex-wrap items-center gap-x-1 gap-y-2 md:hidden', photo ? 'text-white/80' : 'text-ink-600')}>
+      <Link
+        to="/places"
+        className={cn(
+          'mr-1 inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-[13.5px] font-medium',
+          photo ? 'border-white/45 text-white' : 'border-ink-300 text-ink-900',
+        )}
+      >
+        <MapPin className="size-3.5" strokeWidth={1.75} />
+        打卡地
+      </Link>
+      {(
+        [
+          ['hot', '热门'],
+          ['rating', '高分'],
+          ['avoid', '避雷榜'],
+        ] as const
+      ).map(([sort, label]) => (
+        <Link key={sort} to={`/places?sort=${sort}`} className="inline-flex h-9 items-center px-2.5 text-[13px] underline decoration-current/30 underline-offset-4">
+          {label}
+        </Link>
+      ))}
+    </nav>
+  )
+
   const headline = (
     <h1
       className={cn(
@@ -238,7 +265,10 @@ function Opening({ cover, pending }: { cover: CoverData | undefined; pending: bo
                 </p>
                 <p className="mt-0.5 text-[13px] text-white/65">{tripFacts(hero)}</p>
               </Link>
-              <div className="md:col-span-6 md:justify-self-end">{ctas}</div>
+              <div className="md:col-span-6 md:justify-self-end">
+                {ctas}
+                {placesEntry}
+              </div>
             </div>
           </>
         ) : (
@@ -250,7 +280,10 @@ function Opening({ cover, pending }: { cover: CoverData | undefined; pending: bo
                 <p className="mt-4 max-w-sm text-[14.5px] leading-[1.85] text-ink-500">
                   每个打卡点都有真实的体验记录，推荐与避雷一目了然；看中别人的路线，一键引用，旅途中再为你推荐下一站。
                 </p>
-                <div className="mt-8">{ctas}</div>
+                <div className="mt-8">
+                  {ctas}
+                  {placesEntry}
+                </div>
               </div>
               {/* 线描与图注同宽、左缘对齐 */}
               <figure className="w-full max-w-[22rem] md:col-span-6 md:col-start-7 md:justify-self-end lg:col-span-5 lg:col-start-8">

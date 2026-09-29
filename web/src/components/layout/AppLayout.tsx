@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import {
   Bell,
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/api'
 import { SiteFooter } from '@/components/layout/SiteFooter'
+import { useSpaceInvites } from '@/components/space'
 import { Avatar, Button, Menu, MenuItem } from '@/components/ui'
 import { useSite } from '@/hooks/useSite'
 import { cn } from '@/lib/cn'
@@ -47,12 +48,25 @@ export function Logo({ className, light }: { className?: string; light?: boolean
   )
 }
 
-const navItems = [
+const navItems: { to: string; label: string; icon: typeof Compass; end?: boolean; also?: string[] }[] = [
   { to: '/', label: '发现', icon: Compass, end: true },
   { to: '/places', label: '打卡地', icon: MapIcon },
   { to: '/footprints', label: '我的足迹', icon: Footprints },
-  { to: '/together', label: '我们', icon: Heart },
+  // 「我们」：/together 打开默认空间或总览，空间页都算在「我们」里
+  { to: '/together', label: '我们', icon: Heart, also: ['/spaces'] },
 ]
+
+/** 路径是否属于某个导航项（prefix 的子路径也算） */
+function under(pathname: string, prefixes: string[]) {
+  return prefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+}
+
+/** 待我回应的空间邀请数：「我们」上的小圆点 */
+function useIncomingSpaceInvites() {
+  const user = useAuth((s) => s.user)
+  const { data } = useSpaceInvites({ poll: true })
+  return user ? (data?.incoming.length ?? 0) : 0
+}
 
 function useUnread() {
   const user = useAuth((s) => s.user)
@@ -171,28 +185,39 @@ function BellLink() {
 function Header() {
   const user = useAuth((s) => s.user)
   const nav = useNavigate()
+  const { pathname } = useLocation()
+  const invites = useIncomingSpaceInvites()
   return (
     // 三栏：左侧导航、正中字标、右侧操作（窄屏时字标靠左）
     <header className="glass sticky top-0 z-40 border-b border-ink-200">
       <div className="mx-auto grid h-15 max-w-[90rem] grid-cols-[auto_1fr_auto] items-center gap-4 px-4 md:grid-cols-[1fr_auto_1fr] md:px-8">
         <nav className="hidden items-center gap-7 md:flex">
-          {navItems.map((n) => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              end={n.end}
-              className={({ isActive }) =>
-                cn(
-                  'relative py-1 text-[13px] tracking-[0.04em] transition-colors duration-300',
-                  isActive
-                    ? 'text-ink-900 after:absolute after:inset-x-0 after:-bottom-[21px] after:h-px after:bg-ink-900'
+          {navItems.map((n) => {
+            const active = n.end ? pathname === n.to : under(pathname, [n.to, ...(n.also ?? [])])
+            const dot = n.to === '/together' && invites > 0
+            return (
+              <Link
+                key={n.to}
+                to={n.to}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  // 当前页：主文字色 + 600 + 贴着顶栏底边的 2px 强调色横线
+                  'relative inline-flex items-center gap-1.5 py-1 text-[13px] tracking-[0.04em] transition-colors duration-300',
+                  active
+                    ? 'font-semibold text-ink-900 after:absolute after:inset-x-0 after:-bottom-[21px] after:h-[2px] after:rounded-full after:bg-brand-600'
                     : 'text-ink-500 hover:text-ink-900',
-                )
-              }
-            >
-              {n.label}
-            </NavLink>
-          ))}
+                )}
+              >
+                {n.label}
+                {dot && (
+                  <>
+                    <span aria-hidden className="size-1.5 rounded-full bg-brand-500" />
+                    <span className="sr-only">（{invites} 个待回应的空间邀请）</span>
+                  </>
+                )}
+              </Link>
+            )
+          })}
         </nav>
         <Logo className="md:justify-self-center" />
         <div className="flex items-center justify-end gap-1.5 md:gap-2">
@@ -228,29 +253,58 @@ function Header() {
   )
 }
 
-function TabItem({ to, icon: Icon, label, end }: { to: string; icon: typeof Compass; label: string; end?: boolean }) {
+function TabItem({
+  to,
+  icon: Icon,
+  label,
+  active,
+  dot,
+}: {
+  to: string
+  icon: typeof Compass
+  label: string
+  active: boolean
+  /** 右上角的小圆点（如待回应的邀请） */
+  dot?: string
+}) {
   return (
-    <NavLink
+    <Link
       to={to}
-      end={end}
-      className={({ isActive }) =>
-        cn('flex flex-1 flex-col items-center gap-1 pt-2 pb-1.5 text-[10.5px] tracking-[0.08em]', isActive ? 'text-ink-900' : 'text-ink-400')
-      }
+      aria-current={active ? 'page' : undefined}
+      className={cn(
+        'relative flex flex-1 flex-col items-center gap-1 pt-2 pb-1.5 text-[10.5px] tracking-[0.08em] transition-colors',
+        active ? 'font-semibold text-ink-900' : 'text-ink-500',
+      )}
     >
-      <Icon className="size-5" strokeWidth={1.3} />
+      {/* 当前页：顶部一道强调色短横 + 强调色图标 + 加粗标签 */}
+      <span aria-hidden className={cn('absolute top-0 h-[2px] w-7 rounded-full transition-colors', active ? 'bg-brand-600' : 'bg-transparent')} />
+      <span className="relative">
+        <Icon className={cn('size-5', active && 'text-brand-600')} strokeWidth={active ? 1.75 : 1.3} />
+        {dot && <span aria-hidden className="absolute -top-0.5 -right-1 size-2 rounded-full bg-brand-500 ring-2 ring-paper" />}
+      </span>
       {label}
-    </NavLink>
+      {dot && <span className="sr-only">（{dot}）</span>}
+    </Link>
   )
 }
 
 function MobileTabBar() {
   const user = useAuth((s) => s.user)
   const nav = useNavigate()
+  const { pathname } = useLocation()
+  const invites = useIncomingSpaceInvites()
   return (
     <nav className="glass pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-ink-200 md:hidden">
       <div className="flex items-end px-2">
-        <TabItem to="/" icon={Compass} label="发现" end />
-        <TabItem to="/places" icon={MapIcon} label="打卡地" />
+        {/* 发现包括打卡地与搜索（打卡地的入口在发现页顶部和搜索页里） */}
+        <TabItem to="/" icon={Compass} label="发现" active={pathname === '/' || under(pathname, ['/places', '/search'])} />
+        <TabItem
+          to="/together"
+          icon={Heart}
+          label="我们"
+          active={under(pathname, ['/together', '/spaces'])}
+          dot={invites > 0 ? `${invites} 个待回应的空间邀请` : undefined}
+        />
         <div className="flex flex-1 justify-center">
           <button
             type="button"
@@ -261,8 +315,8 @@ function MobileTabBar() {
             <Plus className="size-5" strokeWidth={1.75} />
           </button>
         </div>
-        <TabItem to="/footprints" icon={Footprints} label="足迹" />
-        <TabItem to={user ? `/me` : '/login'} icon={User} label="我的" />
+        <TabItem to="/footprints" icon={Footprints} label="足迹" active={under(pathname, ['/footprints'])} />
+        <TabItem to={user ? `/me` : '/login'} icon={User} label="我的" active={under(pathname, ['/me', '/settings'])} />
       </div>
     </nav>
   )

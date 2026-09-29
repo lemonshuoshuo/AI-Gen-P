@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, LogOut, PenLine } from 'lucide-react'
 import { api } from '@/api'
+import { useSpaces } from '@/components/space'
 import { Avatar, buttonClass } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { dayjs, fmtCount } from '@/lib/format'
@@ -113,7 +114,10 @@ export default function MePage() {
   const base = cur?.min_exp ?? 0
   const progress = nextExp ? Math.min(1, Math.max(0, (user.exp - base) / Math.max(1, nextExp - base))) : 1
   const tripInvites = invites.data?.trip_invites.length ?? 0
-  const partnerInvites = invites.data?.partner_invites.length ?? 0
+  // 待我回应的空间邀请（旧版服务端只有情侣邀请）
+  const spaceInvites = invites.data?.space_invites?.length ?? invites.data?.partner_invites.length ?? 0
+  const spaces = useSpaces().data
+  const defaultSpace = spaces?.find((s) => s.is_default)
   const stats = profile.data?.stats
   const name = user.nickname || user.username
   // 名字够短时手机上也用更大的字号，让名字始终是页面唯一的焦点：中文按 1、西文按 0.55 个字宽估算
@@ -131,16 +135,18 @@ export default function MePage() {
     { to: '/me/favorites', label: '我的收藏', en: 'Saved' },
     { to: '/footprints', label: '我的足迹', en: 'Footprints' },
     {
+      // 「我们」：打开默认空间，没有时是空间总览
       to: '/together',
       label: '我们',
       en: 'Together',
-      extra: user.partner ? (
-        `情侣空间 · 和 ${user.partner.nickname || user.partner.username}`
-      ) : partnerInvites > 0 ? (
-        <Badge prefix="情侣空间 · " n={partnerInvites} unit="个邀请" />
-      ) : (
-        '情侣空间 · 未绑定'
-      ),
+      extra:
+        spaceInvites > 0 ? (
+          <Badge prefix="空间 · " n={spaceInvites} unit="个邀请" />
+        ) : spaces?.length ? (
+          `${spaces.length} 个空间${defaultSpace ? ` · 默认「${defaultSpace.name}」` : ''}`
+        ) : spaces ? (
+          '和情侣、闺蜜、家人建一个空间'
+        ) : undefined,
     },
   ]
   const more: LinkItem[] = [

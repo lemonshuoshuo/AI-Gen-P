@@ -54,7 +54,10 @@ export const router = createBrowserRouter([
           { path: 'trips/:id/edit', element: auth(page(() => import('@/pages/TripEditPage'))) },
           { path: 'trips/:id/compare', element: page(() => import('@/pages/ComparePage')) },
           { path: 'footprints', element: auth(page(() => import('@/pages/FootprintsPage'))) },
+          // 「我们」：/together 打开默认空间（没有时只有一个空间就打开它，否则是总览）
           { path: 'together', element: auth(page(() => import('@/pages/TogetherPage'))) },
+          { path: 'spaces', element: auth(page(() => import('@/pages/SpacesPage'))) },
+          { path: 'spaces/:id', element: auth(page(() => import('@/pages/SpacePage'))) },
           { path: 'u/:username', element: page(() => import('@/pages/UserPage')) },
           { path: 'me', element: auth(page(() => import('@/pages/MePage'))) },
           { path: 'me/trips', element: auth(page(() => import('@/pages/MyTripsPage'))) },
@@ -73,6 +76,7 @@ export const router = createBrowserRouter([
       { path: 'trips/:id/go', element: auth(page(() => import('@/pages/TravelModePage'))) },
       { path: 'trips/:id/replay', element: page(() => import('@/pages/ReplayPage')) },
       { path: 'together/replay', element: auth(page(() => import('@/pages/ReplayPage'))) },
+      { path: 'spaces/:sid/replay', element: auth(page(() => import('@/pages/ReplayPage'))) },
     ],
   },
 ])

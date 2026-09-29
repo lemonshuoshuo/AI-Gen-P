@@ -38,7 +38,10 @@ export interface Me extends UserBrief {
   storage_used: number
   /** 0 表示不限（管理员） */
   storage_quota: number
+  /** 情侣：自己所在情侣空间里的另一个人 */
   partner: UserBrief | null
+  /** 默认空间：点「我们」时直接打开它；没有设置时为 null（旧版服务端没有这个字段） */
+  default_space_id?: number | null
   created_at: string
 }
 
@@ -87,7 +90,10 @@ export interface TripCard {
   fav_count: number
   view_count: number
   featured: boolean
+  /** 旅程关联到情侣空间，或作者的情侣是共同作者 */
   together: boolean
+  /** 旅程所属的空间：只返回给该空间的成员，其他人为 null */
+  space?: SpaceRef | null
   author: UserBrief
   members: UserBrief[]
   created_at: string
@@ -276,6 +282,10 @@ export type NotificationType =
   | 'fork'
   | 'follow'
   | 'trip_invite'
+  | 'space_invite'
+  | 'space_accept'
+  | 'space_decline'
+  /** 旧版本产生的情侣邀请通知（升级后不再产生） */
   | 'partner_invite'
   | 'partner_accept'
   | 'featured'
@@ -287,11 +297,16 @@ export interface Notification {
   actor: UserBrief | null
   trip: { id: number; title: string } | null
   place: { id: number; name: string } | null
+  /** 空间相关通知的空间：只在接收者现在是成员或有待回应的邀请时返回 */
+  space?: SpaceRef | null
   comment_id: number | null
+  /** space_invite：邀请留言；space_accept / space_decline：跟在发起人昵称后的一句话；system：完整的一句话 */
   content: string
   read: boolean
-  /** trip_invite：邀请仍待当前用户接受 / 拒绝 */
+  /** trip_invite / space_invite：邀请仍待当前用户接受 / 拒绝 */
   invite_pending?: boolean
+  /** space_invite：邀请仍待回应时为邀请 ID（POST /space-invites/:id/accept、decline） */
+  space_invite_id?: number | null
   created_at: string
 }
 
@@ -311,7 +326,100 @@ export interface PartnerInfo {
   bound_at: string | null
   /** 是否在双方个人主页公开显示情侣关系（双方共享，缺省 false） */
   public: boolean
+  /** 自己的情侣空间（只有自己一人时也返回），没有时为 null */
+  space_id?: number | null
   invites: { incoming: PartnerInvite[]; outgoing: PartnerInvite[] }
+}
+
+/* ---------------- 空间「我们」（API.md「空间」） ---------------- */
+
+/** couple 情侣（最多 2 人）· besties 闺蜜 · friends 朋友 · family 家人 · custom 自定义 */
+export type SpaceType = 'couple' | 'besties' | 'friends' | 'family' | 'custom'
+
+/** 空间的引用（TripCard、Notification 中使用） */
+export interface SpaceRef {
+  id: number
+  name: string
+  type: SpaceType
+  /** 类型的显示名称：情侣 / 闺蜜 / 朋友 / 家人，或自定义的名称（如「驴友团」），直接显示即可 */
+  type_label: string
+}
+
+export interface SpaceMember extends UserBrief {
+  space_role: 'owner' | 'member'
+  joined_at: string
+}
+
+/** 空间里的一次旅程（Space 的 last_trip） */
+export interface TripBrief {
+  id: number
+  title: string
+  cover_url: string
+  cover_thumb_url: string
+  phase: Phase
+  start_date: string | null
+  end_date: string | null
+  days: number
+  cities: string[]
+}
+
+/** GET /spaces 的列表项（只有空间成员能看到） */
+export interface Space extends SpaceRef {
+  description: string
+  /** 纪念日 YYYY-MM-DD（主要用于情侣空间） */
+  anniversary: string | null
+  /** 只对情侣空间有意义：是否在两人的个人主页上显示情侣关系 */
+  public: boolean
+  owner: UserBrief
+  /** 当前用户在空间中的角色 */
+  role: 'owner' | 'member'
+  /** 是否是当前用户的默认空间 */
+  is_default: boolean
+  /** 创建者在前，其余按加入的先后 */
+  members: SpaceMember[]
+  member_count: number
+  /** 关联到空间的旅程数（含规划中的） */
+  trip_count: number
+  city_count: number
+  last_trip: TripBrief | null
+  /** 待对方回应的邀请数 */
+  pending_invite_count: number
+  /** 能否修改空间设置（创建者；情侣空间的两个人都能） */
+  can_manage: boolean
+  /** 现在能否邀请：有邀请的权限（情侣空间为创建者，其他空间为任何成员），且还没满 */
+  can_invite: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface SpaceInvite {
+  id: number
+  space: SpaceRef & { description: string; member_count: number; members: UserBrief[] }
+  inviter: UserBrief
+  invitee: UserBrief
+  message: string
+  status: 'pending' | 'accepted' | 'declined' | 'cancelled'
+  created_at: string
+}
+
+/** GET /spaces/:id，以及创建、修改空间与接受邀请的响应 */
+export interface SpaceDetail extends Space {
+  /** 同空间足迹的 stats，另加 trip_count */
+  stats: Footprints['stats'] & { trip_count: number }
+  /** 待回应的邀请（空间成员都能看到），按发出的先后 */
+  invites: SpaceInvite[]
+}
+
+/** 创建（type 必填）/ 修改空间；anniversary: null 清除 */
+export interface SpaceInput {
+  type?: SpaceType
+  name?: string
+  /** 仅 custom：类型名称（≤10 字） */
+  type_label?: string
+  description?: string
+  anniversary?: string | null
+  /** 只有情侣空间可以设为 true */
+  public?: boolean
 }
 
 export interface TripMember {
@@ -664,7 +772,10 @@ export interface TripInput {
   start_date?: string | null
   end_date?: string | null
   tags?: string[]
+  /** 仅创建时：把情侣加为共同作者（没给 space_id 时同时关联到情侣空间） */
   with_partner?: boolean
+  /** 旅程所属的空间（null / 0 表示不属于任何空间）：加入或更换只有作者可以，移出为作者或空间创建者 */
+  space_id?: number | null
   /** 仅作者可改（否则 403） */
   live_share?: boolean
   /** 规划的天数（0–365，0 / null 表示不再指定）；有开始日期时同时改结束日期 */

@@ -35,6 +35,11 @@ import type {
   Regeo,
   Report,
   SiteConfig,
+  Space,
+  SpaceDetail,
+  SpaceInput,
+  SpaceInvite,
+  SpaceType,
   TrackData,
   TrackImportResult,
   TrackPointIn,
@@ -92,8 +97,13 @@ export const api = {
     invites: () =>
       http.get<{
         trip_invites: { trip: TripCard; from: UserBrief; created_at: string }[]
+        /** 待我回应的空间邀请（旧版服务端没有） */
+        space_invites?: SpaceInvite[]
+        /** 已弃用：space_invites 中情侣空间的那些（旧格式） */
         partner_invites: PartnerInvite[]
       }>('/me/invites'),
+    /** 默认空间：点「我们」时打开它；null 清除 → Me */
+    setDefaultSpace: (spaceId: number | null) => http.put<Me>('/me/default-space', { space_id: spaceId }),
   },
 
   users: {
@@ -298,6 +308,31 @@ export const api = {
         q,
         signal,
       ),
+  },
+
+  /** 空间「我们」：情侣、闺蜜、朋友、家人或自定义类型，各自邀请不同的人 */
+  spaces: {
+    /** 我所在的空间（按我加入的先后，不分页） */
+    list: () => http.get<Space[]>('/spaces'),
+    create: (b: SpaceInput & { type: SpaceType }) => http.post<SpaceDetail>('/spaces', b),
+    get: (id: number) => http.get<SpaceDetail>(`/spaces/${id}`),
+    /** 创建者可以改（情侣空间两人都可以） */
+    update: (id: number, b: SpaceInput) => http.patch<SpaceDetail>(`/spaces/${id}`, b),
+    /** 删除空间（创建者）：旅程都保留，只是不再属于该空间 */
+    remove: (id: number) => http.del<unknown>(`/spaces/${id}`),
+    /** 邀请：username 可带 @，不区分大小写；message ≤200 字 */
+    invite: (id: number, b: { username?: string; user_id?: number; message?: string }) =>
+      http.post<SpaceInvite>(`/spaces/${id}/invites`, b),
+    /** 移除成员（创建者）；userId 是自己时为退出空间 */
+    removeMember: (id: number, userId: number) => http.del<unknown>(`/spaces/${id}/members/${userId}`),
+    trips: (id: number, q: PageQuery & { phase?: Phase | '' }) => http.get<Paged<TripCard>>(`/spaces/${id}/trips`, q),
+    footprints: (id: number) => http.get<Footprints>(`/spaces/${id}/footprints`),
+    /** 待回应的邀请：别人邀请我的、我发出的（新的在前） */
+    invites: () => http.get<{ incoming: SpaceInvite[]; outgoing: SpaceInvite[] }>('/space-invites'),
+    accept: (inviteId: number) => http.post<SpaceDetail>(`/space-invites/${inviteId}/accept`),
+    decline: (inviteId: number) => http.post<unknown>(`/space-invites/${inviteId}/decline`),
+    /** 撤回（邀请人或空间创建者） */
+    cancelInvite: (inviteId: number) => http.del<unknown>(`/space-invites/${inviteId}`),
   },
 
   partner: {

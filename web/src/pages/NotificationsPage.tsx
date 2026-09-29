@@ -10,6 +10,8 @@ import {
   GitFork,
   Heart,
   HeartHandshake,
+  MailPlus,
+  MailX,
   Megaphone,
   MessageCircle,
   Reply,
@@ -19,8 +21,9 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { api, ApiError, errorMessage, type Notification, type NotificationType, type Paged } from '@/api'
-import { Avatar, Button, Empty, LoadError, PageLoader } from '@/components/ui'
+import { api, ApiError, errorMessage, type Notification, type NotificationType, type Paged, type SpaceDetail } from '@/api'
+import { refreshSpaces } from '@/components/space'
+import { Avatar, Button, Empty, LoadError, PageLoader, selectedClass } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { dayjs, fromNow } from '@/lib/format'
 import { flattenPages } from '@/lib/pages'
@@ -37,6 +40,9 @@ const typeIcon: Record<NotificationType, LucideIcon> = {
   fork: GitFork,
   follow: UserPlus,
   trip_invite: Users,
+  space_invite: MailPlus,
+  space_accept: HeartHandshake,
+  space_decline: MailX,
   partner_invite: Heart,
   partner_accept: HeartHandshake,
   featured: Star,
@@ -82,6 +88,30 @@ function describe(n: Notification): ReactNode {
     case 'trip_invite':
       // 邀请已处理，或情侣被直接加入旅程（「把你加入了共同旅程…」）时按通知原文展示
       return n.invite_pending || !n.content ? <>{who} 邀请你一起编辑旅程{trip}</> : <>{who} {n.content}</>
+    case 'space_invite':
+      // space 只在自己已加入或邀请仍待回应时返回；否则 content 里只有留言
+      return (
+        <>
+          {who} 邀请你加入
+          {n.space ? (
+            <>
+              <B>「{n.space.name}」</B>
+              <span className="text-ink-500">（{n.space.type_label}）</span>
+            </>
+          ) : (
+            '一个空间'
+          )}
+          {n.content && <span className="text-ink-500">：“{n.content}”</span>}
+        </>
+      )
+    case 'space_accept':
+    case 'space_decline':
+      // content 是跟在昵称后的一句话，如「接受了邀请，加入了「我们」」
+      return (
+        <>
+          {who} {n.content || (n.type === 'space_accept' ? '接受了你的空间邀请' : '婉拒了你的空间邀请')}
+        </>
+      )
     case 'partner_invite':
       return (
         <>
@@ -103,10 +133,18 @@ function targetOf(n: Notification): string | null {
   switch (n.type) {
     case 'follow':
       return n.actor ? `/u/${n.actor.username}` : null
+    case 'space_invite':
+      // 待回应的邀请在总览最上方；已加入的直接打开那个空间
+      return n.space && !n.space_invite_id ? `/spaces/${n.space.id}` : '/spaces'
+    case 'space_accept':
+    case 'space_decline':
+      return n.space ? `/spaces/${n.space.id}` : '/spaces'
     case 'partner_invite':
     case 'partner_accept':
       return '/together'
   }
+  // 退出、移除、成为新的创建者等空间的系统通知
+  if (n.space) return `/spaces/${n.space.id}`
   if (n.trip) return `/trips/${n.trip.id}`
   if (n.place) return `/places/${n.place.id}`
   return null
@@ -121,6 +159,9 @@ const typeLabel: Record<NotificationType, string> = {
   fork: 'Fork · 引用',
   follow: 'Follow · 关注',
   trip_invite: 'Invite · 邀请',
+  space_invite: 'Invite · 空间邀请',
+  space_accept: 'Together · 我们',
+  space_decline: 'Together · 我们',
   partner_invite: 'Together · 情侣',
   partner_accept: 'Together · 情侣',
   featured: 'Featured · 精选',
@@ -186,9 +227,57 @@ function InviteActions({ tripId, onDone }: { tripId: number; onDone: () => void 
   )
 }
 
+/** 空间邀请：接受后给出进入空间的链接；处理结果留在这一条上，不刷新整个列表 */
+function SpaceInviteActions({ inviteId, onDone }: { inviteId: number; onDone: () => void }) {
+  const qc = useQueryClient()
+  const [result, setResult] = useState<{ accepted: boolean; space?: SpaceDetail } | null>(null)
+  const m = useMutation({
+    mutationFn: async (accept: boolean) => (accept ? api.spaces.accept(inviteId) : api.spaces.decline(inviteId).then(() => undefined)),
+    onSuccess: (space, accept) => {
+      setResult({ accepted: accept, space })
+      toast.success(accept ? `已加入「${space?.name ?? '空间'}」` : '已婉拒邀请')
+      refreshSpaces(qc, { trips: accept, notifications: false })
+      onDone()
+    },
+    onError: (e) => {
+      toast.error(errorMessage(e))
+      // 邀请已撤回或在别处处理：刷新列表，按钮会消失
+      if (e instanceof ApiError && e.status === 404) {
+        qc.invalidateQueries({ queryKey: ['notifications'] })
+        refreshSpaces(qc)
+      }
+    },
+  })
+  if (result?.accepted)
+    return (
+      <div className="mt-4 text-[13px] text-ink-700">
+        已加入 ·{' '}
+        <Link
+          to={result.space ? `/spaces/${result.space.id}` : '/spaces'}
+          className="text-ink-900 underline decoration-ink-300 underline-offset-4 hover:decoration-ink-900"
+        >
+          进入空间
+        </Link>
+      </div>
+    )
+  if (result) return <div className="mt-4 text-[13px] text-ink-500">已婉拒</div>
+  return (
+    <div className="mt-4 flex gap-2">
+      <Button size="sm" variant="outline" className="max-sm:h-10" loading={m.isPending && !m.variables} disabled={m.isPending} onClick={() => m.mutate(false)}>
+        婉拒
+      </Button>
+      <Button size="sm" className="max-sm:h-10" loading={m.isPending && m.variables} disabled={m.isPending} onClick={() => m.mutate(true)}>
+        接受邀请
+      </Button>
+    </div>
+  )
+}
+
 function NoticeItem({ n, onOpen, onRead }: { n: Notification; onOpen: () => void; onRead: () => void }) {
-  // 只有仍待处理的旅程邀请才显示接受 / 拒绝
-  const actionable = n.type === 'trip_invite' && !!n.trip && !!n.invite_pending
+  // 只有仍待处理的旅程邀请、空间邀请才显示接受 / 拒绝
+  const tripAction = n.type === 'trip_invite' && !!n.trip && !!n.invite_pending
+  const spaceAction = n.type === 'space_invite' && !!n.invite_pending && !!n.space_invite_id
+  const actionable = tripAction || spaceAction
   const clickable = !actionable && !!targetOf(n)
   const d = dayjs(n.created_at)
   const body = (
@@ -219,7 +308,8 @@ function NoticeItem({ n, onOpen, onRead }: { n: Notification; onOpen: () => void
             {!n.read && <span className="sr-only">未读：</span>}
             {describe(n)}
           </p>
-          {actionable && n.trip && <InviteActions tripId={n.trip.id} onDone={onRead} />}
+          {tripAction && n.trip && <InviteActions tripId={n.trip.id} onDone={onRead} />}
+          {spaceAction && n.space_invite_id && <SpaceInviteActions inviteId={n.space_invite_id} onDone={onRead} />}
         </div>
       </div>
       {/* 箭头位总是占着，右侧的类型标签列才有一条整齐的右边 */}
@@ -346,10 +436,10 @@ export default function NotificationsPage() {
           extra={total != null && filter === 'all' && <span className="font-num text-[13px] text-ink-400">{total} 条</span>}
         />
         <div className="mt-10 grid gap-x-8 gap-y-8 md:mt-16 lg:grid-cols-12 lg:items-end">
-          <h1 className="text-display-lg font-normal max-sm:text-[3.25rem] lg:col-span-7">通知</h1>
+          <h1 className="text-display-lg font-normal lg:col-span-7">通知</h1>
           <div className="flex items-end justify-between gap-6 lg:col-span-4 lg:col-start-9 lg:pb-2">
             <p className="flex items-baseline gap-3">
-              <span className="font-num text-[3.5rem] leading-[0.85] font-light text-ink-900 md:text-[4.5rem]">{unread}</span>
+              <span className="font-num text-num text-ink-900">{unread}</span>
               <span className="text-[13px] text-ink-500">{unread > 0 ? '条未读' : '全部已读'}</span>
             </p>
             <Button
@@ -388,12 +478,7 @@ export default function NotificationsPage() {
               type="button"
               aria-pressed={filter === v}
               onClick={() => setFilter(v)}
-              className={cn(
-                'inline-flex h-10 items-center px-2 tracking-wide transition-colors duration-300',
-                filter === v
-                  ? 'text-ink-900 underline decoration-ink-900 decoration-1 underline-offset-[7px]'
-                  : 'text-ink-400 hover:text-ink-900',
-              )}
+              className={selectedClass(filter === v, 'filter', 'mx-0.5 inline-flex h-10 items-center px-3 tracking-wide')}
             >
               {label}
             </button>

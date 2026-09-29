@@ -12,6 +12,11 @@ const TRIP_LIST_ROOTS = new Set([
   'my-footprints',
   'partner-trips',
   'partner-footprints',
+  // 空间：列表上的旅程数 / 最近一次旅程、空间页的统计、足迹与旅程
+  'spaces',
+  'space',
+  'space-trips',
+  'space-footprints',
   'search-trips',
 ])
 

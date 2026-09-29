@@ -18,6 +18,7 @@ import {
   Navigation,
   PenLine,
   Play,
+  Plus,
   Radio,
   Route,
   Share2,
@@ -35,6 +36,8 @@ import { PresenceBadge } from '@/components/editor/SyncUI'
 import { describeUpdate, useRevisionPoll } from '@/components/editor/useTripSync'
 import { FitOnce, RouteLines, RouteSegments } from '@/components/map/layers'
 import { ReportDialog } from '@/components/report/ReportDialog'
+import { SpaceTypeIcon, useSpaces } from '@/components/space'
+import { TripSpaceDialog } from '@/components/space/SpacePicker'
 import { CjkWords } from '@/components/trip/CjkWords'
 import { PhotoViewer } from '@/components/trip/PhotoViewer'
 import { Reveal } from '@/components/trip/Reveal'
@@ -686,7 +689,11 @@ function TripDetailView() {
   const [commentWp, setCommentWp] = useState<number | null>(null)
   const [shareWp, setShareWp] = useState<Waypoint | null>(null)
   const [forkOpen, setForkOpen] = useState(false)
+  const [spaceOpen, setSpaceOpen] = useState(false)
   const mapBoxRef = useRef<HTMLDivElement>(null)
+  // 旅程所属空间的创建者（不是作者）也可以把它移出空间：只有这时才需要查我的空间
+  const spacesQ = useSpaces(!!trip?.space && !trip.is_owner)
+  const spaceOwner = !!trip?.space && spacesQ.data?.some((s) => s.id === trip.space!.id && s.role === 'owner')
 
   // 打卡点分享链接（?wp=打卡点ID）：打开时选中该地点并滚动到行程里的位置（每个链接只处理一次，后台刷新不再跳）
   const wpParam = Number(params.get('wp')) || null
@@ -928,14 +935,47 @@ function TripDetailView() {
               <span className="mx-1.5 text-ink-300">·</span>
               <span className="font-num text-[14px]">{fmtCount(trip.view_count)}</span> 浏览
             </p>
-            {(trip.featured || trip.together || trip.status !== 'normal' || (trip.can_edit && trip.visibility !== 'public')) && (
+            {(trip.featured || trip.together || trip.space || trip.is_owner || trip.status !== 'normal' || (trip.can_edit && trip.visibility !== 'public')) && (
               <div className="mt-6 flex flex-wrap items-center gap-2">
                 {trip.featured && <Tag className="border-brand-300 text-brand-600">精选</Tag>}
-                {trip.together && (
-                  <Tag className="gap-1.5">
-                    <Heart className="size-3 fill-pink-500 text-pink-500" strokeWidth={1.5} />
-                    我们一起
-                  </Tag>
+                {/* 所属空间（只有空间成员看得到）：点开进入空间；不是成员时仍显示「我们一起」 */}
+                {trip.space ? (
+                  <Link
+                    to={`/spaces/${trip.space.id}`}
+                    title="打开这个空间"
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line px-2 py-0.5 text-xs tracking-wide text-ink-700 transition-colors hover:border-ink-500 hover:text-ink-900"
+                  >
+                    <SpaceTypeIcon type={trip.space.type} className="size-3" />
+                    <span className="truncate">{trip.space.name}</span>
+                    <span className="shrink-0 text-ink-500">· {trip.space.type_label}</span>
+                  </Link>
+                ) : (
+                  trip.together && (
+                    <Tag className="gap-1.5">
+                      <Heart className="size-3 fill-pink-500 text-pink-500" strokeWidth={1.5} />
+                      我们一起
+                    </Tag>
+                  )
+                )}
+                {(trip.is_owner || spaceOwner) && (
+                  <button
+                    type="button"
+                    onClick={() => setSpaceOpen(true)}
+                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-ink-300 px-2 py-0.5 text-xs tracking-wide text-ink-600 transition-colors hover:border-ink-600 hover:text-ink-900"
+                  >
+                    {trip.space ? (
+                      trip.is_owner ? (
+                        '更换空间'
+                      ) : (
+                        '移出空间'
+                      )
+                    ) : (
+                      <>
+                        <Plus className="size-3" strokeWidth={1.75} />
+                        加入空间
+                      </>
+                    )}
+                  </button>
                 )}
                 {trip.status === 'hidden' && <Tag className="border-brand-300 text-brand-600">已被管理员隐藏</Tag>}
                 {trip.status === 'pending' && <Tag className="border-amber-300 text-amber-700">{tripStatuses.pending.label}</Tag>}
@@ -1377,6 +1417,21 @@ function TripDetailView() {
       />
       <ReportDialog target={report ? { type: 'trip', id: trip.id } : null} onClose={() => setReport(false)} />
       {forkOpen && <ForkDialog trip={trip} onClose={() => setForkOpen(false)} />}
+      {spaceOpen && (
+        <TripSpaceDialog
+          trip={trip}
+          onClose={() => setSpaceOpen(false)}
+          onChanged={(t) => {
+            if (t) {
+              qc.setQueryData(key, t)
+              return
+            }
+            // 空间创建者移出了别人的旅程：自己已看不到它，回到空间
+            const back = trip.space ? `/spaces/${trip.space.id}` : '/spaces'
+            void Promise.resolve(nav(back, { replace: true })).then(() => qc.removeQueries({ queryKey: key }))
+          }}
+        />
+      )}
       {shareWp && shareBase && (
         <ShareSheet
           open

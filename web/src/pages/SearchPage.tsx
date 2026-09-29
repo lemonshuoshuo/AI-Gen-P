@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { Search } from 'lucide-react'
+import { ArrowRight, Search } from 'lucide-react'
 import { api } from '@/api'
 import { EmptyNote, LabelRow, MoreButton, SectionHead, TextLink, pad2 } from '@/components/editorial'
 import { PlaceRow } from '@/components/place/PlaceCard'
@@ -89,7 +89,42 @@ export default function SearchPage() {
       </p>
 
       {!has ? (
-        <section className="mt-24 md:mt-36" aria-labelledby="suggest-title">
+        <>
+        {/* 打卡地的入口：手机底部导航里没有「打卡地」，从搜索也能直接去逛 */}
+        <section className="mt-16 md:mt-24" aria-labelledby="places-entry-title">
+          <LabelRow
+            id="places-entry-title"
+            label="Places · 打卡地"
+            extra={
+              <Link to="/places" className="inline-flex h-10 items-center gap-1 text-[13px] text-ink-500 transition-colors hover:text-ink-900 md:h-8">
+                全部打卡地
+                <ArrowRight className="size-3.5" strokeWidth={1.5} />
+              </Link>
+            }
+          />
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            {(
+              [
+                ['hot', '热门打卡地', '去的人最多的地方'],
+                ['rating', '高分打卡地', '大家评分最高的地方'],
+                ['avoid', '避雷榜', '多人踩雷，出发前就知道'],
+              ] as const
+            ).map(([sort, title, desc]) => (
+              <Link
+                key={sort}
+                to={`/places?sort=${sort}`}
+                className="th-card group flex items-center justify-between gap-3 p-4 transition-colors hover:border-ink-400"
+              >
+                <span className="min-w-0">
+                  <span className="block text-[15px] text-ink-900">{title}</span>
+                  <span className="caption block">{desc}</span>
+                </span>
+                <ArrowRight className="size-4 shrink-0 text-ink-400 transition-colors group-hover:text-ink-900" strokeWidth={1.5} />
+              </Link>
+            ))}
+          </div>
+        </section>
+        <section className="mt-16 md:mt-24" aria-labelledby="suggest-title">
           <LabelRow id="suggest-title" label="Try · 不妨试试" count={pad2(suggestions.length)} />
           <ul className="mt-8 flex flex-wrap items-baseline gap-x-7 gap-y-3 md:mt-12 md:gap-x-0">
             {suggestions.map((w) => (
@@ -108,6 +143,7 @@ export default function SearchPage() {
             ))}
           </ul>
         </section>
+        </>
       ) : (
         <>
           {!!places.data?.items.length && (

@@ -680,12 +680,14 @@ const splitDuration = (s: number) => (s < 3600 ? { value: String(Math.max(1, Mat
 
 /* ---------------- 页面 ---------------- */
 export default function ReplayPage() {
-  const { id } = useParams()
+  const { id, sid } = useParams()
   const [params] = useSearchParams()
   const loc = useLocation()
   const nav = useNavigate()
   const me = useAuth((s) => s.user)
-  const together = loc.pathname.startsWith('/together')
+  // 「我们」的共同足迹：某个空间（/spaces/:sid/replay），或旧入口的情侣空间（/together/replay）
+  const spaceId = sid ? Number(sid) : null
+  const together = spaceId != null || loc.pathname.startsWith('/together')
   const plan = !together && params.get('plan') === '1'
   const compare = !plan && params.get('compare') === '1'
   // 回放是夜色里的电影画面：任何主题、任何模式下界面都用该主题的深色令牌
@@ -700,8 +702,13 @@ export default function ReplayPage() {
     queryFn: () => api.trips.track(Number(id)),
     enabled: !together && !plan && !!trip?.has_track,
   })
-  const fpQ = useQuery({ queryKey: ['partner-footprints'], queryFn: api.partner.footprints, enabled: together })
-  const partnerQ = useQuery({ queryKey: ['partner'], queryFn: api.partner.get, enabled: together })
+  const fpQ = useQuery({
+    queryKey: spaceId != null ? ['space-footprints', spaceId] : ['partner-footprints'],
+    queryFn: () => (spaceId != null ? api.spaces.footprints(spaceId) : api.partner.footprints()),
+    enabled: together,
+  })
+  const partnerQ = useQuery({ queryKey: ['partner'], queryFn: api.partner.get, enabled: together && spaceId == null })
+  const spaceQ = useQuery({ queryKey: ['space', spaceId], queryFn: () => api.spaces.get(spaceId!), enabled: spaceId != null })
   // 两站之间的真实路线（高德）；服务端还在算时最多等约 10 秒
   const legsQ = useReplayLegs(trip, !together)
   // 开始播放时用的路段：之后才算好的路段不在播放中替换（路线会突然跳变），「再看一次」时换成最新的
@@ -717,10 +724,19 @@ export default function ReplayPage() {
   }, [together, fpQ.data, trip, trackQ.data, compare, plan, legsSnap])
 
   const partner = partnerQ.data?.partner
+  const spaceMembers = spaceQ.data?.members
   const travellers = useMemo<Traveller[]>(
-    () => (together ? [me, partner].filter((u): u is NonNullable<typeof u> => !!u) : trip ? travellersOf(trip) : []),
-    [together, me, partner, trip],
+    () =>
+      spaceId != null
+        ? (spaceMembers ?? [])
+        : together
+          ? [me, partner].filter((u): u is NonNullable<typeof u> => !!u)
+          : trip
+            ? travellersOf(trip)
+            : [],
+    [spaceId, spaceMembers, together, me, partner, trip],
   )
+  const togetherTitle = (spaceId != null ? spaceQ.data?.name : partnerQ.data?.title) || '我们一起走过的地方'
   const accent = together ? ACCENTS.love : ACCENTS.gold
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null)
   const [palette, setPalette] = useState<Palette>(FALLBACK)
@@ -738,7 +754,7 @@ export default function ReplayPage() {
   const [share, setShare] = useState(false)
   const qc = useQueryClient()
   const last = useRef<number | null>(null)
-  const pageTitle = together ? partnerQ.data?.title || '我们一起走过的地方' : trip?.title
+  const pageTitle = together ? togetherTitle : trip?.title
   useDocumentTitle(pageTitle && `${pageTitle} · ${plan ? '路线预览' : '3D 回放'}`)
 
   useEffect(() => {
@@ -774,7 +790,7 @@ export default function ReplayPage() {
   const err = together ? fpQ.error : (tripQ.error ?? trackQ.error)
   // 全屏页面没有顶栏和底部导航，直接打开链接时也要能返回（nav(-1) 无处可退）；
   // 从编辑页、旅程页进来时返回原处
-  const backTo = together ? '/together' : plan && trip?.can_edit ? `/trips/${id}/edit` : `/trips/${id}`
+  const backTo = together ? (spaceId != null ? `/spaces/${spaceId}` : '/together') : plan && trip?.can_edit ? `/trips/${id}/edit` : `/trips/${id}`
   const canGoBack = loc.key !== 'default'
   const goBack = (e: MouseEvent) => {
     if (!canGoBack) return
@@ -791,10 +807,10 @@ export default function ReplayPage() {
         error={err}
         title="无法回放"
         desc={err ? undefined : '请检查网络连接'}
-        notFoundTitle="旅程不存在或无权查看"
+        notFoundTitle={together ? '空间不存在，或你已不在其中' : '旅程不存在或无权查看'}
         onRetry={() => (together ? fpQ.refetch() : tripQ.error ? tripQ.refetch() : trackQ.refetch())}
         back={
-          <Link to={isNotFound(err) && !together ? '/' : backTo} className={buttonClass({ variant: 'outline' })}>
+          <Link to={isNotFound(err) ? (together ? '/spaces' : '/') : backTo} className={buttonClass({ variant: 'outline' })}>
             返回
           </Link>
         }
@@ -806,7 +822,7 @@ export default function ReplayPage() {
         className="min-h-dvh"
         title={together ? '还没有一起的足迹' : plan ? '还没有计划的地点' : '这段旅程还没有路线'}
         desc={
-          together ? '创建旅程时选择「和 TA 一起」，打卡后就能回放' : plan ? '在编辑页添加地点后，再来预览路线' : '添加打卡点或记录轨迹后再来回放'
+          together ? '新建旅程时在「和谁一起」里选这个空间，打卡后就能回放' : plan ? '在编辑页添加地点后，再来预览路线' : '添加打卡点或记录轨迹后再来回放'
         }
         action={
           <Link to={backTo} onClick={goBack} className={buttonClass({ variant: 'outline' })}>
@@ -824,11 +840,11 @@ export default function ReplayPage() {
   const current = !model || intro ? undefined : stop != null ? model.stops[stop] : leg ? undefined : model.stops[reachedCount - 1]
   const done = !!model && time >= model.duration
   const stopCount = model ? model.stops.filter((s) => s.kind !== 'lodging').length : 0
-  const title = together ? partnerQ.data?.title || '我们一起走过的地方' : trip?.title
+  const title = together ? togetherTitle : trip?.title
   const subtitle = together ? undefined : trip && dateRange(trip.start_date, trip.end_date)
   const eyebrow = plan ? 'Route preview · 路线预览' : together ? 'Together · 我们的足迹' : 'Replay · 旅程回放'
   const names = travellers.map((u) => u.nickname || u.username)
-  const travellerText = together ? names.join(' & ') : names.length > 3 ? `${names.slice(0, 3).join('、')} 等 ${names.length} 人` : names.join('、')
+  const travellerText = together && names.length <= 2 ? names.join(' & ') : names.length > 3 ? `${names.slice(0, 3).join('、')} 等 ${names.length} 人` : names.join('、')
   const estimatedLegs = model ? model.legs.filter((l) => l.estimated).length : 0
   const routeNote = !model
     ? undefined
