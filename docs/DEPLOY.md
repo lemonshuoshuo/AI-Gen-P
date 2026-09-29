@@ -11,10 +11,12 @@ TripHub 由一个 Go 服务端（内嵌了网页前端）和一个 PostgreSQL �
 ## 二、部署（使用发布包，推荐）
 
 发布包 `triphub-<版本>.tar.gz` 里已经包含编译好的程序，**不需要在服务器上编译**，也不需要拉取 Node / Go 镜像。
+包里的文件直接解压在当前目录（没有版本号目录）：选定一个部署目录（下文以 `/root/triphub` 为例），以后升级也一直在这个目录里进行（见第八节）。
 
 ```bash
-# 1. 上传并解压（可先用 sha256sum -c triphub-*.tar.gz.sha256 核对文件是否完整）
-tar xzf triphub-*.tar.gz && cd triphub-*/
+# 1. 建部署目录，把发布包上传到这里，然后解压（可先用 sha256sum -c triphub-*.tar.gz.sha256 核对文件是否完整）
+mkdir -p /root/triphub && cd /root/triphub
+tar xzf triphub-v*.tar.gz
 
 # 2. 配置
 cp .env.example .env
@@ -165,7 +167,7 @@ docker compose exec -T db pg_dump -U triphub --clean --if-exists triphub | gzip 
 tar czf files-$(date +%F).tar.gz .env data/app   # 照片 + 登录密钥 + 配置（.env 含密码和各类 Key，请妥善保管）
 ```
 
-每天自动备份数据库（可选）：执行 `crontab -e` 加入下面一行，每天 4 点备份、保留最近 14 天。把 `/opt/triphub` 换成你的部署目录（升级换了目录后要同步修改）；crontab 里的 `%` 必须写成 `\%`。
+每天自动备份数据库（可选）：执行 `crontab -e` 加入下面一行，每天 4 点备份、保留最近 14 天。把 `/opt/triphub` 换成你的部署目录；crontab 里的 `%` 必须写成 `\%`。
 
 ```
 0 4 * * * cd /opt/triphub && mkdir -p backups && docker compose exec -T db pg_dump -U triphub --clean --if-exists triphub | gzip > backups/db-$(date +\%F).sql.gz && find backups -name 'db-*.sql.gz' -mtime +14 -delete
@@ -191,41 +193,44 @@ docker compose up -d --build
 
 ## 八、升级
 
-> **不要在网站运行时复制 `data/` 目录**：复制正在运行的数据库目录可能得到损坏的数据库，而且复制之后新产生的游记、打卡和照片会丢失。务必先备份、再停止旧版本。
-
-下面的 `docker compose` 命令在启用了 HTTPS 时要加 `--profile https`（`.env` 中设置了 `COMPOSE_PROFILES=https` 的不用加）。
+一直在同一个部署目录里升级：把新的发布包上传到部署目录，执行包里自带的升级脚本即可。
 
 ```bash
-# 1. 在旧版本目录中备份（网站运行时即可执行）
-cd triphub-旧版本
-docker compose exec -T db pg_dump -U triphub --clean --if-exists triphub | gzip > ../triphub-pre-upgrade-$(date +%F).sql.gz
-
-# 2. 停止旧版本
-docker compose down
-
-# 3. 解压新版本发布包，把 .env 和 data/ 移过去（同一块磁盘上 mv 瞬间完成）
-cd .. && tar xzf triphub-新版本.tar.gz
-mv triphub-旧版本/.env triphub-旧版本/data triphub-新版本/
-
-# 4. 启动新版本，数据库结构会自动迁移
-cd triphub-新版本 && docker compose up -d --build && docker compose logs -f app
+cd /root/triphub                        # 你的部署目录
+# 上传 triphub-v新版本.tar.gz（和 .sha256）到这里，然后：
+./upgrade.sh triphub-v新版本.tar.gz       # 不写文件名时使用目录里版本号最新的 triphub-v*.tar.gz
 ```
 
-- 第 1 步的备份命令要等它执行完（回到命令提示符）再进行第 2 步；备份过程中不要停止或重启服务，否则备份不完整。
-- 从较早的版本升级时，第一次启动会一次性转换部分数值列（日志出现 `converting numeric columns to double precision`，约每 6 万段旅程 1–2 秒），并重新统计一次地点数据；等 `docker compose ps` 中 app 显示 `(healthy)` 后再访问。
+脚本做的事情（也可以手动执行，效果相同：`tar xzf triphub-v新版本.tar.gz && docker compose up -d --build`）：
 
-想让旧目录保留一份完整数据用于回滚，第 3 步可以把 `mv` 换成 `cp -a`：必须在第 2 步停止之后执行，要用 root 执行（保留数据库文件的属主），并且磁盘要有同样大小的空闲空间。
+1. 核对校验和（有 `.sha256` 文件时），检查包的内容
+2. 解压，覆盖程序文件（`docker-compose.yml`、程序、`README.md` 等）；**不会改动 `.env`、`data/` 和你自己添加的文件**（如 `docker-compose.override.yml`、证书）
+3. `docker compose up -d --build`：用新程序重建镜像并重启 app，数据库容器不动；数据库结构由程序启动时自动迁移
+4. 等待 app 显示 `(healthy)`，列出新版本新增的配置项（都有默认值，只做提示），删除旧版本的镜像
 
-**回滚**：在新版本目录执行 `docker compose down`，把 `.env` 和 `data/` 移回旧版本目录，再在旧目录执行 `docker compose up -d --build`（第 3 步用了 `cp -a` 的话，旧目录里保留着升级前的数据，也可以直接启动，但升级后新产生的数据不在里面）。如果旧版本无法使用升级后的数据库，在旧目录用第 1 步的备份恢复到升级前的状态（升级后新产生的数据会丢失）：
+说明：
+
+- 升级时网站会中断十几秒到几十秒。从较早的版本升级时，第一次启动可能要转换部分数据（日志出现 `converting numeric columns to double precision`），等 app 显示 `(healthy)` 后再访问。
+- 自己的改动请放在 `.env` 或 `docker-compose.override.yml` 中：直接改 `docker-compose.yml`、`Caddyfile` 的内容会在升级时被覆盖。
+- 启用了 HTTPS（Caddy）的，在 `.env` 中写上 `COMPOSE_PROFILES=https`，升级时会一并更新 Caddy。
+- 需要保留升级前的数据时，升级前先按第七节备份数据库。
+
+**回滚**：保留旧版本的发布包，执行 `./upgrade.sh triphub-v旧版本.tar.gz`。新版本只会新增数据库的表和列，旧版本一般可以直接使用升级后的数据库；如果旧版本启动失败，按第七节「恢复」用升级前的备份还原。
+
+### 从旧的目录结构迁移（v1.2.1 及更早，一次性）
+
+v1.2.1 及更早的发布包解压出来是一个带版本号的目录（如 `triphub-v1.2.0/`）。改成固定目录只需做一次：
 
 ```bash
-docker compose stop app
-docker compose up -d --wait db
-docker compose exec -T db dropdb -U triphub --force triphub
-docker compose exec -T db createdb -U triphub triphub
-gunzip -c ../triphub-pre-upgrade-日期.sql.gz | docker compose exec -T db psql -U triphub -d triphub -v ON_ERROR_STOP=1 --single-transaction
+cd /root/triphub/triphub-v1.2.0 && docker compose down     # 停止当前运行的版本（换成你实际的目录）
+cd /root/triphub
+mv triphub-v1.2.0/.env triphub-v1.2.0/data ./               # 把配置和数据移到部署目录
+tar xzf triphub-v新版本.tar.gz                               # 新格式的发布包：文件直接解压到这里
 docker compose up -d --build
+docker compose ps                                           # app 显示 (healthy) 后，旧的版本目录可以删除
 ```
+
+容器名和数据卷不随目录变化（Compose 项目名固定为 `triphub`），账号、旅程和照片都会保留。之后的升级就只需要 `./upgrade.sh`。
 
 ## 九、不用 Docker 直接运行
 

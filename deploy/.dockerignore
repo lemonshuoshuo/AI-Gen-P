@@ -1,0 +1,6 @@
+# 构建镜像只需要 Dockerfile 和编译好的程序；
+# 排除 data/（数据库文件可能很大、属主不同）、历次的发布包、备份等，升级时构建更快
+*
+!Dockerfile
+!triphub-linux-amd64
+!triphub-linux-arm64

@@ -1,7 +1,8 @@
 # TripHub 一键部署（用于发布包 triphub-<版本>.tar.gz：同目录下需要有编译好的 triphub-linux-amd64 / triphub-linux-arm64）
 #   1. cp .env.example .env 并修改其中的密码等配置
 #   2. docker compose up -d --build
-#   3. 浏览器访问 http://服务器IP:8080（正式使用请配置 HTTPS，见 DEPLOY.md；启用 HTTPS 后在 .env 设置 HTTP_PORT=127.0.0.1:8080）
+#   3. 浏览器访问 http://服务器IP:8080（正式使用请配置 HTTPS，见 README.md；启用 HTTPS 后在 .env 设置 HTTP_PORT=127.0.0.1:8080）
+#   升级：把新的发布包放到本目录，执行 ./upgrade.sh triphub-v新版本.tar.gz（本文件会被新版本覆盖，自己的改动请写在 .env 或 docker-compose.override.yml）
 # 在源码仓库（git clone）的 deploy/ 目录里部署时，需配合 docker-compose.source.yml，见 DEPLOY.md「从源码构建」
 name: triphub
 

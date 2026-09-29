@@ -80,9 +80,10 @@ cd web && npm install && npm run dev
 见 [docs/DEPLOY.md](docs/DEPLOY.md)。简要步骤：
 
 ```bash
-scripts/build-release.sh v1.0.0          # 生成 dist/triphub-v1.0.0.tar.gz
-# 上传到服务器后：
-tar xzf triphub-v1.0.0.tar.gz && cd triphub-v1.0.0
+scripts/build-release.sh v1.2.2          # 生成 dist/triphub-v1.2.2.tar.gz
+# 上传到服务器的部署目录（如 /root/triphub）后：
+tar xzf triphub-v1.2.2.tar.gz             # 文件直接解压在当前目录
 cp .env.example .env && vim .env
 docker compose up -d --build
+# 以后升级：把新包上传到同一目录，执行 ./upgrade.sh triphub-v新版本.tar.gz
 ```
