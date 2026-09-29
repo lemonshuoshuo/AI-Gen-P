@@ -329,7 +329,8 @@ func probeNetwork(p diagPrinter, scheme, host, port string) bool {
 			target = scheme + "://" + net.JoinHostPort(host, port)
 		}
 		p.note("", "对比：在宿主机上执行 curl -sS -m 8 -o /dev/null -w '%{http_code}\\n' "+target)
-		p.note("", "宿主机能连、容器不能：Docker 的转发 / NAT 规则失效，执行 systemctl restart docker，再在部署目录 docker compose up -d")
+		p.note("", "宿主机能连、容器不能：Docker 的转发 / NAT 规则失效（执行 systemctl restart docker，再在部署目录 docker compose up -d），")
+		p.note("", "或宿主机的 ufw、Clash / mihomo 的 TUN 模式拦截了容器流量，见 README「常见问题」→「DNS 通过、TCP 超时」")
 		return false
 	}
 	defer conn.Close()

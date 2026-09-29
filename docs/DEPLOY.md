@@ -353,7 +353,10 @@ docker compose up -d --build       # 在服务器上编译前端和后端，自�
     systemctl is-active nftables firewalld ufw 2>/dev/null   # 这些服务重载时会清掉 Docker 的规则
     ```
     修复：`systemctl restart docker`（重新写入规则），再在部署目录 `docker compose up -d`。
-    **开启了 ufw 的**（`systemctl is-active ufw` 显示 active）：ufw 默认拒绝转发流量，容器出网正好要经过宿主机转发。执行 `ufw default allow routed && ufw reload`（只放开转发，不影响 SSH 等入站规则），再 `systemctl restart docker` 和 `docker compose up -d`。Debian 上如果 `nftables` 服务的配置里有 `flush ruleset`，每次开机或重载都会清掉 Docker 的规则：不需要它时 `systemctl disable --now nftables`，然后重启 Docker。
+    **开启了 ufw 的**（`systemctl is-active ufw` 显示 active）：ufw 默认拒绝转发流量，容器出网正好要经过宿主机转发。执行 `ufw default allow routed && ufw reload`（只放开转发，不影响 SSH 等入站规则），再 `systemctl restart docker` 和 `docker compose up -d`。
+    **宿主机运行了 Clash / mihomo 等代理的 TUN 模式**（`ip route` 里有 `198.18.0.0` 的路由、`nft list ruleset` 里有 `table inet mihomo`）：容器的连接会被重定向到本机的代理端口，要经过本机的入站防火墙；ufw 等只放行了少数端口时，这些连接会被丢弃，表现为 TCP 超时。二选一：
+    - 放行容器网段的入站，让代理正常接手：`ufw allow from 172.16.0.0/12 comment 'docker containers' && ufw reload`
+    - 或在 mihomo 配置的 `tun:` 下用 `exclude-interface` 排除 `docker0` 和 TripHub 的网桥（`docker network inspect triphub_default -f 'br-{{printf "%.12s" .Id}}'`，执行 `docker compose down` 后会变），然后重启 mihomoDebian 上如果 `nftables` 服务的配置里有 `flush ruleset`，每次开机或重载都会清掉 Docker 的规则：不需要它时 `systemctl disable --now nftables`，然后重启 Docker。
   - **防火墙 / 安全组**：`firewall-cmd --reload` 或改过 iptables 后要重启 Docker，否则容器出站的 NAT 规则会丢失；确认安全组放行出站 443；`daemon.json` 中不要设置 `"iptables": false`。
   - **MTU**：TCP 能连上但 TLS 握手超时，而宿主机上 `curl` 正常，多半是云服务器 / VPN 网卡的 MTU 小于 1500。用 `ip link` 查看网卡 MTU（如 1450），在部署目录的 `docker-compose.override.yml` 中加上下面的内容（文件已存在时合并进去；不要改 `docker-compose.yml`，升级时会被覆盖），然后 `docker compose down && docker compose up -d`：
     ```yaml
