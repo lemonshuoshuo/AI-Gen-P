@@ -89,7 +89,8 @@ func TestDiagnoseAI(t *testing.T) {
 	if code := runDiagnose(&out); code != 1 {
 		t.Fatalf("exit %d:\n%s", code, out.String())
 	}
-	if s := out.String(); !strings.Contains(s, "TCP     失败") || !strings.Contains(s, "[connect] 无法连接 AI 服务") {
+	// 网络不通时不再调用接口（避免再等一次超时）
+	if s := out.String(); !strings.Contains(s, "TCP     失败") || !strings.Contains(s, "接口    跳过") || strings.Contains(s, "调用中") {
 		t.Fatalf("output:\n%s", s)
 	}
 }

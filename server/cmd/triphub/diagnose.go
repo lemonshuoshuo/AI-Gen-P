@@ -9,7 +9,9 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"triphub/internal/ai"
@@ -79,6 +81,17 @@ func (p diagPrinter) note(label, text string) { p.line("  %s%s", pad(label), tex
 // service works.
 func runDiagnose(w io.Writer) int {
 	p := diagPrinter{w}
+	// Ctrl+C 立即退出：docker compose exec 分配了终端时，信号直接发给本进程，
+	// 不自己处理的话要等正在进行的网络请求超时
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sig)
+	go func() {
+		if _, ok := <-sig; ok {
+			fmt.Fprintln(w, "\n已中断")
+			os.Exit(130)
+		}
+	}()
 	now := time.Now()
 	p.line("TripHub %s 外部服务自检（triphub -diagnose）", version.Version)
 	local := now.Format("2006-01-02 15:04:05 MST")
@@ -214,8 +227,14 @@ func diagnoseService(p diagPrinter, s diagService) bool {
 		p.note("代理", "经 "+pr.Used+" 转发（来自 HTTPS_PROXY / HTTP_PROXY；下面的 DNS / TCP / TLS 是直连测试）")
 		probeProxy(p, pr.Used)
 	}
-	probeNetwork(p, u.Scheme, host, port)
+	reachable := probeNetwork(p, u.Scheme, host, port)
+	// 直连时网络都不通，接口调用必然失败，不必再等它超时
+	if !reachable && pr.Used == "" {
+		p.note("接口", "跳过（网络检查未通过，先解决上面的问题）")
+		return false
+	}
 
+	p.note("接口", fmt.Sprintf("调用中…（最长 %d 秒）", int(s.wait.Seconds())))
 	ctx, cancel := context.WithTimeout(context.Background(), s.wait)
 	defer cancel()
 	start := time.Now()
@@ -286,8 +305,8 @@ func probeProxy(p diagPrinter, proxy string) {
 }
 
 // probeNetwork checks DNS, a TCP connection and the TLS handshake to
-// host:port directly.
-func probeNetwork(p diagPrinter, scheme, host, port string) {
+// host:port directly, and reports whether all of them passed.
+func probeNetwork(p diagPrinter, scheme, host, port string) bool {
 	if net.ParseIP(host) == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), diagStepTimeout)
 		start := time.Now()
@@ -295,7 +314,7 @@ func probeNetwork(p diagPrinter, scheme, host, port string) {
 		cancel()
 		if err != nil {
 			p.step("DNS", false, time.Since(start), netdiag.DNSReason(err))
-			return
+			return false
 		}
 		p.step("DNS", true, time.Since(start), host+" → "+strings.Join(addrs, ", "))
 	}
@@ -303,13 +322,21 @@ func probeNetwork(p diagPrinter, scheme, host, port string) {
 	conn, err := (&net.Dialer{Timeout: diagStepTimeout}).Dial("tcp", net.JoinHostPort(host, port))
 	if err != nil {
 		p.step("TCP", false, time.Since(start), netdiag.DialReason(err))
-		return
+		// 容器里的 DNS 由宿主机上的 Docker 代为查询，所以 DNS 通过而 TCP 不通时，
+		// 多半是宿主机的 Docker 转发 / NAT 规则丢了
+		target := scheme + "://" + host
+		if (scheme == "https" && port != "443") || (scheme == "http" && port != "80") {
+			target = scheme + "://" + net.JoinHostPort(host, port)
+		}
+		p.note("", "对比：在宿主机上执行 curl -sS -m 8 -o /dev/null -w '%{http_code}\\n' "+target)
+		p.note("", "宿主机能连、容器不能：Docker 的转发 / NAT 规则失效，执行 systemctl restart docker，再在部署目录 docker compose up -d")
+		return false
 	}
 	defer conn.Close()
 	p.step("TCP", true, time.Since(start), conn.RemoteAddr().String())
 	if scheme != "https" {
 		p.note("TLS", "跳过（"+scheme+" 地址）")
-		return
+		return true
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), diagTLSTimeout)
 	defer cancel()
@@ -317,9 +344,10 @@ func probeNetwork(p diagPrinter, scheme, host, port string) {
 	tc := tls.Client(conn, &tls.Config{ServerName: host})
 	if err := tc.HandshakeContext(ctx); err != nil {
 		p.step("TLS", false, time.Since(start), netdiag.TLSReason(err)+"："+err.Error())
-		return
+		return false
 	}
 	p.step("TLS", true, time.Since(start), certSummary(tc.ConnectionState()))
+	return true
 }
 
 // certSummary describes the server certificate of a TLS connection.

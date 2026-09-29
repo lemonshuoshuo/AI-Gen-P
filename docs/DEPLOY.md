@@ -310,6 +310,13 @@ docker compose up -d --build       # 在服务器上编译前端和后端，自�
   - **Key 里混入了多余字符**：引号、行尾注释、复制带来的零宽字符 / BOM、换行。服务端启动时会自动去掉并在日志中警告（`配置值含有多余字符`），但请改正 `.env`：每行写成 `AMAP_KEY=你的Key`，注释单独占一行。
   - **Docker 注入了代理**：`~/.docker/config.json`（用 sudo 时是 `/root/.docker/config.json`）里的 `proxies` 会被注入每个容器（`HTTPS_PROXY`）。容器里的 `127.0.0.1` 是容器自己，连不到宿主机上的代理，诊断显示「代理」环节失败。删掉 `proxies`（或改成容器能访问的地址、加 `noProxy`），然后 `docker compose up -d --force-recreate app`。
   - **容器 DNS 不通**：宿主机只配置了本机 DNS（如 `127.0.0.1` 上的 dnsmasq）、Docker 找不到可用的上游 DNS 时，会给容器改用 8.8.8.8，国内可能不通；使用 systemd-resolved（`127.0.0.53`，Ubuntu 默认）时 Docker 会读取 `/run/systemd/resolve/resolv.conf` 中的上游 DNS，也要确认那里的 DNS 可用。在 `/etc/docker/daemon.json` 写入 `{"dns": ["223.5.5.5", "119.29.29.29"]}`，`systemctl restart docker` 后 `docker compose up -d`。
+  - **DNS 通过、TCP 超时（容器出不了网）**：容器里的 DNS 由宿主机上的 Docker 代为查询，所以 DNS 正常不代表容器能上网。先在宿主机上执行 `curl -sS -m 8 -o /dev/null -w '%{http_code}\n' https://restapi.amap.com`：宿主机能连而容器不能，就是 Docker 的转发 / NAT 规则失效了。依次检查：
+    ```bash
+    sysctl net.ipv4.ip_forward              # 应为 1；为 0 时：sysctl -w net.ipv4.ip_forward=1 并写入 /etc/sysctl.d/99-docker.conf
+    iptables -t nat -S POSTROUTING | grep MASQUERADE   # 应有 Docker 网段（172.x）的 MASQUERADE 规则
+    systemctl is-active nftables firewalld ufw 2>/dev/null   # 这些服务重载时会清掉 Docker 的规则
+    ```
+    修复：`systemctl restart docker`（重新写入规则），再在部署目录 `docker compose up -d`。Debian 上如果 `nftables` 服务的配置里有 `flush ruleset`，每次开机或重载都会清掉 Docker 的规则：不需要它时 `systemctl disable --now nftables`，然后重启 Docker。
   - **防火墙 / 安全组**：`firewall-cmd --reload` 或改过 iptables 后要重启 Docker，否则容器出站的 NAT 规则会丢失；确认安全组放行出站 443；`daemon.json` 中不要设置 `"iptables": false`。
   - **MTU**：TCP 能连上但 TLS 握手超时，而宿主机上 `curl` 正常，多半是云服务器 / VPN 网卡的 MTU 小于 1500。用 `ip link` 查看网卡 MTU（如 1450），在 `docker-compose.yml` 末尾加上 `networks: {default: {driver_opts: {com.docker.network.driver.mtu: "1450"}}}`，然后 `docker compose down && docker compose up -d`。
   - **服务器时间不对**：TLS 证书校验失败（证书已过期或尚未生效）时用 `timedatectl` 检查时间。
