@@ -27,7 +27,7 @@ import {
   type RouteModel,
   type TrailPart,
 } from '@/components/three/replay'
-import { joinLegs, legInputs, planSequence, sequenceLabels, useReplayLegs } from '@/components/three/replayLegs'
+import { joinLegs, legInputs, planSequence, tripLabels, useReplayLegs } from '@/components/three/replayLegs'
 import { ACCENTS, Anchor, AvatarStack, MapOverlay, ModeBadge, StopPin, TravellerMarker, type Accent, type PinState, type Traveller } from '@/components/three/ReplayOverlay'
 import { isLodging } from '@/components/trip/plan'
 import { ShareDialog } from '@/components/trip/ShareDialog'
@@ -415,7 +415,7 @@ function ReplayScene({ model, time, playing, palette, accent, travellers, avatar
 
   const head = pointAt(model, d)
   // 停在某一站（含开场与结束时）：头像让到一边，露出这一站的标记
-  const atStop = intro || stop != null || model.stops.some((s) => Math.abs(s.reach - d) < 0.5)
+  const atStop = intro || stop != null || model.stops.some((s) => Math.abs(s.reach - d) <= 1)
   const pinState = (s: PlacedStop): PinState => (intro ? 'upcoming' : stop === s.index ? 'current' : s.index < reachedCount ? 'reached' : 'upcoming')
   return (
     <MapOverlay>
@@ -457,8 +457,14 @@ function travellersOf(trip: TripDetail): Traveller[] {
   return [trip.author, ...(trip.members ?? [])].filter((u) => !!u && !seen.has(u.id) && !!seen.add(u.id))
 }
 
-function stopTag(w: Waypoint, byDay: boolean) {
-  if (isLodging(w)) return w.day > 0 ? `第 ${w.day} 晚 · 住宿` : '出发前一晚 · 住宿'
+/** 字幕上的小标签：第几天；住宿是第几晚（连住几晚合成一站时「第 1–2 晚」） */
+function stopTag(w: Waypoint, byDay: boolean, nights: number[] = [w.day]) {
+  if (isLodging(w)) {
+    const a = Math.min(...nights)
+    const b = Math.max(...nights)
+    const night = (n: number) => (n > 0 ? `第 ${n} 晚` : '出发前一晚')
+    return a === b ? `${night(a)} · 住宿` : a > 0 ? `第 ${a}–${b} 晚 · 住宿` : `出发前一晚–第 ${b} 晚 · 住宿`
+  }
   return byDay && w.day > 0 ? `第 ${w.day} 天` : undefined
 }
 
@@ -470,11 +476,13 @@ function tripToReplay(trip: TripDetail, trackData: TrackData | undefined, legs: 
   const planned = planSequence(trip)
   const visited = plan ? [] : visitedInOrder(trip.waypoints).map((w) => ({ w, ids: [w.id] }))
   const seq = plan || !visited.length ? planned : visited
-  const labels = sequenceLabels(seq.map((x) => x.w))
+  // 编号与行程页一致
+  const labels = tripLabels(trip, seq.map((x) => x.w))
   const byDay = seq.some((x) => x.w.day > 0 && !isLodging(x.w))
+  const dayOf = new Map(trip.waypoints.map((w) => [w.id, w.day]))
   const photoBy = new Map<number, string>()
   trip.photos.forEach((p) => p.waypoint_id && !photoBy.has(p.waypoint_id) && photoBy.set(p.waypoint_id, p.thumb_url || p.url))
-  const stops: ReplayStop[] = seq.map(({ w }) => ({
+  const stops: ReplayStop[] = seq.map(({ w, ids }) => ({
     key: String(w.id),
     lng: w.lng,
     lat: w.lat,
@@ -484,7 +492,8 @@ function tripToReplay(trip: TripDetail, trackData: TrackData | undefined, legs: 
     note: w.note,
     photo: photoBy.get(w.id),
     verdict: plan ? undefined : w.verdict,
-    tag: stopTag(w, byDay),
+    tag: stopTag(w, byDay, ids.map((id) => dayOf.get(id) ?? w.day)),
+    nights: isLodging(w) ? ids.length : undefined,
     t: !plan && w.arrived_at ? Date.parse(w.arrived_at) : undefined,
     kind: isLodging(w) ? 'lodging' : 'stop',
     label: labels.get(w.id),
@@ -499,7 +508,8 @@ function tripToReplay(trip: TripDetail, trackData: TrackData | undefined, legs: 
       buildRoute(
         track.map((s) => s.path),
         stops,
-        { times: track.map((s) => s.times), legs: inputs.map((l) => ({ ...l, duration_s: 0 })) },
+        // 沿轨迹的路程是量出来的，不是估算
+        { times: track.map((s) => s.times), legs: inputs.map((l) => ({ ...l, duration_s: 0, estimated: false })) },
       )
     : buildLegRoute(stops, inputs)
   const plannedLine = compare && !plan && planned.length > 1 ? joinLegs(planned, legInputs(planned, legs?.legs, travel)) : undefined
@@ -622,9 +632,9 @@ function StopCaption({ stop, count }: { stop: PlacedStop; count: number }) {
 function LegCaption({ leg, next, plan, accent }: { leg: ReplayLeg; next?: PlacedStop; plan: boolean; accent: Accent }) {
   const Icon = leg.mode ? LEG_MODE_ICONS[leg.mode] : Route
   const approx = leg.estimated ? '约 ' : ''
-  // 预览里强调「推荐」：自动模式下每段用的就是推荐的方式；指定了方式但推荐的不同时另外提示
-  const recommended = plan && leg.mode && leg.recommended === leg.mode
-  const suggest = leg.recommended && leg.mode && leg.recommended !== leg.mode ? leg.recommended : null
+  // 预览里强调「推荐」：自动模式下每段用的就是推荐的方式；指定了方式但推荐的不同时另外提示。跨天的转场不是计划里的路
+  const recommended = plan && !leg.transfer && leg.mode && leg.recommended === leg.mode
+  const suggest = !leg.transfer && leg.recommended && leg.mode && leg.recommended !== leg.mode ? leg.recommended : null
   return (
     <div className="flex items-center gap-3.5">
       <span className={cn('flex size-11 shrink-0 items-center justify-center rounded-full border-[1.5px] bg-night/60 backdrop-blur-sm', accent.border, accent.text)}>
@@ -651,7 +661,7 @@ function LegCaption({ leg, next, plan, accent }: { leg: ReplayLeg; next?: Placed
         <p className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] text-ink-600">
           {next && <span className="truncate">前往 {next.name}</span>}
           {suggest && <span className="text-ink-500">推荐{LEG_MODE_LABELS[suggest]}</span>}
-          {leg.estimated && <span className="text-ink-500">按直线估算</span>}
+          {leg.transfer ? <span className="text-ink-500">换一天 · 不计入里程</span> : leg.estimated && <span className="text-ink-500">按直线估算</span>}
         </p>
       </div>
     </div>
@@ -713,9 +723,11 @@ export default function ReplayPage() {
   const legsQ = useReplayLegs(trip, !together)
   // 开始播放时用的路段：之后才算好的路段不在播放中替换（路线会突然跳变），「再看一次」时换成最新的
   const [legsSnap, setLegsSnap] = useState<{ v: TripLegs | undefined } | null>(null)
+  // 有 GPS 轨迹的回放沿轨迹走，路段只提供出行方式的图标：不等高德，有什么用什么（「再看一次」时换成最新的）
+  const followsTrack = !together && !plan && !!trip?.has_track
   useEffect(() => {
-    if (!together && trip && legsQ.settled && !legsSnap) setLegsSnap({ v: legsQ.data })
-  }, [together, trip, legsQ.settled, legsQ.data, legsSnap])
+    if (!together && trip && (legsQ.settled || followsTrack) && !legsSnap) setLegsSnap({ v: legsQ.data })
+  }, [together, trip, legsQ.settled, legsQ.data, legsSnap, followsTrack])
 
   const data = useMemo(() => {
     if (together) return fpQ.data ? { ...footprintsToReplay(fpQ.data), planned: undefined, track: false } : null
@@ -761,7 +773,8 @@ export default function ReplayPage() {
     if (!playing || intro || !data) return
     let raf = 0
     const tick = (now: number) => {
-      const dt = last.current == null ? 0 : (now - last.current) / 1000
+      // 切到后台时浏览器暂停动画帧：回来后的第一帧不把离开的那段时间一下子补上（不会直接跳到结尾）
+      const dt = last.current == null ? 0 : Math.min(0.1, (now - last.current) / 1000)
       last.current = now
       setTime((t) => {
         const n = t + dt * speed
@@ -794,6 +807,13 @@ export default function ReplayPage() {
   const canGoBack = loc.key !== 'default'
   const goBack = (e: MouseEvent) => {
     if (!canGoBack) return
+    e.preventDefault()
+    nav(-1)
+  }
+  // 从编辑页的「3D 预览」进来：「继续编辑」返回那一页（不再叠一层）；从行程页进来时打开编辑页
+  const fromEdit = (loc.state as { from?: string } | null)?.from === 'edit'
+  const backToEdit = (e: MouseEvent) => {
+    if (!fromEdit || !canGoBack) return
     e.preventDefault()
     nav(-1)
   }
@@ -885,16 +905,18 @@ export default function ReplayPage() {
     setPlaying((p) => !p)
   }
 
-  // 已走过的路程与全程：有路段时是道路里程（与结束时的「里程」一致）
-  const totalM = model ? routeLength(model) : 0
-  const nowM = model ? travelledAt(model, d) : 0
+  // 已走过的路程与全程：沿 GPS 轨迹时是轨迹的里程（第一站之前、最后一站之后走的也算）；否则是各路段的道路里程
+  // （与结束时的「里程」一致；跨天的转场不算）
+  const totalM = model ? (data?.track ? model.total : routeLength(model)) : 0
+  const nowM = model ? (data?.track ? Math.min(d, model.total) : travelledAt(model, d)) : 0
   const kmTotal = formatKm(totalM / 1000)
   const kmNowFull = formatKm(nowM / 1000)
   const unitOf = (x: string) => x.replace(/^[\d.,\s]+/, '')
   // 当前里程与全程单位相同时只写数字（12.3 / 184 公里），不同时各写各的单位（587 米 / 184 公里）
   const kmNow = unitOf(kmNowFull) === unitOf(kmTotal) ? kmNowFull.replace(/ ?(公里|米)$/, '') : kmNowFull
-  const legSeconds = model ? model.legs.reduce((a, l) => a + l.duration_s, 0) : 0
-  const lodgingCount = model ? model.stops.length - stopCount : 0
+  const legSeconds = model ? model.legs.reduce((a, l) => a + (l.transfer ? 0 : l.duration_s), 0) : 0
+  // 住几晚：连住的几晚合成了一站
+  const lodgingCount = model ? model.stops.reduce((n, s) => n + (s.kind === 'lodging' ? (s.nights ?? 1) : 0), 0) : 0
 
   return (
     <div ref={setRootEl} {...scope} className="bg-night fixed inset-0 overflow-hidden text-ink-900">
@@ -967,7 +989,8 @@ export default function ReplayPage() {
                   <span className="truncate text-ink-700">{travellerText}</span>
                 </span>
               )}
-              {model && (
+              {/* 只有一站（或几站在同一处）时没有路程：不显示「0 / 1 米」这样的里程 */}
+              {model && totalM > 0 && (
                 <span>
                   <span className="font-num text-[13px] text-ink-900">{kmNow}</span>
                   <span className="text-ink-400"> / </span>
@@ -1008,13 +1031,20 @@ export default function ReplayPage() {
             <p className="mt-2.5 text-[13px] text-ink-600">
               {plan ? (lodgingCount ? `路线看完了 · 住 ${lodgingCount} 晚` : '路线看完了') : together ? '我们的足迹还在继续' : '旅程回放结束'}
             </p>
-            <div className={cn('mx-auto mt-9 grid max-w-md border-t border-ink-900/15 [@media(max-height:480px)]:mt-5', plan && legSeconds > 0 ? 'grid-cols-3' : 'grid-cols-2')}>
+            <div
+              className={cn(
+                'mx-auto mt-9 grid max-w-md border-t border-ink-900/15 [@media(max-height:480px)]:mt-5',
+                totalM <= 0 ? 'max-w-[12rem] grid-cols-1' : plan && legSeconds > 0 ? 'grid-cols-3' : 'grid-cols-2',
+              )}
+            >
               <Stat label="地点" value={stopCount} unit="个" />
-              <Stat
-                label={estimatedLegs && estimatedLegs === model.legs.length ? '里程（估算）' : '里程'}
-                {...splitKm(totalM)}
-                className="border-l border-ink-900/15"
-              />
+              {totalM > 0 && (
+                <Stat
+                  label={estimatedLegs && estimatedLegs === model.legs.length ? '里程（估算）' : '里程'}
+                  {...splitKm(totalM)}
+                  className="border-l border-ink-900/15"
+                />
+              )}
               {plan && legSeconds > 0 && <Stat label="路上约" {...splitDuration(legSeconds)} className="border-l border-ink-900/15" />}
             </div>
             <div className="mt-10 flex flex-wrap justify-center gap-2 [@media(max-height:480px)]:mt-6">
@@ -1027,7 +1057,7 @@ export default function ReplayPage() {
                 </Button>
               )}
               {plan && trip?.can_edit ? (
-                <Link to={`/trips/${id}/edit`} onClick={goBack} className={buttonClass({ variant: 'outline' })}>
+                <Link to={`/trips/${id}/edit`} onClick={backToEdit} className={buttonClass({ variant: 'outline' })}>
                   <PenLine className="size-4" strokeWidth={1.5} />
                   继续编辑
                 </Link>
@@ -1062,7 +1092,7 @@ export default function ReplayPage() {
                 <span className="min-w-0 flex-1 truncate text-ink-600">
                   {intro ? '全程' : leg ? `前往 ${model.stops[leg.to]?.name ?? ''}` : current ? current.name : '出发'}
                 </span>
-                <span className="font-num shrink-0">{kmTotal}</span>
+                {totalM > 0 && <span className="font-num shrink-0">{kmTotal}</span>}
               </div>
               <Scrubber model={model} time={time} onSeek={seek} reached={reachedCount} accent={accent} />
             </div>

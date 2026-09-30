@@ -29,6 +29,7 @@ import {
   type WaypointInput,
 } from '@/api'
 import { canonicalOrder, groupPlan, isLodging } from '@/components/trip/plan'
+import { confirmDialog } from '@/components/ui'
 import { invalidateTripLists } from '@/lib/cache'
 import { bySeq } from '@/lib/trip'
 import { useAuth } from '@/stores/auth'
@@ -106,8 +107,10 @@ interface EditorState {
   conflict: PlanConflictState | null
   saving: boolean
   saveError: string | null
-  /** 上次没保存的草稿（打开页面时询问是否恢复） */
+  /** 上次没保存的草稿（打开页面时询问是否恢复）：明确选「不用了」之前一直留着 */
   restore: StoredDraft | null
+  /** 询问恢复的窗口被关掉了（Esc、点背景）：草稿还在，标题下给一个「恢复上次的修改」 */
+  restoreHidden: boolean
   /** 刚刚把别人的修改同步了过来（几秒后消失） */
   synced: { by: UserBrief; text: string; count: number; at: number } | null
   /** 同时在编辑的其他成员 */
@@ -128,6 +131,7 @@ const initial: EditorState = {
   saving: false,
   saveError: null,
   restore: null,
+  restoreHidden: false,
   synced: null,
   editors: [],
   busy: new Map(),
@@ -139,7 +143,9 @@ export const poolNameOf = (t: Pick<TripDetail, 'phase'> | null | undefined) => (
 
 const label = (w: Pick<Waypoint, 'name' | 'address'> | undefined) => (w ? `「${w.name || w.address || '未命名地点'}」` : '')
 
-const sameInstant = (a: string | null | undefined, b: string | null | undefined) => (a ? Date.parse(a) : null) === (b ? Date.parse(b) : null)
+// 到达时间按分钟比较：表单里的时间只到分钟，原样保存不应把打卡的秒数改掉（ActualRoute 按到达时间排序）
+const minuteOf = (t: string | null | undefined) => (t ? Math.floor(Date.parse(t) / 60_000) : null)
+const sameMinute = (a: string | null | undefined, b: string | null | undefined) => minuteOf(a) === minuteOf(b)
 
 const POLL_MS = 5_000
 const HEARTBEAT_MS = 20_000
@@ -460,13 +466,13 @@ export function usePlanEditor(tripId: number) {
       void _s
       void _c
       const statusChanged = status !== undefined && status !== w.status
-      const arrivedChanged = arrived_at !== undefined && !sameInstant(arrived_at, w.arrived_at)
+      const arrivedChanged = arrived_at !== undefined && !sameMinute(arrived_at, w.arrived_at)
       let ok = true
       if ((statusChanged || arrivedChanged) && !isNew(w)) {
         ok = await runNow([w.id], async () => {
           const nw = await api.waypoints.update(w.id, {
             ...(statusChanged ? { status } : {}),
-            ...(arrived_at !== undefined ? { arrived_at } : {}),
+            ...(arrivedChanged ? { arrived_at } : {}),
           })
           const p = { status: nw.status, arrived_at: nw.arrived_at }
           applyBoth((t) => ({ ...t, waypoints: t.waypoints.map((x) => (x.id === w.id ? { ...x, ...p } : x)) }))
@@ -499,15 +505,27 @@ export function usePlanEditor(tripId: number) {
 
   /**
    * 删除：计划里的点从草稿里去掉（undo：提示条上给「撤销」）；有打卡记录的点（计划外的打卡、已到达、有照片）
-   * 保存计划不会删除它们，立即删除
+   * 保存计划不会删除它们，确认后立即删除（不能撤销；confirmed：调用方已经问过）
    */
   const remove = useCallback(
-    async (w: Waypoint, opts: { undo?: boolean } = {}) => {
+    async (w: Waypoint, opts: { undo?: boolean; confirmed?: boolean } = {}) => {
       const st = store.getState()
       if (!st.draft) return
       if (!isNew(w) && hasHistory(st.draft, w)) {
         if (st.busy.has(w.id)) return
-        const inBase = st.base?.waypoints.find((x) => x.id === w.id)
+        if (!opts.confirmed) {
+          const photos = st.draft.photos.filter((p) => p.waypoint_id === w.id).length
+          const ok = await confirmDialog({
+            title: `删除打卡记录${label(w)}？`,
+            desc: `这是已经去过的地点：会立即删除，不能撤销（不用再点保存）。到达时间、备注和评价会一起删除${photos ? `，关联的 ${photos} 张照片会保留（取消关联）` : ''}。`,
+            danger: true,
+            okText: '删除',
+          })
+          if (!ok) return
+        }
+        const cur = store.getState()
+        if (!cur.draft || cur.busy.has(w.id) || !cur.draft.waypoints.some((x) => x.id === w.id)) return
+        const inBase = cur.base?.waypoints.find((x) => x.id === w.id)
         applyBoth((t) => removeWaypoint(t, w.id))
         const ok = await runNow([w.id], () => api.trips.removeWaypoint(tripId, w.id))
         if (ok) void invalidate()
@@ -536,6 +554,35 @@ export function usePlanEditor(tripId: number) {
     [store, applyBoth, runNow, tripId, invalidate, mutate, nextTempId],
   )
 
+  /**
+   * 清除住宿（住宿行的 ×、同一晚多出来的住宿）：有打卡记录的住宿（到过、有照片）不删除，改为那一天的游玩点
+   * （草稿里，保存后生效；出发前一晚的改到「想去」），打卡记录都在，想删再从那一行删；其余从草稿里去掉，可以撤销
+   */
+  const clearLodging = useCallback(
+    (w: Waypoint) => {
+      const st = store.getState()
+      if (!st.draft) return
+      if (isNew(w) || !hasHistory(st.draft, w)) return void remove(w, { undo: true })
+      const day = w.day
+      if (!mutate((t) => placeInDay({ ...t, waypoints: t.waypoints.map((x) => (x.id === w.id ? { ...x, kind: 'stop' as const } : x)) }, w.id, day)))
+        return
+      const where = day > 0 ? `第 ${day} 天的地点` : `「${poolNameOf(st.draft)}」`
+      toast(`已清除住宿${label(w)}`, {
+        description: `它有打卡记录，没有删除，改为${where}（保存后生效）`,
+        action: {
+          label: '撤销',
+          onClick: () =>
+            void mutate((t) => {
+              const cur = t.waypoints.find((x) => x.id === w.id)
+              if (!cur || isLodging(cur) || t.waypoints.some((x) => x.id !== w.id && isLodging(x) && x.day === day)) return null
+              return makeLodgingOp(t, w.id, day)
+            }),
+        },
+      })
+    },
+    [store, remove, mutate],
+  )
+
   /** 移到另一天（0：「想去」），index 为在那天游玩点中的位置（缺省放在最后） */
   const moveToDay = useCallback((w: Waypoint, day: number, index?: number) => void mutate((t) => placeInDay(t, w.id, day, index)), [mutate])
 
@@ -547,9 +594,18 @@ export function usePlanEditor(tripId: number) {
 
   /* ---------------- 住宿 ---------------- */
 
-  /** 设置第 night 晚（0 为出发前一晚）的住宿；nights 连住几晚；这几晚已有住宿时替换 */
+  /** 设置第 night 晚（0 为出发前一晚）的住宿；nights 连住几晚；这几晚已有住宿时替换。返回第 night 晚新的住宿（草稿里的） */
   const setLodging = useCallback(
-    (night: number, input: WaypointInput, nights = 1) => void mutate((t) => setLodgingOp(t, night, input, nights, nextTempId)),
+    (night: number, input: WaypointInput, nights = 1): Waypoint | null => {
+      let created: Waypoint | null = null
+      mutate((t) => {
+        const next = setLodgingOp(t, night, input, nights, nextTempId)
+        const had = new Set(t.waypoints.map((w) => w.id))
+        created = next.waypoints.find((w) => !had.has(w.id) && isLodging(w) && w.day === night) ?? null
+        return next
+      })
+      return created
+    },
     [mutate, nextTempId],
   )
 
@@ -572,19 +628,16 @@ export function usePlanEditor(tripId: number) {
   /** 一键排路线的方案预览：服务端按已保存的计划计算（有未保存的地点修改时要先保存） */
   const previewArrangement = useCallback((input: ArrangeInput) => api.trips.arrange(tripId, { ...input, apply: false }), [tripId])
 
-  /** 采用方案：改草稿，保存后生效 */
-  const applyArrangement = useCallback(
-    (r: ArrangeResult, mode: TravelMode) => void mutate((t) => applyArrangementOp(t, r, mode)),
-    [mutate],
-  )
+  /** 采用方案：改草稿（天和顺序；出行方式不变），保存后生效 */
+  const applyArrangement = useCallback((r: ArrangeResult) => void mutate((t) => applyArrangementOp(t, r)), [mutate])
 
-  /** 放弃全部未保存的修改（有别人的新版本时直接换成新版本） */
+  /** 放弃全部未保存的修改（有别人的新版本时直接换成新版本）；还没决定要不要恢复的上次的草稿留着 */
   const discard = useCallback(() => {
     const st = store.getState()
     const next = st.incoming ?? st.base
     if (!next) return
     store.setState({ base: next, draft: next, incoming: null, notice: null, conflict: null, saveError: null, errorId: null })
-    if (meId) clearStoredDraft(meId, tripId)
+    if (meId && !st.restore) clearStoredDraft(meId, tripId)
   }, [store, meId, tripId])
 
   /* ---------------- 恢复上次没保存的草稿 ---------------- */
@@ -595,15 +648,19 @@ export function usePlanEditor(tripId: number) {
     if (!sd || !st.base) return
     const R = qc.getQueryData<TripDetail>(key) ?? st.base
     const hydrate = (t: TripDetail): TripDetail => ({ ...t, photos: R.photos })
-    store.setState({ base: hydrate(sd.base), draft: hydrate(sd.draft), restore: null })
+    store.setState({ base: hydrate(sd.base), draft: hydrate(sd.draft), restore: null, restoreHidden: false })
     // 服务端可能已经是更新的版本：照常对齐（有冲突时出横幅）
     reconcile(R)
   }, [store, qc, key, reconcile])
 
+  /** 「不用了」：丢掉上次的草稿（只有明确选了才丢） */
   const dropRestore = useCallback(() => {
     if (meId) clearStoredDraft(meId, tripId)
-    store.setState({ restore: null })
+    store.setState({ restore: null, restoreHidden: false })
   }, [store, meId, tripId])
+  /** 关掉询问的窗口（Esc、点背景）：草稿留着，之后还可以恢复 */
+  const hideRestore = useCallback(() => store.setState({ restoreHidden: true }), [store])
+  const showRestore = useCallback(() => store.setState({ restoreHidden: false }), [store])
 
   /* ---------------- 保存 ---------------- */
 
@@ -668,7 +725,8 @@ export function usePlanEditor(tripId: number) {
         store.setState({ base: r.trip, draft, incoming: null, notice: null, conflict: null, saving: false, saveError: null })
         qc.setQueryData(key, r.trip)
         void invalidateTripLists(qc)
-        if (meId && draft === r.trip) clearStoredDraft(meId, tripId)
+        // 还没决定要不要恢复的上次的草稿留着
+        if (meId && draft === r.trip && !store.getState().restore) clearStoredDraft(meId, tripId)
         const keptIds = new Set(r.kept)
         return { ok: true, idMap, kept: B.waypoints.filter((w) => keptIds.has(w.id)) }
       } catch (e) {
@@ -706,7 +764,7 @@ export function usePlanEditor(tripId: number) {
     if (!R) return
     store.setState({ base: R, draft: R, incoming: null, notice: null, conflict: null, saveError: null, errorId: null })
     qc.setQueryData(key, R)
-    if (meId) clearStoredDraft(meId, tripId)
+    if (meId && !st.restore) clearStoredDraft(meId, tripId)
   }, [store, qc, key, meId, tripId])
 
   /** 冲突：用我的版本覆盖 */
@@ -749,11 +807,13 @@ export function usePlanEditor(tripId: number) {
     notice: s.notice && s.notice.revision > s.noticeDismissed ? s.notice : null,
     conflict: s.conflict,
     restore: s.restore,
+    restoreHidden: s.restoreHidden,
     synced: s.synced,
     addStop,
     update,
     move,
     remove,
+    clearLodging,
     moveToDay,
     reorder,
     setLodging,
@@ -774,6 +834,8 @@ export function usePlanEditor(tripId: number) {
     clearSynced,
     restoreDraft,
     dropRestore,
+    hideRestore,
+    showRestore,
   }
 }
 

@@ -76,11 +76,27 @@ func (h *Handler) inviteMember(c *gin.Context) error {
 	}
 	me := currentUser(c)
 	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
-		if err := service.LockTrip(tx, t.ID); err != nil {
-			return err
-		}
 		var target model.User
 		if err := tx.Where("lower(username) = lower(?)", name).Limit(1).Find(&target).Error; err != nil {
+			return err
+		}
+		// The author's partner joins at once (anyone else is invited: an
+		// accepted co-authorship shows the trip on their profile, so space
+		// members too), and a trip in no space joins the couple space with
+		// them, as trips created with the partner do. Spaces are locked
+		// before trips.
+		partnerID, couple, err := service.PartnerOf(tx, me.ID)
+		if err != nil {
+			return err
+		}
+		direct := partnerID != 0 && partnerID == target.ID
+		linkCouple := direct && t.SpaceID == nil
+		if linkCouple {
+			if err := linkableSpace(tx, couple.ID, me.ID); err != nil {
+				return err
+			}
+		}
+		if err := service.LockTrip(tx, t.ID); err != nil {
 			return err
 		}
 		if target.ID == 0 || target.Status == model.UserDeleted {
@@ -109,20 +125,6 @@ func (h *Handler) inviteMember(c *gin.Context) error {
 		if n >= maxTripMembers {
 			return errBad("共同作者人数已达上限")
 		}
-		// The author's partner, and members of the trip's space (who may edit
-		// it already), join at once; others are invited.
-		partnerID, _, err := service.PartnerOf(tx, me.ID)
-		if err != nil {
-			return err
-		}
-		direct := partnerID == target.ID
-		if !direct && t.SpaceID != nil {
-			m, err := service.SpaceMembership(tx, *t.SpaceID, target.ID)
-			if err != nil {
-				return err
-			}
-			direct = m != nil
-		}
 		status, content := model.MemberPending, "邀请你成为旅程「"+t.Title+"」的共同作者"
 		if direct {
 			status, content = model.MemberAccepted, "把你加入了共同旅程「"+t.Title+"」"
@@ -130,6 +132,12 @@ func (h *Handler) inviteMember(c *gin.Context) error {
 		if err := tx.Create(&model.TripMember{TripID: t.ID, UserID: target.ID, Role: model.MemberEditor,
 			Status: status, InvitedByID: me.ID}).Error; err != nil {
 			return err
+		}
+		if linkCouple {
+			// Still in no space (it may have been linked since it was loaded).
+			if err := tx.Model(&model.Trip{}).Where("id = ? AND space_id IS NULL", t.ID).UpdateColumn("space_id", couple.ID).Error; err != nil {
+				return err
+			}
 		}
 		if _, err := service.TouchTrip(tx, t.ID, me.ID); err != nil {
 			return err

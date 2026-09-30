@@ -305,7 +305,7 @@ func (h *Handler) autoWaypoint(ctx context.Context, tx *gorm.DB, t *model.Trip, 
 
 // photoForEdit loads the :id photo and requires trip membership.
 func (h *Handler) photoForEdit(c *gin.Context) (*model.Photo, *model.Trip, error) {
-	p, t, err := h.findPhotoForEdit(c)
+	p, t, err := h.findPhotoForEdit(c, false)
 	if err == nil && p == nil {
 		return nil, nil, errNotFound("照片不存在")
 	}
@@ -313,18 +313,31 @@ func (h *Handler) photoForEdit(c *gin.Context) (*model.Photo, *model.Trip, error
 }
 
 // findPhotoForEdit is photoForEdit, but a photo that does not exist (any
-// more) is no error: all three results are nil.
-func (h *Handler) findPhotoForEdit(c *gin.Context) (*model.Photo, *model.Trip, error) {
+// more) is no error: all three results are nil. uploader: the one who
+// uploaded the photo may have it too without being a member of its trip
+// (any more): their photos count against their storage, so they may always
+// delete them.
+func (h *Handler) findPhotoForEdit(c *gin.Context, uploader bool) (*model.Photo, *model.Trip, error) {
 	id, err := idParam(c, "id")
 	if err != nil {
 		return nil, nil, err
 	}
+	db := h.db.WithContext(c.Request.Context())
 	var p model.Photo
-	if err := h.db.WithContext(c.Request.Context()).Limit(1).Find(&p, id).Error; err != nil {
+	if err := db.Limit(1).Find(&p, id).Error; err != nil {
 		return nil, nil, err
 	}
 	if p.ID == 0 {
 		return nil, nil, nil
+	}
+	if uploader && p.UserID == currentUserID(c) {
+		var t model.Trip
+		if err := db.Limit(1).Find(&t, p.TripID).Error; err != nil {
+			return nil, nil, err
+		}
+		if t.ID != 0 {
+			return &p, &t, nil
+		}
 	}
 	t, a, err := h.loadTrip(c, p.TripID, "")
 	if err != nil {
@@ -424,7 +437,7 @@ func (h *Handler) updatePhoto(c *gin.Context) error {
 func (h *Handler) deletePhoto(c *gin.Context) error {
 	// Idempotent: a photo that no longer exists (a second tap while the first
 	// request was under way, or deleted by another member) answers {} too.
-	p, t, err := h.findPhotoForEdit(c)
+	p, t, err := h.findPhotoForEdit(c, true)
 	if err != nil || p == nil {
 		if err == nil {
 			c.JSON(http.StatusOK, gin.H{})

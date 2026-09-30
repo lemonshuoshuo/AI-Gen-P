@@ -1,11 +1,11 @@
-import { Fragment, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { Fragment, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
+  AutoScrollActivator,
   DndContext,
   KeyboardSensor,
   PointerSensor,
   TouchSensor,
   closestCenter,
-  pointerWithin,
   useDroppable,
   useSensor,
   useSensors,
@@ -24,7 +24,7 @@ import { dayjs, fmtMinutes } from '@/lib/format'
 import { formatDistance } from '@/lib/geo'
 import { waypointStatus } from '@/lib/meta'
 import { ChoiceChip, Stepper } from './Choice'
-import { LodgingRow, LodgingSlot } from './LodgingSlot'
+import { LodgingEditor, LodgingRow, LodgingSlot } from './LodgingSlot'
 import { PlaceSearch, type PickSource } from './PlaceSearch'
 import { hasHistory, isNew } from './planDraft'
 import { LegLine, TravelModePicker, type DayTotal } from './RouteLegs'
@@ -106,7 +106,8 @@ function DayTabs({ trip, groups, tab, onTab, dragging }: { trip: TripDetail; gro
     if (n < groups.dayCount) {
       const cut = groups.days.slice(n)
       const stops = cut.reduce((k, d) => k + d.stops.length, 0)
-      const nights = [...groups.lodging.keys()].filter((k) => k > n).length
+      // 改成 0 天（不再分天）时出发前一晚的住宿也放回「想去」
+      const nights = [...groups.lodging.keys()].filter((k) => k > n || n === 0).length
       if (stops || nights) {
         const range = cut.length > 1 ? `第 ${n + 1}–${groups.dayCount} 天` : `第 ${n + 1} 天`
         const ok = await confirmDialog({
@@ -340,10 +341,10 @@ function StopRow({
   )
 }
 
-/** 路段：一条竖线 + 出行方式、用时和路程 */
-function Connector({ leg, loading, label }: { leg?: TripLeg; loading?: boolean; label?: ReactNode }) {
+/** 路段：一条竖线 + 出行方式、用时和路程；hidden：拖动中，占位但不显示 */
+function Connector({ leg, loading, label, hidden }: { leg?: TripLeg; loading?: boolean; label?: ReactNode; hidden?: boolean }) {
   return (
-    <div className="flex h-7 min-w-0 items-center gap-2 pr-4 pl-[4.5rem] md:pl-[5rem]">
+    <div className={cn('flex h-7 min-w-0 items-center gap-2 pr-4 pl-[4.5rem] md:pl-[5rem]', hidden && 'invisible')} aria-hidden={hidden || undefined}>
       {label && <span className="max-w-[45%] shrink-0 truncate text-[11px] text-ink-500">{label}</span>}
       <LegLine leg={leg} loading={loading} />
     </div>
@@ -386,18 +387,41 @@ export interface RoutePlannerProps {
   onAdded: (w: Waypoint) => void
   /** 打开「一键排好路线」：pool 只排想去的，all 重新排全部 */
   onArrange: (scope?: 'pool' | 'all') => void
+  /** 新加的点：加入计划 / 记为已打卡（旅行中 / 已完成的旅程，按已保存的状态；地图点选也用它） */
+  addAs: 'plan' | 'visited'
+  onAddAs: ((v: 'plan' | 'visited') => void) | null
+  addFlags: WaypointInput
   city?: string
   near?: LngLat | null
 }
 
 export function RoutePlanner(props: RoutePlannerProps) {
-  const { trip, groups, labels, legs, totals, legsLoading, tab, onTab, selected, onSelect, editing, onEdit, onPick, pickTarget, onAdded, onArrange, city, near } =
-    props
+  const {
+    trip,
+    groups,
+    labels,
+    legs,
+    totals,
+    legsLoading,
+    tab,
+    onTab,
+    selected,
+    onSelect,
+    editing,
+    onEdit,
+    onPick,
+    pickTarget,
+    onAdded,
+    onArrange,
+    addAs,
+    onAddAs,
+    addFlags: flags,
+    city,
+    near,
+  } = props
   const editor = usePlanEditorCtx()
   const [dragging, setDragging] = useState(false)
   const [sheet, setSheet] = useState<Waypoint | null>(null)
-  // 旅行中 / 已完成的旅程：新加的点默认加入计划，也可以补记为已打卡
-  const [addAs, setAddAs] = useState<'plan' | 'visited'>(trip.phase === 'finished' ? 'visited' : 'plan')
   const [addDay, setAddDay] = useState(0)
   const idx = useMemo(() => legIndex(legs), [legs])
   const byId = useMemo(() => new Map(trip.waypoints.map((w) => [w.id, w])), [trip.waypoints])
@@ -405,18 +429,35 @@ export function RoutePlanner(props: RoutePlannerProps) {
   const pName = poolName(trip)
   const maxDay = Math.max(1, groups.dayCount)
   const target = typeof tab === 'number' ? tab : tab === 'pool' ? 0 : Math.min(addDay, groups.dayCount)
-  const flags: WaypointInput =
-    trip.phase === 'planning' || addAs === 'plan' ? { planned: true, status: 'todo' } : { planned: false }
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
-  // 指针在页签上：放到那一天；否则按最近的一行排序（可以跨天）
+  // 指针在页签上：放到那一天；否则按最近的一行排序（可以跨天）。
+  // 页签吸顶、列表会滚动：按页签此刻在屏幕上的位置判断（拖动开始时量好的位置在列表滚动后就不对了）；
+  // 指针在页签上时不自动滚动列表，否则页签会被带离指针
+  const overTabs = useRef(false)
   const collision: CollisionDetection = (args) => {
-    const tabs = pointerWithin({ ...args, droppableContainers: args.droppableContainers.filter((c) => String(c.id).startsWith('tab-')) })
-    if (tabs.length) return tabs
+    const p = args.pointerCoordinates
+    const tabs = args.droppableContainers.filter((c) => String(c.id).startsWith('tab-'))
+    let tabHit: (typeof tabs)[number] | undefined
+    let onStrip = false
+    if (p && tabs.length) {
+      // 指针下最上面的元素（不算被拖着的那一行）在哪个页签里：被吸顶的地图盖住的页签不算
+      const dragged = args.droppableContainers.find((c) => c.id === args.active.id)?.node.current
+      const top = document.elementsFromPoint(p.x, p.y).find((el) => !dragged?.contains(el))
+      for (const c of tabs) {
+        const el = c.node.current
+        if (!el) continue
+        const r = el.getBoundingClientRect()
+        if (p.y >= r.top - 6 && p.y <= r.bottom + 6) onStrip = true
+        if (top && el.contains(top)) tabHit = c
+      }
+    }
+    overTabs.current = onStrip
+    if (tabHit) return [{ id: tabHit.id, data: { droppableContainer: tabHit, value: 0 } }]
     return closestCenter({ ...args, droppableContainers: args.droppableContainers.filter((c) => !String(c.id).startsWith('tab-')) })
   }
   const listOf = (day: number) => (day === 0 ? groups.pool : (groups.days.find((d) => d.day === day)?.stops ?? []))
@@ -455,19 +496,9 @@ export function RoutePlanner(props: RoutePlannerProps) {
 
   const del = async (w: Waypoint) => {
     if (editor.isBusy(w.id)) return
-    const photos = trip.photos.filter((p) => p.waypoint_id === w.id).length
     if (editing === w.id) onEdit(null)
-    // 打卡记录（计划外的打卡、已到达、有照片）：立即删除，先确认
-    if (!isNew(w) && hasHistory(trip, w)) {
-      const ok = await confirmDialog({
-        title: `删除打卡记录「${w.name || '未命名地点'}」？`,
-        desc: `这是已经去过的地点，会立即删除（不用再点保存）。${photos ? `关联的 ${photos} 张照片会保留。` : '备注和评价会一起删除。'}`,
-        danger: true,
-        okText: '删除',
-      })
-      if (ok) void editor.remove(w)
-      return
-    }
+    // 打卡记录（计划外的打卡、已到达、有照片）：editor.remove 先确认（立即删除、不能撤销），再删除
+    if (!isNew(w) && hasHistory(trip, w)) return void editor.remove(w)
     const rich = !!w.note.trim() || !!w.verdict || w.rating > 0
     if (!rich) return void editor.remove(w, { undo: true })
     const ok = await confirmDialog({
@@ -560,6 +591,8 @@ export function RoutePlanner(props: RoutePlannerProps) {
               picking={pickTarget?.kind === 'lodging' && pickTarget.night === 0}
               city={city}
               near={near}
+              editingId={editing}
+              onEdit={onEdit}
             />
           ) : (
             full &&
@@ -585,21 +618,25 @@ export function RoutePlanner(props: RoutePlannerProps) {
                 picking={pickTarget?.kind === 'lodging' && pickTarget.night === d.day - 1}
                 city={city}
                 near={near}
+                editingId={editing}
+                onEdit={onEdit}
               />
             ))
           )}
-          {!dragging && hasLeg('start') && (
+          {/* 拖动时路段只是隐去、不卸载：卸载会让整个列表跳一下，页签和各行都不在原来的位置了 */}
+          {hasLeg('start') && (
             <Connector
               leg={legAfter.get('start')}
               loading={legsLoading}
               label={!full && d.day > 1 && d.start ? `从「${d.start.name}」出发` : undefined}
+              hidden={dragging}
             />
           )}
           <SortableContext items={d.stops.map((w) => w.id)} strategy={verticalListSortingStrategy}>
             {d.stops.map((w, i) => (
               <Fragment key={w.id}>
                 {row(w, i, d.day)}
-                {!dragging && hasLeg(w.id) && (d.end || i < d.stops.length - 1) && <Connector leg={legAfter.get(w.id)} loading={legsLoading} />}
+                {hasLeg(w.id) && (d.end || i < d.stops.length - 1) && <Connector leg={legAfter.get(w.id)} loading={legsLoading} hidden={dragging} />}
               </Fragment>
             ))}
           </SortableContext>
@@ -623,23 +660,48 @@ export function RoutePlanner(props: RoutePlannerProps) {
             picking={pickTarget?.kind === 'lodging' && pickTarget.night === d.day}
             city={city}
             near={near}
+            editingId={editing}
+            onEdit={onEdit}
           />
           {groups.extraLodging
             .filter((w) => w.day === d.day)
             .map((w) => (
-              <LodgingRow
-                key={w.id}
-                w={w}
-                night={d.day}
-                caption="同一晚的另一处住宿"
-                selected={selected === w.id}
-                onSelect={() => onSelect(w)}
-                actions={
-                  <button type="button" className={cn(iconBtn, 'hover:text-brand-600')} onClick={() => void editor.remove(w, { undo: true })} aria-label="删除">
-                    <Trash2 className="size-3.5" strokeWidth={1.5} />
-                  </button>
-                }
-              />
+              <Fragment key={w.id}>
+                <LodgingRow
+                  w={w}
+                  night={d.day}
+                  caption="同一晚的另一处住宿"
+                  selected={selected === w.id}
+                  onSelect={() => onSelect(w)}
+                  busy={editor.isBusy(w.id)}
+                  actions={
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <button
+                        type="button"
+                        className={cn(iconBtn, editing === w.id && 'bg-ink-900/[0.08] text-ink-900')}
+                        disabled={editor.isBusy(w.id)}
+                        onClick={() => onEdit(editing === w.id ? null : w.id)}
+                        aria-expanded={editing === w.id}
+                        aria-label={`编辑住宿「${w.name || '住宿'}」`}
+                        title="编辑住宿"
+                      >
+                        <PenLine className="size-3.5" strokeWidth={1.5} />
+                      </button>
+                      <button
+                        type="button"
+                        className={cn(iconBtn, 'hover:text-brand-600')}
+                        disabled={editor.isBusy(w.id)}
+                        onClick={() => editor.clearLodging(w)}
+                        aria-label={`清除住宿「${w.name}」`}
+                        title="清除住宿"
+                      >
+                        <Trash2 className="size-3.5" strokeWidth={1.5} />
+                      </button>
+                    </div>
+                  }
+                />
+                {editing === w.id && <LodgingEditor w={w} maxDay={maxDay} onClose={() => onEdit(null)} />}
+              </Fragment>
             ))}
         </div>
       </section>
@@ -770,12 +832,13 @@ export function RoutePlanner(props: RoutePlannerProps) {
           <Crosshair className="size-3.5" strokeWidth={1.5} />
           {picking ? '正在地图上点选…' : '在地图上点选'}
         </button>
-        {trip.phase !== 'planning' && (
+        {onAddAs && (
+          // 搜索添加和地图点选都按这里的选择；「记为已打卡」立即保存
           <div role="radiogroup" aria-label="新加的点" className="ml-auto flex gap-1.5">
-            <ChoiceChip size="sm" selected={addAs === 'plan'} onClick={() => setAddAs('plan')}>
+            <ChoiceChip size="sm" role="radio" selected={addAs === 'plan'} onClick={() => onAddAs('plan')}>
               加入计划
             </ChoiceChip>
-            <ChoiceChip size="sm" selected={addAs === 'visited'} onClick={() => setAddAs('visited')}>
+            <ChoiceChip size="sm" role="radio" selected={addAs === 'visited'} onClick={() => onAddAs('visited')}>
               记为已打卡
             </ChoiceChip>
           </div>
@@ -790,7 +853,12 @@ export function RoutePlanner(props: RoutePlannerProps) {
     <DndContext
       sensors={sensors}
       collisionDetection={collision}
-      onDragStart={() => setDragging(true)}
+      // 按指针（不是被拖的那一行）判断要不要滚动列表，指针在页签上时不滚
+      autoScroll={{ activator: AutoScrollActivator.Pointer, threshold: { x: 0, y: 0.12 }, canScroll: () => !overTabs.current }}
+      onDragStart={() => {
+        overTabs.current = false
+        setDragging(true)
+      }}
       onDragCancel={() => setDragging(false)}
       onDragEnd={onDragEnd}
     >

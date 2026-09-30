@@ -47,9 +47,12 @@ const pad2 = (n: number) => String(n).padStart(2, '0')
 // 不会被悄悄放在可能错误的位置上
 const hasCoord = (i: AIPlanItem) => i.lng != null && i.lat != null
 const isLodgingItem = (i: AIPlanItem) => i.kind === 'lodging'
-// 住宿要是一家具体的酒店 / 民宿：AI 有时只写了「洱海」这样的地名，被定位到了湖上
-const HOTELISH = /酒店|宾馆|饭店|民宿|客栈|旅馆|旅店|旅舍|青旅|公寓|度假|山庄|住宿|hotel|hostel|inn\b|resort|lodge|b&b/i
-const isVerified = (i: AIPlanItem) => hasCoord(i) && i.located && (!isLodgingItem(i) || HOTELISH.test(i.name))
+// 住宿要是一家具体的酒店 / 民宿：AI 有时只写了「洱海」这样的地名，被定位到了湖上。服务端按定位到的高德地点的类别
+// （住宿服务）给出 lodging_verified；旧版服务端没有这个字段时按名称判断（民宿常叫「XX院」「XX美宿」「XX居」）
+const HOTELISH =
+  /酒店|宾馆|饭店|民宿|美宿|客栈|旅馆|旅店|旅舍|青旅|公寓|度假|山庄|住宿|宿舍|农舍|精舍|别墅|别苑|小院|庭院|别院|宅院|[号合]院|小筑|山居|客舍|驿站|hotel|hostel|inn\b|resort|lodge|villa|homestay|b&b/i
+const hotelOk = (i: AIPlanItem) => i.lodging_verified ?? HOTELISH.test(i.name)
+const isVerified = (i: AIPlanItem) => hasCoord(i) && i.located && (!isLodgingItem(i) || hotelOk(i))
 
 type Stage = AIPlanProgress['stage']
 const stages: { key: Stage; label: string; title: string; hint: string }[] = [
@@ -346,6 +349,8 @@ function AIPlanner({
   const wide = useMediaQuery('(min-width: 1024px)')
   const [f, setF] = useState({ destination: '', days: 2, preferences: '', start_date: '' })
   const [result, setResult] = useState<AIPlanResult | null>(null)
+  // 草稿是按哪个天数、出发日期生成的：创建时按它，不按之后又改了的表单
+  const [gen, setGen] = useState<{ days: number; start_date: string } | null>(null)
   const [items, setItems] = useState<DraftItem[]>([])
   const [confirming, setConfirming] = useState<DraftItem | null>(null)
   const [using, setUsing] = useState(false)
@@ -386,6 +391,7 @@ function AIPlanner({
       }
       if (ac.signal.aborted) return
       setResult(r)
+      setGen({ days: body.days, start_date: body.start_date ?? '' })
       setItems(r.items.map((i, k) => ({ ...i, key: k + 1 })))
     } catch (e) {
       if (ac.signal.aborted || (e as Error).name === 'AbortError') return
@@ -406,18 +412,41 @@ function AIPlanner({
   const days = useMemo(() => [...new Set(items.map((i) => i.day))].sort((a, b) => a - b), [items])
   const toSave = items.filter(placed)
   const unconfirmed = items.filter((i) => !placed(i))
+  // 住宿定位到了、但看不出是一家酒店 / 民宿（如「洱海」被定位到湖上）：请用户确认住哪一家
+  const unsureHotels = unconfirmed.filter((i) => isLodgingItem(i) && hasCoord(i) && i.located)
+  const notFound = unconfirmed.length - unsureHotels.length
   const stops = items.filter((i) => !isLodgingItem(i))
   const nights = items.filter(isLodgingItem)
   const busy = !!run
+  const genDays = gen?.days ?? f.days
+  const genStart = gen?.start_date ?? ''
+  // 生成之后又改了天数或出发日期：草稿还是按原来的生成的，创建时也按原来的
+  const stale = !!gen && (f.days !== gen.days || f.start_date !== gen.start_date)
 
   const decision = result && (
     <div className="space-y-6">
       {unconfirmed.length > 0 && (
         <div className="space-y-2 border-l border-amber-500 py-1 pl-4">
-          <p className="text-[13.5px] text-ink-900">还有 {unconfirmed.length} 个地点的位置需要你确认</p>
-          <p className="text-xs leading-relaxed text-ink-500">
-            AI 没能在地图上准确找到它们。点「在地图上确认」选好位置后会一起加入；不确认的不会加入路线，之后也可以在编辑页搜索添加。
+          <p className="text-[13.5px] text-ink-900">还有 {unconfirmed.length} 个地点需要你确认</p>
+          {notFound > 0 && (
+            <p className="text-xs leading-relaxed text-ink-500">
+              {notFound} 个地点 AI 没能在地图上准确找到：点「在地图上确认」选好位置后会一起加入。
+            </p>
+          )}
+          {unsureHotels.length > 0 && (
+            <p className="text-xs leading-relaxed text-ink-500">
+              {unsureHotels.length} 晚的住宿在地图上找到了，但看不出是一家酒店或民宿：点「请确认住哪一家」选好后会一起加入。
+            </p>
+          )}
+          <p className="text-xs leading-relaxed text-ink-500">不确认的不会加入路线，之后也可以在编辑页搜索添加。</p>
+        </div>
+      )}
+      {stale && (
+        <div className="space-y-1 border-l border-amber-500 py-1 pl-4">
+          <p className="text-[13.5px] text-ink-900">
+            这份草稿是按 {genDays} 天{genStart ? `、${dayjs(genStart).format('M月D日')}出发` : ''}生成的
           </p>
+          <p className="text-xs leading-relaxed text-ink-500">创建时也按它。想换成新的天数或日期，点上面的「重新生成」。</p>
         </div>
       )}
       <div>
@@ -431,7 +460,7 @@ function AIPlanner({
           onClick={async () => {
             setUsing(true)
             try {
-              await onUse(result, toSave, f.days, f.start_date)
+              await onUse(result, toSave, genDays, genStart)
             } finally {
               setUsing(false)
             }
@@ -554,7 +583,9 @@ function AIPlanner({
                 {days.map((d) => {
                   const list = items.filter((i) => i.day === d && !isLodgingItem(i))
                   const night = items.filter((i) => i.day === d && isLodgingItem(i))
-                  const date = f.start_date ? dayjs(f.start_date).add(d - 1, 'day') : null
+                  const date = genStart ? dayjs(genStart).add(d - 1, 'day') : null
+                  // 编号只给位置确定了的地点（与地图上的编号一致），待确认的是「?」
+                  const numbered = list.filter(placed)
                   return (
                     <div key={d}>
                       <div className="flex items-end gap-4 border-b border-ink-200 pb-3">
@@ -575,7 +606,7 @@ function AIPlanner({
                         {[...list, ...night].map((i) => {
                           const lodging = isLodgingItem(i)
                           const ok = placed(i)
-                          const n = list.indexOf(i) + 1
+                          const n = ok ? numbered.indexOf(i) + 1 : '?'
                           return (
                             <li key={i.key} className="grid grid-cols-[2.25rem_minmax(0,1fr)] gap-x-4 py-5 md:grid-cols-[2.75rem_minmax(0,1fr)] md:py-6">
                               {lodging ? (
@@ -653,7 +684,7 @@ function AIPlanner({
         <ConfirmPlaceDialog
           open
           name={confirming.name}
-          {...(isLodgingItem(confirming) && !HOTELISH.test(confirming.name)
+          {...(isLodgingItem(confirming) && !hotelOk(confirming)
             ? {
                 title: `第 ${confirming.day} 晚住哪儿？`,
                 hint: `AI 写的住宿「${confirming.name}」不是一家具体的酒店或民宿。`,
@@ -678,7 +709,7 @@ export default function NewTripPage() {
   const [params] = useSearchParams()
   const user = useAuth((s) => s.user)
   const { data: site } = useSite()
-  const [mode, setMode] = useState<Mode>(params.get('ai') ? 'ai' : 'plan')
+  const [picked, setMode] = useState<Mode>(params.get('ai') ? 'ai' : 'plan')
   const qc = useQueryClient()
   // 自己规划：按日期或按天数（编辑页按天显示页签）
   const [by, setBy] = useState<'days' | 'dates'>('days')
@@ -700,6 +731,11 @@ export default function NewTripPage() {
   const spaceFields = { space_id: space?.id, with_partner: space?.type === 'couple' && !!user?.partner ? true : undefined }
 
   const dateDays = f.start_date && f.end_date ? dayjs(f.end_date).diff(dayjs(f.start_date), 'day') + 1 : 0
+  // 站点没有开启 AI 时（如旧的「让 AI 先拟一版」链接 ?ai=1）不显示 AI 规划：退回第一种可用的方式
+  const available = modes.filter((m) => m.value !== 'ai' || site?.ai_enabled)
+  // 站点配置加载完之前先照地址里的来（不闪一下别的方式）
+  const current = (site ? available : modes).find((m) => m.value === picked) ?? available[0]
+  const mode: Mode = current?.value ?? 'plan'
 
   const create = async () => {
     if (!f.title.trim()) return toast.error('给旅程起个名字吧')
@@ -781,8 +817,6 @@ export default function NewTripPage() {
     }
   }
 
-  const available = modes.filter((m) => m.value !== 'ai' || site?.ai_enabled)
-  const current = available.find((m) => m.value === mode) ?? available[0]
 
   const lead = (
     <p className="font-display text-[17px] leading-[1.6] text-ink-700 md:text-[19px]">

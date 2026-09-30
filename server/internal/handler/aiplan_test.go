@@ -145,8 +145,12 @@ func TestAIPlanGrounding(t *testing.T) {
 	if m := items["东海幻境"]; m["lng"] != nil || m["lat"] != nil {
 		t.Fatalf("coordinates outside 台州 kept: %v", m)
 	}
-	if m := items["临海古城客栈(紫阳街店)"]; num(m["day"]) != 1 || m["category"] != "hotel" || m["district"] != "临海市" {
+	if m := items["临海古城客栈(紫阳街店)"]; num(m["day"]) != 1 || m["category"] != "hotel" || m["district"] != "临海市" ||
+		m["lodging_verified"] != true { // located at a place of the lodging category
 		t.Fatalf("lodging item: %v", m)
+	}
+	if m := items["台州府城墙"]; m["lodging_verified"] != false {
+		t.Fatalf("a stop is no verified lodging: %v", m)
 	}
 	var sawCityLimit, sawHangzhou bool
 	for _, s := range searches() {

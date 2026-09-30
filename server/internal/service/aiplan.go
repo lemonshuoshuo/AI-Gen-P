@@ -41,8 +41,12 @@ type PlanItem struct {
 	Lng      *float64 `json:"lng"`
 	Lat      *float64 `json:"lat"`
 	Located  bool     `json:"located"`
-	AmapID   string   `json:"amap_id"`
-	PlaceID  *int64   `json:"place_id"`
+	// LodgingVerified (lodging only): located at a place of 高德's lodging
+	// category (住宿服务), a real hotel or 民宿 rather than a lake or a town
+	// the model named.
+	LodgingVerified bool   `json:"lodging_verified"`
+	AmapID          string `json:"amap_id"`
+	PlaceID         *int64 `json:"place_id"`
 }
 
 // PlanResult is an AI-generated itinerary (not saved).
@@ -537,6 +541,7 @@ func (s *Service) groundPlanItems(ctx context.Context, items []PlanItem, d *dest
 				}
 				lng, lat := p.Lng, p.Lat
 				it.Lng, it.Lat, it.Located, it.AmapID = &lng, &lat, true, p.ID
+				it.LodgingVerified = it.Kind == model.KindLodging && p.Category == "hotel"
 				it.Name = Truncate(strings.TrimSpace(p.Name), 60)
 				if p.Address != "" {
 					it.Address = Truncate(p.Address, 100)

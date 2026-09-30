@@ -318,13 +318,18 @@ export const api = {
     get: (id: number) => http.get<SpaceDetail>(`/spaces/${id}`),
     /** 创建者可以改（情侣空间两人都可以） */
     update: (id: number, b: SpaceInput) => http.patch<SpaceDetail>(`/spaces/${id}`, b),
-    /** 删除空间（创建者）：旅程都保留，只是不再属于该空间 */
-    remove: (id: number) => http.del<unknown>(`/spaces/${id}`),
+    /**
+     * 删除空间（创建者）：旅程都保留，只是不再属于该空间。removeSharedAccess（情侣空间）：同时结束两人在彼此旅程中的
+     * 共同作者关系（含待接受的邀请）
+     */
+    remove: (id: number, removeSharedAccess = false) =>
+      http.del<unknown>(removeSharedAccess ? `/spaces/${id}?remove_shared_access=true` : `/spaces/${id}`),
     /** 邀请：username 可带 @，不区分大小写；message ≤200 字 */
     invite: (id: number, b: { username?: string; user_id?: number; message?: string }) =>
       http.post<SpaceInvite>(`/spaces/${id}/invites`, b),
-    /** 移除成员（创建者）；userId 是自己时为退出空间 */
-    removeMember: (id: number, userId: number) => http.del<unknown>(`/spaces/${id}/members/${userId}`),
+    /** 移除成员（创建者）；userId 是自己时为退出空间。removeSharedAccess 同 remove */
+    removeMember: (id: number, userId: number, removeSharedAccess = false) =>
+      http.del<unknown>(`/spaces/${id}/members/${userId}${removeSharedAccess ? '?remove_shared_access=true' : ''}`),
     trips: (id: number, q: PageQuery & { phase?: Phase | '' }) => http.get<Paged<TripCard>>(`/spaces/${id}/trips`, q),
     footprints: (id: number) => http.get<Footprints>(`/spaces/${id}/footprints`),
     /** 待回应的邀请：别人邀请我的、我发出的（新的在前） */

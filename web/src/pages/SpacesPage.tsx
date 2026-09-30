@@ -181,8 +181,9 @@ function StartGrid({ onPick }: { onPick: (t: SpaceType) => void }) {
 }
 
 /**
- * 邀请链接 /together?invite=用户名：对方打开后一键邀请链接的主人加入自己的情侣空间（没有时自动创建）；
- * 已经有情侣时可以新建一个别的空间邀请 TA
+ * 邀请链接 /together?invite=用户名：对方打开后一键邀请链接的主人加入自己的情侣空间（没有时自动创建）。
+ * 链接的主人多半已经建好了情侣空间在等：接受时服务端把两人放进准备好（有旅程）的那个空间，另一个空空的删掉，
+ * 名称、纪念日、简介补到留下的空间里（见 API.md「邀请」）。已经有情侣时可以新建一个别的空间邀请 TA
  */
 function LinkedInvite({
   username,
@@ -198,6 +199,8 @@ function LinkedInvite({
   const me = useAuth((s) => s.user)!
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
+  // 自己也有一个在等人的情侣空间、里面有旅程：邀请从它发出；TA 那边的空间也有旅程时，TA 接受前要先二选一
+  const waiting = useSpaces().data?.find((x) => x.type === 'couple' && x.member_count === 1 && x.trip_count > 0)
   return (
     <section className="th-card mt-10 flex flex-col gap-4 border-l-2 border-l-pink-500 p-5 md:mt-14 md:flex-row md:items-center md:justify-between">
       <div className="min-w-0">
@@ -208,8 +211,14 @@ function LinkedInvite({
             ? 'TA 已经邀请你了：接受上面的邀请就好'
             : me.partner
               ? `你已经和 ${me.partner.nickname || me.partner.username} 在一个情侣空间里了；也可以新建一个空间邀请 TA`
-              : '点「发送邀请」，TA 在通知里接受后，你们就有了共同的情侣空间'}
+              : '点「发送邀请」，TA 在通知里接受后，你们就在同一个情侣空间里了；TA 之前准备好的情侣空间（名称、纪念日和旅程）会保留'}
         </p>
+        {!invitedBy && !me.partner && waiting && (
+          <p className="caption mt-1 text-amber-700">
+            邀请会从你的情侣空间「{waiting.name}」发出（里面有 {waiting.trip_count} 段旅程）。如果 TA 准备的空间里也有旅程，只能保留一个：TA
+            接受前要先把其中一个空间的旅程移出。
+          </p>
+        )}
       </div>
       {!invitedBy && me.partner && (
         <Button variant="outline" icon={<Plus className="size-4" strokeWidth={1.5} />} onClick={onCreate}>

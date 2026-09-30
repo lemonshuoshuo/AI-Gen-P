@@ -121,9 +121,10 @@ export function MemberStack({
         </span>
       ))}
       {more > 0 && (
+        // 压在最后一个头像下面：多出来的宽度被盖住，「+N」在露出来的部分居中，不会被头像挡住
         <span
           className={cn('font-num relative flex shrink-0 items-center justify-center rounded-full bg-surface-2 text-ink-700 ring-2', ringClass)}
-          style={{ width: size, height: size, marginLeft: -overlap, fontSize: Math.max(10, size * 0.36) }}
+          style={{ width: size + overlap, height: size, marginLeft: -overlap, paddingLeft: overlap, fontSize: Math.max(10, size * 0.36) }}
         >
           +{more}
         </span>
@@ -220,8 +221,9 @@ export function SpaceSwitcher({ current, className }: { current: number; classNa
     // 左边被钉住的「全部空间」挡着的部分也算看不到
     const left = (listRef.current?.firstElementChild?.getBoundingClientRect().right ?? b.left) + 8
     const pad = 24
-    if (r.right > b.right - pad) box.scrollLeft += r.right - b.right + pad
-    else if (r.left < left) box.scrollLeft -= left - r.left
+    // 比露出来的宽度还宽的胶囊（名字很长）：左边对齐钉住的「全部空间」，勾和名字的开头不会被挡住
+    if (r.width > b.right - pad - left || r.left < left) box.scrollLeft -= left - r.left
+    else if (r.right > b.right - pad) box.scrollLeft += r.right - b.right + pad
   }, [current, spaces?.length])
   if (!spaces) return <div aria-hidden className={cn('h-10', className)} />
   const chip = 'h-9 gap-1.5 px-3.5 text-[13px]'
@@ -252,7 +254,8 @@ export function SpaceSwitcher({ current, className }: { current: number; classNa
                 to={`/spaces/${s.id}`}
                 aria-current={on ? 'page' : undefined}
                 title={`${s.name} · ${s.type_label}${s.is_default ? ' · 默认空间' : ''}`}
-                className={selectedClass(on, 'chip', cn(chip, 'max-w-[15rem]'))}
+                // 手机上窄一些：当前空间的胶囊总能完整露在钉住的「全部空间」右边
+                className={selectedClass(on, 'chip', cn(chip, 'max-w-[10rem] sm:max-w-[15rem]'))}
               >
                 {on ? <Check aria-hidden strokeWidth={2.75} /> : <SpaceTypeIcon type={s.type} />}
                 <span className="truncate">{s.name}</span>

@@ -87,7 +87,7 @@ export function ArrangeDialog({
     if (!r) return
     setApplying(true)
     try {
-      editor.applyArrangement(r, mode)
+      editor.applyArrangement(r)
       toast.success(`已按方案排好 ${r.days} 天的路线`, { description: '还没保存：可以继续拖动调整，确认后点「保存」' })
       onApplied()
     } catch (e) {
@@ -159,7 +159,7 @@ export function ArrangeDialog({
               <Stepper value={days} min={1} max={maxDays} onChange={setDays} unit="天" label="天数" />
             </div>
             <div className="min-w-0">
-              <p className="mb-2 text-xs tracking-[0.06em] text-ink-500">怎么走（估算路程用）</p>
+              <p className="mb-2 text-xs tracking-[0.06em] text-ink-500">怎么走（只用来估算路程，不改旅程的出行方式）</p>
               <TravelModePicker value={mode} onChange={setMode} />
             </div>
           </div>

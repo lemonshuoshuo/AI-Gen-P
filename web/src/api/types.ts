@@ -621,6 +621,8 @@ export interface AIPlanItem {
   lng: number | null
   lat: number | null
   located: boolean
+  /** 住宿：定位到的是高德「住宿服务」类地点（一家真实的酒店 / 民宿）；旧版服务端没有该字段 */
+  lodging_verified?: boolean
   amap_id: string
   place_id: number | null
 }

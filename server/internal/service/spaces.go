@@ -131,16 +131,115 @@ WHERE a.couple AND a.user_id IN ?`, ids).Scan(&rows).Error; err != nil {
 	return out, nil
 }
 
-// unlinkTrips removes trips from their space, counting a revision of each
-// (the trips' members change).
-func unlinkTrips(tx *gorm.DB, ids []int64, actorID int64) error {
+// unlinkTrips removes trips from their space spaceID, counting a revision of
+// each (the trips' members change); the space's members who added to them
+// keep them (see KeepContributors).
+func unlinkTrips(tx *gorm.DB, spaceID int64, ids []int64, actorID int64) error {
 	if len(ids) == 0 {
 		return nil
+	}
+	if err := KeepContributors(tx, spaceID, ids, 0); err != nil {
+		return err
 	}
 	if err := TouchTrips(tx, ids, actorID); err != nil {
 		return err
 	}
 	return tx.Model(&model.Trip{}).Where("id IN ?", ids).UpdateColumn("space_id", gorm.Expr("NULL")).Error
+}
+
+// contributions selects, for trips tripIDs, the users who added waypoints,
+// photos or GPS tracks to each (trip_id, user_id, first_at: their first).
+const contributions = `SELECT trip_id, created_by_id AS user_id, MIN(created_at) AS first_at FROM waypoints WHERE trip_id IN @trips GROUP BY trip_id, created_by_id
+UNION ALL SELECT trip_id, user_id, MIN(created_at) FROM photos WHERE trip_id IN @trips GROUP BY trip_id, user_id
+UNION ALL SELECT trip_id, user_id, MIN(recorded_at) FROM track_points WHERE trip_id IN @trips GROUP BY trip_id, user_id`
+
+// KeepContributors makes the members of space spaceID who added waypoints,
+// photos or GPS tracks to trips tripIDs, about to leave that space (for
+// space toSpaceID, 0: none), accepted co-authors of those trips: otherwise
+// they could no longer reach (nor delete) what they added. Members of
+// toSpaceID keep them through it; existing members and invitees of a trip
+// stay as they are. Earliest contributors are added first.
+func KeepContributors(tx *gorm.DB, spaceID int64, tripIDs []int64, toSpaceID int64) error {
+	if len(tripIDs) == 0 {
+		return nil
+	}
+	return tx.Exec(`INSERT INTO trip_members (trip_id, user_id, role, status, invited_by_id, created_at, updated_at)
+SELECT x.trip_id, x.user_id, @role, @status, t.owner_id, now(), now()
+FROM (`+contributions+`) x
+JOIN trips t ON t.id = x.trip_id
+WHERE x.user_id <> t.owner_id AND x.user_id <> 0
+  AND x.user_id IN (SELECT user_id FROM space_members WHERE space_id = @space)
+  AND x.user_id NOT IN (SELECT user_id FROM space_members WHERE space_id = @to)
+  AND NOT EXISTS (SELECT 1 FROM trip_members m WHERE m.trip_id = x.trip_id AND m.user_id = x.user_id)
+GROUP BY x.trip_id, x.user_id, t.owner_id
+ORDER BY MIN(x.first_at), x.trip_id, x.user_id
+ON CONFLICT DO NOTHING`,
+		map[string]any{"trips": tripIDs, "role": model.MemberEditor, "status": model.MemberAccepted, "space": spaceID, "to": toSpaceID}).Error
+}
+
+// SpaceContributor returns the earliest member of trip tripID's space
+// (spaceID) other than its owner who added waypoints, photos or GPS tracks
+// to it and would become its co-author when it leaves the space (0: none).
+func SpaceContributor(db *gorm.DB, tripID, spaceID int64) (int64, error) {
+	var ids []int64
+	err := db.Raw(`SELECT x.user_id FROM (`+contributions+`) x
+JOIN trips t ON t.id = x.trip_id
+WHERE x.user_id <> t.owner_id AND x.user_id <> 0
+  AND x.user_id IN (SELECT user_id FROM space_members WHERE space_id = @space)
+GROUP BY x.user_id ORDER BY MIN(x.first_at), x.user_id LIMIT 1`,
+		map[string]any{"trips": []int64{tripID}, "space": spaceID}).Scan(&ids).Error
+	if err != nil || len(ids) == 0 {
+		return 0, err
+	}
+	return ids[0], nil
+}
+
+// CoAuthoredTrips returns the trips one of users a and b owns where the
+// other is a co-author or invitee, in id order.
+func CoAuthoredTrips(tx *gorm.DB, a, b int64) ([]int64, error) {
+	var ids []int64
+	err := tx.Raw(`SELECT m.trip_id FROM trip_members m JOIN trips t ON t.id = m.trip_id
+WHERE m.role <> ? AND ((m.user_id = ? AND t.owner_id = ?) OR (m.user_id = ? AND t.owner_id = ?))
+ORDER BY m.trip_id`, model.MemberOwner, a, b, b, a).Scan(&ids).Error
+	return ids, err
+}
+
+// LockTrips locks trips (in id order, as every change of several trips
+// does) for the rest of the transaction.
+func LockTrips(tx *gorm.DB, ids []int64) error {
+	ids = uniqueIDs(ids)
+	if len(ids) == 0 {
+		return nil
+	}
+	return tx.Exec("SELECT id FROM trips WHERE id IN ? ORDER BY id FOR UPDATE", ids).Error
+}
+
+// EndCoAuthorship ends users a and b's co-authorship of each other's trips
+// (a couple breaking up): each stops being a co-author or invitee of the
+// trips the other owns, and those trips count a revision (except touched,
+// whose revision the caller counted). The caller locks the trips first
+// (CoAuthoredTrips, LockTrips) together with the others it changes. It
+// returns how many trips it changed.
+func EndCoAuthorship(tx *gorm.DB, a, b, actorID int64, touched []int64) (int, error) {
+	ids, err := CoAuthoredTrips(tx, a, b)
+	if err != nil || len(ids) == 0 {
+		return 0, err
+	}
+	if err := tx.Exec(`DELETE FROM trip_members m USING trips t WHERE t.id = m.trip_id AND m.role <> ?
+  AND ((m.user_id = ? AND t.owner_id = ?) OR (m.user_id = ? AND t.owner_id = ?))`, model.MemberOwner, a, b, b, a).Error; err != nil {
+		return 0, err
+	}
+	skip := map[int64]bool{}
+	for _, id := range touched {
+		skip[id] = true
+	}
+	var rest []int64
+	for _, id := range uniqueIDs(ids) {
+		if !skip[id] {
+			rest = append(rest, id)
+		}
+	}
+	return len(uniqueIDs(ids)), TouchTrips(tx, rest, actorID)
 }
 
 // SpaceLeft is what RemoveSpaceMember did.
@@ -151,7 +250,8 @@ type SpaceLeft struct {
 }
 
 // RemoveSpaceMember takes userID (a member) out of space sp, locked by the
-// caller (LockSpace): the trips they own leave the space (they keep them),
+// caller (LockSpace): the trips they own leave the space (they keep them;
+// the members who added to them become co-authors, see KeepContributors),
 // the invites they sent to it are withdrawn and it stops being their
 // default space. When they owned it, the member who joined earliest becomes
 // the owner; when they were the last member, the space is deleted. actorID
@@ -165,7 +265,7 @@ func RemoveSpaceMember(tx *gorm.DB, sp *model.Space, userID, actorID int64) (*Sp
 		Pluck("id", &out.Unlinked).Error; err != nil {
 		return nil, err
 	}
-	if err := unlinkTrips(tx, out.Unlinked, actorID); err != nil {
+	if err := unlinkTrips(tx, sp.ID, out.Unlinked, actorID); err != nil {
 		return nil, err
 	}
 	if err := tx.Model(&model.SpaceInvite{}).Where("space_id = ? AND inviter_id = ? AND status = ?", sp.ID, userID, model.InvitePending).
@@ -202,7 +302,8 @@ func RemoveSpaceMember(tx *gorm.DB, sp *model.Space, userID, actorID int64) (*Sp
 }
 
 // DeleteSpace deletes a space, locked by the caller (LockSpace): its trips
-// stay with their owners, unlinked (each counting a revision), its pending
+// stay with their owners, unlinked (each counting a revision; the members
+// who added to one become its co-authors, see KeepContributors), its pending
 // invites are withdrawn and it stops being anyone's default space. It
 // returns who its members were (earliest first).
 func DeleteSpace(tx *gorm.DB, spaceID, actorID int64) ([]int64, error) {
@@ -214,7 +315,7 @@ func DeleteSpace(tx *gorm.DB, spaceID, actorID int64) ([]int64, error) {
 	if err := tx.Model(&model.Trip{}).Where("space_id = ?", spaceID).Order("id").Pluck("id", &trips).Error; err != nil {
 		return nil, err
 	}
-	if err := unlinkTrips(tx, trips, actorID); err != nil {
+	if err := unlinkTrips(tx, spaceID, trips, actorID); err != nil {
 		return nil, err
 	}
 	// The memberships go before the defaults are cleared: setting a default

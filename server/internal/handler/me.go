@@ -158,7 +158,9 @@ func (h *Handler) changePassword(c *gin.Context) error {
 }
 
 // deleteMe closes the current user's account (注销). Trips nobody else can
-// edit are deleted; shared trips pass to their earliest co-author. The
+// edit are deleted; shared trips pass to their earliest co-author (members
+// of a trip's space who added to it become co-authors as it leaves the
+// space, so a space's trip passes to its earliest contributor). The
 // user's photos, GPS tracks, likes, favourites, follows, memberships,
 // invites, notifications and couple binding are removed and their comments
 // become "deleted" placeholders. The user row is kept anonymised so that
@@ -186,17 +188,24 @@ func (h *Handler) deleteMe(c *gin.Context) error {
 			Order("created_at, id").Limit(1).Find(&m).Error
 		return m.UserID, err
 	}
-	var owned []int64
-	if err := db.Model(&model.Trip{}).Where("owner_id = ?", u.ID).Pluck("id", &owned).Error; err != nil {
+	var owned []model.Trip
+	if err := db.Select("id", "space_id").Where("owner_id = ?", u.ID).Find(&owned).Error; err != nil {
 		return err
 	}
-	for _, id := range owned {
-		next, err := successor(db, id)
+	for _, t := range owned {
+		next, err := successor(db, t.ID)
 		if err != nil {
 			return err
 		}
+		if next == 0 && t.SpaceID != nil {
+			// A member of the trip's space who added to it becomes its
+			// co-author when the trip leaves the space below, and its author.
+			if next, err = service.SpaceContributor(db, t.ID, *t.SpaceID); err != nil {
+				return err
+			}
+		}
 		if next == 0 {
-			if err := h.svc.DeleteTrip(ctx, id); err != nil {
+			if err := h.svc.DeleteTrip(ctx, t.ID); err != nil {
 				return err
 			}
 		}

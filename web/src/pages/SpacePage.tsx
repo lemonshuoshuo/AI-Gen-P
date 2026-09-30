@@ -27,6 +27,7 @@ import {
   Input,
   LoadError,
   Modal,
+  OptionCard,
   PageLoader,
   Switch,
   buttonClass,
@@ -187,7 +188,7 @@ function InviteForm({ s, autoFocus, onSent }: { s: SpaceDetail; autoFocus?: bool
       {couple && s.member_count === 1 && (
         <div className="border-t border-line pt-4">
           <p className="text-[13.5px] text-ink-900">或者把邀请链接发给 TA</p>
-          <p className="caption mt-0.5">TA 打开链接、注册或登录后点「发送邀请」，你在通知里接受就绑定啦</p>
+          <p className="caption mt-0.5">TA 打开链接、注册或登录后点「发送邀请」，你在通知里接受就绑定啦；你在这里准备的名称、纪念日和旅程都会保留</p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <Input readOnly value={inviteUrl} onFocus={(e) => e.target.select()} aria-label="邀请链接" className="text-[13px]" />
             <Button variant="outline" icon={<Copy className="size-4" strokeWidth={1.5} />} onClick={copyInvite}>
@@ -214,7 +215,14 @@ function EditSpaceForm({ s, onSaved }: { s: SpaceDetail; onSaved: (d: SpaceDetai
   const today = beijingToday()
   const otherCouple = spaces.data?.find((x) => x.type === 'couple' && x.id !== s.id)
   const people = s.member_count + s.invites.length
-  const coupleBlocked = otherCouple ? `你已在情侣空间「${otherCouple.name}」中` : people > 2 ? '情侣空间最多两个人（含待接受的邀请）' : undefined
+  // 情侣关系要对方同意：已有其他成员时不能改成情侣空间（对方要通过邀请加入）
+  const coupleBlocked = otherCouple
+    ? `你已在情侣空间「${otherCouple.name}」中`
+    : s.member_count > 1
+      ? '空间里已有其他成员：情侣关系需要对方同意，请新建一个情侣空间邀请 TA'
+      : people > 2
+        ? '情侣空间最多两个人（含待接受的邀请）'
+        : undefined
   const save = async () => {
     if (!name.trim()) return toast.error('空间名称不能为空')
     if (type === 'custom' && !label.trim()) return toast.error('给自定义的类型起个名字吧')
@@ -278,6 +286,69 @@ function EditSpaceForm({ s, onSaved }: { s: SpaceDetail; onSaved: (d: SpaceDetai
   )
 }
 
+type Breakup = { kind: 'leave' | 'remove' | 'delete'; other: SpaceMember }
+
+/**
+ * 情侣空间（两个人）的退出 / 移出 / 删除：可以同时结束两人在彼此旅程中的共同作者关系（缺省勾选）。
+ * 用「和 TA 一起」新建的旅程会把对方加为共同作者，只处理空间的话，对方仍能查看、编辑这些旅程，旅行中也能看到实时位置
+ */
+function BreakupDialog({
+  s,
+  breakup,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  s: SpaceDetail
+  breakup: Breakup | null
+  busy: boolean
+  onClose: () => void
+  onConfirm: (removeShared: boolean) => void
+}) {
+  const [endShared, setEndShared] = useState(true)
+  const who = breakup ? nameOf(breakup.other) : ''
+  const title = !breakup
+    ? ''
+    : breakup.kind === 'leave'
+      ? `退出「${s.name}」？`
+      : breakup.kind === 'remove'
+        ? `把 ${who} 移出「${s.name}」？`
+        : `删除「${s.name}」？`
+  const ok = breakup?.kind === 'leave' ? '退出空间' : breakup?.kind === 'remove' ? '移出' : '删除空间'
+  return (
+    <Modal
+      open={!!breakup}
+      onClose={() => !busy && onClose()}
+      title={title}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            取消
+          </Button>
+          <Button variant="danger" loading={busy} onClick={() => onConfirm(endShared)}>
+            {ok}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <p className="text-sm leading-relaxed text-ink-500">
+          {breakup?.kind === 'delete' ? '情侣空间会被删除，' : breakup?.kind === 'leave' ? '你们的情侣绑定会解除，' : `你们的情侣绑定会解除，${who} 会收到通知。`}
+          空间里的旅程都会保留，各归各的作者。用「和 TA 一起」新建的旅程里，{who} 也是共同作者：只退出空间的话，TA 仍能查看、编辑这些旅程，旅行中也能看到实时位置和打卡。
+        </p>
+        <OptionCard
+          role="checkbox"
+          selected={endShared}
+          onClick={() => setEndShared((v) => !v)}
+          title="同时结束共同作者关系"
+          description={`你和 ${who} 将不能再查看、编辑对方的旅程（私密旅程完全看不到，公开的仍可以像其他人一样浏览）。不勾选时仍是共同作者，之后可以在旅程「成员」里逐个移除。`}
+          className="w-full text-left"
+        />
+      </div>
+    </Modal>
+  )
+}
+
 function SectionTitle({ children, count }: { children: ReactNode; count?: ReactNode }) {
   return (
     <p className="flex items-baseline gap-3 border-t border-line pt-4 pb-3">
@@ -302,6 +373,8 @@ function SpaceSettings({
   const qc = useQueryClient()
   const nav = useNavigate()
   const [busy, setBusy] = useState<string | null>(null)
+  // 情侣空间的退出 / 移出 / 删除：可以同时结束共同作者关系
+  const [breakup, setBreakup] = useState<Breakup | null>(null)
   // 从「设置纪念日」进来：滚到空间信息
   const aboutRef = useRef<HTMLElement>(null)
   useEffect(() => {
@@ -309,6 +382,8 @@ function SpaceSettings({
   }, [focus])
   const couple = s.type === 'couple'
   const owner = s.role === 'owner'
+  // 两个人的情侣空间：退出、移出、删除都是分开，另外问要不要结束共同作者关系
+  const partner = couple && s.members.length === 2 ? s.members.find((m) => m.id !== me.id) : undefined
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ['space', s.id] })
     refreshSpaces(qc)
@@ -326,50 +401,71 @@ function SpaceSettings({
       setBusy(null)
     }
   }
+  const doLeave = async (removeShared = false) => {
+    if (await run('leave', () => api.spaces.removeMember(s.id, me.id, removeShared), `已退出「${s.name}」`)) {
+      onClose()
+      await nav('/spaces', { replace: true })
+      qc.removeQueries({ queryKey: ['space', s.id] })
+      refreshSpaces(qc, { trips: true })
+    }
+  }
+  const doRemoveMember = async (m: SpaceMember, removeShared = false) => {
+    if (await run(`remove-${m.id}`, () => api.spaces.removeMember(s.id, m.id, removeShared), `已移出 ${nameOf(m)}`)) {
+      refresh()
+      refreshSpaces(qc, { trips: removeShared })
+      void qc.invalidateQueries({ queryKey: ['space-trips', s.id] })
+      void qc.invalidateQueries({ queryKey: ['space-footprints', s.id] })
+    }
+  }
+  const doRemove = async (removeShared = false) => {
+    if (await run('delete', () => api.spaces.remove(s.id, removeShared), `已删除「${s.name}」`)) {
+      onClose()
+      await nav('/spaces', { replace: true })
+      qc.removeQueries({ queryKey: ['space', s.id] })
+      refreshSpaces(qc, { trips: true })
+    }
+  }
   const leave = async () => {
+    if (partner) return setBreakup({ kind: 'leave', other: partner })
     const others = s.members.filter((m) => m.id !== me.id)
     const desc =
       others.length === 0
         ? '你是最后一位成员，退出后空间会被删除；旅程都会保留，只是不再属于这个空间。'
         : owner
-          ? `你是创建者：退出后 ${nameOf(others[0])} 将成为新的创建者。你创建的旅程会随你离开空间（仍然属于你），你将看不到其他人的旅程（你是共同作者的除外）。`
-          : '退出后你将看不到空间里其他人的旅程（你是共同作者的除外）；你创建的旅程会随你离开空间，仍然属于你。'
+          ? `你是创建者：退出后 ${nameOf(others[0])} 将成为新的创建者。你创建的旅程会随你离开空间（仍然属于你；在其中打过卡、传过照片的成员会成为共同作者），空间里其他人的旅程你将看不到（你是共同作者的除外）。`
+          : '退出后你将看不到空间里其他人的旅程（你是共同作者的除外）；你创建的旅程会随你离开空间，仍然属于你，在其中打过卡、传过照片的成员会成为共同作者。'
     if (!(await confirmDialog({ title: `退出「${s.name}」？`, desc, okText: '退出空间', danger: true }))) return
-    if (await run('leave', () => api.spaces.removeMember(s.id, me.id), `已退出「${s.name}」`)) {
-      onClose()
-      await nav('/spaces', { replace: true })
-      qc.removeQueries({ queryKey: ['space', s.id] })
-      refreshSpaces(qc, { trips: true })
-    }
+    await doLeave()
   }
   const removeMember = async (m: SpaceMember) => {
+    if (partner) return setBreakup({ kind: 'remove', other: m })
     const ok = await confirmDialog({
       title: `把 ${nameOf(m)} 移出「${s.name}」？`,
-      desc: 'TA 将看不到空间里其他人的旅程（是共同作者的除外），TA 创建的旅程会随 TA 离开空间。TA 会收到通知。',
+      desc: 'TA 将看不到空间里其他人的旅程（是共同作者的除外）；TA 创建的旅程会随 TA 离开空间，在其中打过卡、传过照片的成员会成为共同作者。TA 会收到通知。',
       okText: '移出',
       danger: true,
     })
     if (!ok) return
-    if (await run(`remove-${m.id}`, () => api.spaces.removeMember(s.id, m.id), `已移出 ${nameOf(m)}`)) {
-      refresh()
-      void qc.invalidateQueries({ queryKey: ['space-trips', s.id] })
-      void qc.invalidateQueries({ queryKey: ['space-footprints', s.id] })
-    }
+    await doRemoveMember(m)
   }
   const remove = async () => {
+    if (partner) return setBreakup({ kind: 'delete', other: partner })
     const ok = await confirmDialog({
       title: `删除「${s.name}」？`,
-      desc: '空间里的旅程都会保留，只是不再属于这个空间；其他成员会收到通知。这一步不能撤销。',
+      desc: '空间里的旅程都会保留，只是不再属于这个空间；在别人的旅程里打过卡、传过照片的成员会成为那段旅程的共同作者。其他成员会收到通知。这一步不能撤销。',
       okText: '删除空间',
       danger: true,
     })
     if (!ok) return
-    if (await run('delete', () => api.spaces.remove(s.id), `已删除「${s.name}」`)) {
-      onClose()
-      await nav('/spaces', { replace: true })
-      qc.removeQueries({ queryKey: ['space', s.id] })
-      refreshSpaces(qc, { trips: true })
-    }
+    await doRemove()
+  }
+  const confirmBreakup = async (removeShared: boolean) => {
+    const b = breakup
+    if (!b) return
+    if (b.kind === 'leave') await doLeave(removeShared)
+    else if (b.kind === 'remove') await doRemoveMember(b.other, removeShared)
+    else await doRemove(removeShared)
+    setBreakup(null)
   }
 
   return (
@@ -508,9 +604,18 @@ function SpaceSettings({
           </div>
           <p className="caption mt-3 leading-relaxed">
             {owner ? '删除空间不会删除任何旅程。' : ''}退出后，你创建的旅程会随你离开空间，仍然属于你。
+            {partner ? '情侣空间还可以选择同时结束你们在彼此旅程中的共同作者关系。' : ''}
           </p>
         </section>
       </div>
+      <BreakupDialog
+        key={breakup ? `${breakup.kind}-${breakup.other.id}` : 'none'}
+        s={s}
+        breakup={breakup}
+        busy={!!busy}
+        onClose={() => setBreakup(null)}
+        onConfirm={(v) => void confirmBreakup(v)}
+      />
     </Modal>
   )
 }

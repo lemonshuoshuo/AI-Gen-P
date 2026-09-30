@@ -280,12 +280,14 @@ export function moveLodging(t: TripDetail, id: number, night: number): TripDetai
 
 /**
  * 规划的天数（有开始日期时同时改结束日期）。减少时与服务端 ShrinkDays 一致：被去掉的那几天的游玩点移到「想去」；
- * 多出来的那几晚的住宿，同一家还住别的晚上时去掉，否则放回「想去」
+ * 多出来的那几晚的住宿，同一家还住别的晚上时去掉，否则放回「想去」。改成 0 天（不再分天）时出发前一晚的住宿也一样：
+ * 没有哪一天从那里出发，留着的话列表里看不到它，地图上却还有
  */
 export function setDays(t: TripDetail, n: number): TripDetail {
   let wps = t.waypoints.map((w) => (!isLodging(w) && w.day > n ? { ...w, day: 0 } : w))
-  const kept = wps.filter((w) => isLodging(w) && w.day <= n)
-  const cut = wps.filter((w) => isLodging(w) && w.day > n).sort((a, b) => a.day - b.day || a.seq - b.seq)
+  const cutNight = (w: Waypoint) => w.day > n || n === 0
+  const kept = wps.filter((w) => isLodging(w) && !cutNight(w))
+  const cut = wps.filter((w) => isLodging(w) && cutNight(w)).sort((a, b) => a.day - b.day || a.seq - b.seq)
   for (const w of cut) {
     if (kept.some((k) => sameLodging(w, k))) wps = wps.filter((x) => x.id !== w.id)
     else {
@@ -307,8 +309,11 @@ export function setTripFields(t: TripDetail, patch: Partial<Pick<TripDetail, Tri
   return next
 }
 
-/** 一键排路线的方案（服务端按已保存的计划算出的 apply=false 预览）套到草稿上 */
-export function applyArrangement(t: TripDetail, r: ArrangeResult, mode: TravelMode): TripDetail {
+/**
+ * 一键排路线的方案（服务端按已保存的计划算出的 apply=false 预览）套到草稿上。只改地点的天和顺序：方案里「怎么走」只是估算路程用的，
+ * 不改旅程的出行方式（同服务端 apply=true）
+ */
+export function applyArrangement(t: TripDetail, r: ArrangeResult): TripDetail {
   const pos = new Map(r.items.map((i) => [i.id, i]))
   const wps = t.waypoints.map((w) => {
     const p = pos.get(w.id)
@@ -316,7 +321,7 @@ export function applyArrangement(t: TripDetail, r: ArrangeResult, mode: TravelMo
   })
   // 没有日期的旅程天数不足时设为方案的天数（同服务端 apply=true）
   const days = t.start_date && t.end_date ? t.days : Math.max(t.days, r.days)
-  return { ...t, days, travel_mode: mode, waypoints: wps }
+  return { ...t, days, waypoints: wps }
 }
 
 /* ---------------- 差异（给人看） ---------------- */
@@ -403,10 +408,11 @@ export function diffPlan(a: TripDetail, b: TripDetail, poolName = '想去的地�
     const y = bm.get(x.id)
     if (!y) {
       if (replaced.has(x.id)) continue
-      const soft = !x.planned || x.status === 'visited'
+      // 删除打卡记录（计划外的打卡、已到达、有照片的点，住宿也一样）：立即生效，保存计划不会、也不应该把它恢复
+      const soft = hasHistory(a, x)
       out.push(
         isLodging(x)
-          ? { key: `rm:${x.id}`, kind: 'lodging', id: x.id, field: `night:${x.day}`, text: `清除了${nightName(x.day)}的住宿${nm(x)}` }
+          ? { key: `rm:${x.id}`, kind: 'lodging', id: x.id, field: `night:${x.day}`, text: `清除了${nightName(x.day)}的住宿${nm(x)}`, soft }
           : { key: `rm:${x.id}`, kind: 'remove', id: x.id, text: `删除了${nm(x)}`, soft },
       )
       continue
@@ -547,15 +553,27 @@ function fullItem(w: DraftWaypoint): PlanItemInput {
 /**
  * PUT /trips/:id/plan 的请求体：完整的列表（规划中按规范顺序，其它阶段按草稿的顺序），每项只带与 ref 不同的字段。
  * 平时 ref 是草稿所基于的版本；覆盖（force）时 ref 是服务端的最新版本，这样对方改过的字段也改回草稿的样子，
- * 对方删掉的点按草稿的字段重新创建
+ * 对方删掉的计划点按草稿的字段重新创建——但对方删掉的打卡记录（计划外的打卡、已到达、有照片的点）不重新创建：
+ * 服务端只能把它建成待前往的计划点，到达记录已经没了，删除打卡记录本来也不属于计划。
+ * 没改过、位置也没变的计划外打卡点不放进列表（服务端保持不变，排在原来前面的那个点之后）：打卡很多的旅程请求也不会太大
  */
 export function planPayload(
   ref: TripDetail,
   draft: TripDetail,
   opts: { force?: boolean; baseRevision: number; isOwner: boolean; base: TripDetail },
 ): { body: PlanSaveInput; order: Waypoint[] } {
-  const order = draft.phase === 'planning' ? canonicalOrder(groupPlan(draft.waypoints, draft.days)) : [...draft.waypoints].sort(bySeq)
+  const all = draft.phase === 'planning' ? canonicalOrder(groupPlan(draft.waypoints, draft.days)) : [...draft.waypoints].sort(bySeq)
   const rm = byId(ref.waypoints)
+  // 服务端现在的顺序里每个点前面的那个点（没有列出的点跟着它）
+  const refOrder = [...ref.waypoints].sort(bySeq)
+  const prevInRef = new Map(refOrder.map((w, i) => [w.id, i > 0 ? refOrder[i - 1].id : 0]))
+  const order = all.filter((w, i) => {
+    if (isNew(w)) return true
+    const r = rm.get(w.id)
+    if (!r) return !(opts.force && hasHistory(opts.base, w))
+    // 计划外的打卡点：内容没改、前面还是同一个点时省略
+    return w.planned || changedFields(w, r).length > 0 || prevInRef.get(w.id) !== (i > 0 ? all[i - 1].id : 0)
+  })
   const waypoints = order.map((w): PlanItemInput => {
     const r = rm.get(w.id)
     // 覆盖时每项都带齐字段：对方刚删掉的点（取到最新版本之后又删的也一样）能按草稿重新创建

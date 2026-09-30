@@ -707,6 +707,12 @@ func linkSpace(tx *gorm.DB, c *gin.Context, t *model.Trip, a service.Access, sc 
 	if (cur.SpaceID == nil) != (t.SpaceID == nil) || (cur.SpaceID != nil && *cur.SpaceID != *t.SpaceID) {
 		return nil, errConflict("旅程所属的空间刚被修改，请刷新后重试")
 	}
+	if t.SpaceID != nil {
+		// The members of the space it leaves who added to it keep it.
+		if err := service.KeepContributors(tx, *t.SpaceID, []int64{t.ID}, sc.to); err != nil {
+			return nil, err
+		}
+	}
 	if sc.to == 0 {
 		return gorm.Expr("NULL"), nil
 	}

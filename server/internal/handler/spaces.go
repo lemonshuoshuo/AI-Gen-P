@@ -612,7 +612,29 @@ func (h *Handler) updateSpace(c *gin.Context) error {
 			}
 		}
 		upd["updated_at"] = time.Now()
-		return tx.Model(&model.Space{}).Where("id = ?", cur.ID).Updates(upd).Error
+		if err := tx.Model(&model.Space{}).Where("id = ?", cur.ID).Updates(upd).Error; err != nil {
+			return err
+		}
+		_, retyped := upd["type"]
+		_, relabeled := upd["type_label"]
+		if !retyped && !relabeled {
+			return nil
+		}
+		// The other members, and those invited (their invitation now shows
+		// the new type), hear of the new type.
+		var told []int64
+		if err := tx.Raw(`SELECT user_id FROM space_members WHERE space_id = ? AND user_id <> ?
+UNION SELECT invitee_id FROM space_invites WHERE space_id = ? AND status = ?`, cur.ID, me, cur.ID, model.InvitePending).
+			Scan(&told).Error; err != nil {
+			return err
+		}
+		content := userBrief(currentUser(c)).Nickname + " 把空间「" + cur.Name + "」改成了「" + service.SpaceTypeLabel(cur) + "」空间"
+		for _, uid := range told {
+			if err := h.svc.Notify(tx, service.Notice{UserID: uid, Type: "system", ActorID: me, SpaceID: cur.ID, Content: content}); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return err
@@ -620,9 +642,10 @@ func (h *Handler) updateSpace(c *gin.Context) error {
 	return h.respondSpace(c, sp.ID)
 }
 
-// checkCoupleCapacity refuses to make a space a couple space when it has
-// more than two members and pending invitations, or a member who is in
-// another couple space.
+// checkCoupleCapacity refuses to make a space a couple space unless the one
+// asking is its only member (a couple needs the other one's consent: an
+// invitation they accept, which shows the space's type) with at most one
+// invitation pending, or when the member is in another couple space.
 func checkCoupleCapacity(tx *gorm.DB, spaceID int64) error {
 	var members, pending int64
 	if err := tx.Model(&model.SpaceMember{}).Where("space_id = ?", spaceID).Count(&members).Error; err != nil {
@@ -631,8 +654,11 @@ func checkCoupleCapacity(tx *gorm.DB, spaceID int64) error {
 	if err := tx.Model(&model.SpaceInvite{}).Where("space_id = ? AND status = ?", spaceID, model.InvitePending).Count(&pending).Error; err != nil {
 		return err
 	}
+	if members > 1 {
+		return errConflict("空间里已有其他成员，不能改成情侣空间：情侣关系需要对方同意，请新建一个情侣空间邀请 TA")
+	}
 	if members+pending > 2 {
-		return errBad("情侣空间最多两个人（含待接受的邀请），请先移除成员或撤回邀请")
+		return errBad("情侣空间最多两个人（含待接受的邀请），请先撤回多余的邀请")
 	}
 	var names []string
 	if err := tx.Raw(`SELECT u.nickname FROM space_members m JOIN users u ON u.id = m.user_id
@@ -655,6 +681,7 @@ func (h *Handler) deleteSpace(c *gin.Context) error {
 		return errForbidden("只有空间的创建者可以删除空间")
 	}
 	me := currentUser(c)
+	removeShared := queryBool(c, "remove_shared_access")
 	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
 		cur, m, err := lockSpaceMember(tx, sp.ID, me.ID)
 		if err != nil {
@@ -663,13 +690,33 @@ func (h *Handler) deleteSpace(c *gin.Context) error {
 		if m.Role != model.SpaceRoleOwner {
 			return errForbidden("只有空间的创建者可以删除空间")
 		}
+		var partner int64
+		var linked []int64
+		if removeShared && cur.Type == model.SpaceCouple {
+			if err := tx.Model(&model.Trip{}).Where("space_id = ?", cur.ID).Pluck("id", &linked).Error; err != nil {
+				return err
+			}
+			if partner, err = lockCoupleTrips(tx, cur.ID, me.ID, linked); err != nil {
+				return err
+			}
+		}
 		members, err := service.DeleteSpace(tx, cur.ID, me.ID)
 		if err != nil {
 			return err
 		}
+		ended := 0
+		if partner != 0 {
+			if ended, err = service.EndCoAuthorship(tx, me.ID, partner, me.ID, linked); err != nil {
+				return err
+			}
+		}
+		content := userBrief(me).Nickname + " 删除了空间「" + cur.Name + "」（空间里的旅程仍归各自的作者）"
+		if ended > 0 {
+			content = userBrief(me).Nickname + " 删除了空间「" + cur.Name + "」，并结束了你们在彼此旅程中的共同作者关系（旅程仍归各自的作者）"
+		}
 		for _, uid := range members {
 			if err := h.svc.Notify(tx, service.Notice{UserID: uid, Type: "system", ActorID: me.ID, SpaceID: cur.ID,
-				Content: userBrief(me).Nickname + " 删除了空间「" + cur.Name + "」（空间里的旅程仍归各自的作者）"}); err != nil {
+				Content: content}); err != nil {
 				return err
 			}
 		}
@@ -841,6 +888,9 @@ func (h *Handler) createSpaceInvite(c *gin.Context) error {
 	if err != nil {
 		return err
 	}
+	if len(dtos) == 0 { // the space was deleted right after (and the invitation with it)
+		return errSpaceNotFound
+	}
 	c.JSON(http.StatusOK, dtos[0])
 	return nil
 }
@@ -869,10 +919,13 @@ func (h *Handler) listSpaceInvites(c *gin.Context) error {
 
 // joinSpace accepts the current user's pending invitation inviteID (to a
 // couple space only when coupleOnly) and returns the space joined. Joining
-// a couple space withdraws the user's other pending couple invitations, and
-// the space's (it is full); a couple space the user is alone in without
-// trips (one waiting for a partner) is deleted, as everyone is in at most
-// one couple space.
+// a couple space withdraws the user's and the inviter's other pending couple
+// invitations, and the space's (it is full). A couple space the user is
+// alone in (one waiting for a partner, such as the one their invitation link
+// was sent from) is not lost: when it has trips and the inviter's has none,
+// the inviter moves into it instead (see moveIntoOwnCouple); otherwise it is
+// dropped, its name, anniversary and description filling those the joined
+// space lacks. Everyone is in at most one couple space.
 func (h *Handler) joinSpace(c *gin.Context, inviteID int64, coupleOnly bool) (*model.Space, error) {
 	me := currentUser(c)
 	db := h.db.WithContext(c.Request.Context())
@@ -883,21 +936,29 @@ func (h *Handler) joinSpace(c *gin.Context, inviteID int64, coupleOnly bool) (*m
 	if inv.ID == 0 {
 		return nil, errInviteNotFound
 	}
-	// ownSpaceBlocks refuses to join a couple space while the user is in
-	// another one they share or that has trips (only an empty one of their
-	// own, waiting for a partner, is dropped).
-	ownSpaceBlocks := func(tx *gorm.DB, own *model.Space) error {
+	// ownSpaceBlocks refuses to join a couple space while the user shares
+	// another one, or when both that one and the space invited to have trips
+	// (which of them to keep is theirs to decide). keepOwn: the user's space
+	// has trips and the other none, so the inviter moves into the user's.
+	ownSpaceBlocks := func(tx *gorm.DB, own *model.Space, targetID int64) (keepOwn bool, err error) {
 		var others, trips int64
 		if err := tx.Model(&model.SpaceMember{}).Where("space_id = ? AND user_id <> ?", own.ID, me.ID).Count(&others).Error; err != nil {
-			return err
+			return false, err
 		}
-		if err := tx.Model(&model.Trip{}).Where("space_id = ?", own.ID).Count(&trips).Error; err != nil {
-			return err
+		if others > 0 {
+			return false, errConflict("你已在情侣空间「" + own.Name + "」中，请先退出或删除它，再接受邀请")
 		}
-		if others > 0 || trips > 0 {
-			return errConflict("你已在情侣空间「" + own.Name + "」中，请先退出或删除它，再接受邀请")
+		if err := tx.Model(&model.Trip{}).Where("space_id = ?", own.ID).Count(&trips).Error; err != nil || trips == 0 {
+			return false, err
 		}
-		return nil
+		var theirs int64
+		if err := tx.Model(&model.Trip{}).Where("space_id = ?", targetID).Count(&theirs).Error; err != nil {
+			return false, err
+		}
+		if theirs > 0 {
+			return false, errConflict("你的情侣空间「" + own.Name + "」和对方的都已有旅程，只能保留一个：请先把「" + own.Name + "」里的旅程移出空间或删除这个空间，再接受邀请")
+		}
+		return true, nil
 	}
 	var joined *model.Space
 	err := db.Transaction(func(tx *gorm.DB) error {
@@ -912,7 +973,7 @@ func (h *Handler) joinSpace(c *gin.Context, inviteID int64, coupleOnly bool) (*m
 		if target.ID == 0 || (coupleOnly && target.Type != model.SpaceCouple) {
 			return errInviteNotFound
 		}
-		var own *model.Space // the user's couple space, dropped when they join another
+		var own *model.Space // the user's couple space, dropped or kept when they join another
 		if target.Type == model.SpaceCouple {
 			cur, err := coupleSpaceOf(tx, me.ID)
 			if err != nil {
@@ -921,14 +982,19 @@ func (h *Handler) joinSpace(c *gin.Context, inviteID int64, coupleOnly bool) (*m
 			if cur != nil && cur.ID != target.ID {
 				// Checked before locking it: a space shared with someone else is
 				// never locked here (its other member may be deleting it).
-				if err := ownSpaceBlocks(tx, cur); err != nil {
+				if _, err := ownSpaceBlocks(tx, cur, target.ID); err != nil {
 					return err
 				}
 				own = cur
 			}
 		}
+		lockOwn := func() error {
+			var err error
+			own, err = service.LockSpace(tx, own.ID) // nil: deleted meanwhile
+			return err
+		}
 		if own != nil && own.ID < target.ID {
-			if _, err := service.LockSpace(tx, own.ID); err != nil {
+			if err := lockOwn(); err != nil {
 				return err
 			}
 		}
@@ -937,7 +1003,7 @@ func (h *Handler) joinSpace(c *gin.Context, inviteID int64, coupleOnly bool) (*m
 			return err
 		}
 		if own != nil && own.ID > target.ID {
-			if _, err := service.LockSpace(tx, own.ID); err != nil {
+			if err := lockOwn(); err != nil {
 				return err
 			}
 		}
@@ -976,7 +1042,18 @@ func (h *Handler) joinSpace(c *gin.Context, inviteID int64, coupleOnly bool) (*m
 		}
 		couple := sp.Type == model.SpaceCouple
 		if couple && own != nil {
-			if err := ownSpaceBlocks(tx, own); err != nil { // again, under the lock
+			keepOwn, err := ownSpaceBlocks(tx, own, sp.ID) // again, under the lock
+			if err != nil {
+				return err
+			}
+			if keepOwn {
+				if err := h.moveIntoOwnCouple(tx, own, sp, inv.InviterID, me); err != nil {
+					return err
+				}
+				joined = own
+				return nil
+			}
+			if err := fillCoupleSpace(tx, sp, own, me.ID); err != nil {
 				return err
 			}
 			if _, err := service.DeleteSpace(tx, own.ID, me.ID); err != nil {
@@ -995,10 +1072,7 @@ func (h *Handler) joinSpace(c *gin.Context, inviteID int64, coupleOnly bool) (*m
 			return err
 		}
 		if couple {
-			// The user has a partner now; the space is full.
-			if err := tx.Exec(`UPDATE space_invites SET status = ?, updated_at = now() WHERE status = ? AND (space_id = ?
-  OR (invitee_id = ? AND space_id IN (SELECT id FROM spaces WHERE type = ?)))`,
-				model.InviteCancelled, model.InvitePending, sp.ID, me.ID, model.SpaceCouple).Error; err != nil {
+			if err := cancelCoupleInvites(tx, sp.ID, me.ID, inv.InviterID); err != nil {
 				return err
 			}
 		}
@@ -1019,6 +1093,86 @@ func (h *Handler) joinSpace(c *gin.Context, inviteID int64, coupleOnly bool) (*m
 		return nil, err
 	}
 	return joined, nil
+}
+
+// cancelCoupleInvites withdraws, once two people form a couple in space
+// spaceID (now full), its pending invitations and those inviting either of
+// them to another couple space.
+func cancelCoupleInvites(tx *gorm.DB, spaceID, a, b int64) error {
+	return tx.Exec(`UPDATE space_invites SET status = ?, updated_at = now() WHERE status = ? AND (space_id = ?
+  OR (invitee_id IN (?, ?) AND space_id IN (SELECT id FROM spaces WHERE type = ?)))`,
+		model.InviteCancelled, model.InvitePending, spaceID, a, b, model.SpaceCouple).Error
+}
+
+// coupleDetails are the fields of a couple space that one of its partners
+// prepared while waiting for the other.
+func coupleDetails(sp *model.Space) map[string]any {
+	out := map[string]any{}
+	if sp.Name != service.DefaultSpaceName(model.SpaceCouple, "") {
+		out["name"] = sp.Name
+	}
+	if sp.Anniversary != nil {
+		out["anniversary"] = sp.Anniversary
+	}
+	if sp.Description != "" {
+		out["description"] = sp.Description
+	}
+	return out
+}
+
+// fillCoupleSpace gives couple space sp (locked) the details of the user's
+// own couple space from (locked, about to be dropped) that sp lacks — its
+// name when sp has the default one, its anniversary, its description — and
+// makes sp the user's default space when from was.
+func fillCoupleSpace(tx *gorm.DB, sp, from *model.Space, userID int64) error {
+	have := coupleDetails(sp)
+	upd := map[string]any{}
+	for k, v := range coupleDetails(from) {
+		if _, ok := have[k]; !ok {
+			upd[k] = v
+		}
+	}
+	if len(upd) > 0 {
+		upd["updated_at"] = time.Now()
+		if err := tx.Model(&model.Space{}).Where("id = ?", sp.ID).Updates(upd).Error; err != nil {
+			return err
+		}
+		if v, ok := upd["name"].(string); ok {
+			sp.Name = v
+		}
+	}
+	return tx.Exec("UPDATE users SET default_space_id = ? WHERE id = ? AND default_space_id = ?", sp.ID, userID, from.ID).Error
+}
+
+// moveIntoOwnCouple accepts an invitation to couple space target (locked,
+// without trips) by bringing its inviter into the user's own couple space
+// own (locked; the user its only member, with trips): target is dropped,
+// its details filling those own lacks, and own is public only when both
+// were (the inviter never agreed to more).
+func (h *Handler) moveIntoOwnCouple(tx *gorm.DB, own, target *model.Space, inviterID int64, me *model.User) error {
+	if err := fillCoupleSpace(tx, own, target, inviterID); err != nil {
+		return err
+	}
+	if own.Public && !target.Public {
+		if err := tx.Model(&model.Space{}).Where("id = ?", own.ID).Update("public", false).Error; err != nil {
+			return err
+		}
+	}
+	if _, err := service.DeleteSpace(tx, target.ID, me.ID); err != nil {
+		return err
+	}
+	if err := tx.Create(&model.SpaceMember{SpaceID: own.ID, UserID: inviterID, Role: model.SpaceRoleMember, JoinedAt: time.Now(),
+		Couple: true}).Error; err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return errConflict("对方已在另一个情侣空间中")
+		}
+		return err
+	}
+	if err := cancelCoupleInvites(tx, own.ID, me.ID, inviterID); err != nil {
+		return err
+	}
+	return h.svc.Notify(tx, service.Notice{UserID: inviterID, Type: "space_accept", ActorID: me.ID, SpaceID: own.ID,
+		Content: "接受了邀请：TA 之前建好了情侣空间「" + own.Name + "」，你们现在都在这里"})
 }
 
 func (h *Handler) acceptSpaceInvite(c *gin.Context) error {
@@ -1102,10 +1256,32 @@ func (h *Handler) cancelSpaceInvite(c *gin.Context) error {
 	return nil
 }
 
+// lockCoupleTrips prepares ending the co-authorship of the two members of
+// couple space spaceID (?remove_shared_access=true on leaving, removing or
+// deleting it; see service.EndCoAuthorship): it returns the member other
+// than userID (0: none) after locking, in id order, the trips that change —
+// those one of them owns and the other co-authors, and leaving (the trips
+// about to leave the space).
+func lockCoupleTrips(tx *gorm.DB, spaceID, userID int64, leaving []int64) (int64, error) {
+	var others []int64
+	if err := tx.Model(&model.SpaceMember{}).Where("space_id = ? AND user_id <> ?", spaceID, userID).Pluck("user_id", &others).Error; err != nil {
+		return 0, err
+	}
+	if len(others) != 1 {
+		return 0, nil
+	}
+	shared, err := service.CoAuthoredTrips(tx, userID, others[0])
+	if err != nil {
+		return 0, err
+	}
+	return others[0], service.LockTrips(tx, append(shared, leaving...))
+}
+
 // leaveSpace takes userID out of space spaceID for the current user (the
 // owner, or userID themself) in tx, with the notices it calls for; see
-// service.RemoveSpaceMember.
-func (h *Handler) leaveSpace(c *gin.Context, tx *gorm.DB, spaceID, userID int64) (*service.SpaceLeft, error) {
+// service.RemoveSpaceMember. removeShared (couple spaces): the two also stop
+// being co-authors of each other's trips (service.EndCoAuthorship).
+func (h *Handler) leaveSpace(c *gin.Context, tx *gorm.DB, spaceID, userID int64, removeShared bool) (*service.SpaceLeft, error) {
 	me := currentUser(c)
 	sp, m, err := lockSpaceMember(tx, spaceID, me.ID)
 	if err != nil {
@@ -1120,10 +1296,30 @@ func (h *Handler) leaveSpace(c *gin.Context, tx *gorm.DB, spaceID, userID int64)
 	} else if tm == nil {
 		return nil, errNotFound("成员不存在")
 	}
+	var partner int64
+	if removeShared && sp.Type == model.SpaceCouple {
+		var leaving []int64 // the trips leaving the space with the member
+		if err := tx.Model(&model.Trip{}).Where("space_id = ? AND owner_id = ?", sp.ID, userID).Pluck("id", &leaving).Error; err != nil {
+			return nil, err
+		}
+		if partner, err = lockCoupleTrips(tx, sp.ID, userID, leaving); err != nil {
+			return nil, err
+		}
+	}
 	owner := sp.OwnerID
 	left, err := service.RemoveSpaceMember(tx, sp, userID, me.ID)
 	if err != nil {
 		return nil, err
+	}
+	ended := ""
+	if partner != 0 {
+		n, err := service.EndCoAuthorship(tx, userID, partner, me.ID, left.Unlinked)
+		if err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			ended = "，并结束了你们在彼此旅程中的共同作者关系"
+		}
 	}
 	nick := userBrief(me).Nickname
 	notice := func(uid int64, content string) error {
@@ -1131,16 +1327,16 @@ func (h *Handler) leaveSpace(c *gin.Context, tx *gorm.DB, spaceID, userID int64)
 	}
 	switch {
 	case !self:
-		if err := notice(userID, nick+" 将你移出了空间「"+sp.Name+"」"); err != nil {
+		if err := notice(userID, nick+" 将你移出了空间「"+sp.Name+"」"+ended); err != nil {
 			return nil, err
 		}
 	case left.Deleted:
 	case left.NewOwnerID != 0:
-		if err := notice(left.NewOwnerID, nick+" 退出了空间「"+sp.Name+"」，你成为了空间的创建者"); err != nil {
+		if err := notice(left.NewOwnerID, nick+" 退出了空间「"+sp.Name+"」"+ended+"，你成为了空间的创建者"); err != nil {
 			return nil, err
 		}
 	default:
-		if err := notice(owner, nick+" 退出了空间「"+sp.Name+"」"); err != nil {
+		if err := notice(owner, nick+" 退出了空间「"+sp.Name+"」"+ended); err != nil {
 			return nil, err
 		}
 	}
@@ -1156,8 +1352,9 @@ func (h *Handler) removeSpaceMember(c *gin.Context) error {
 	if err != nil || uid <= 0 {
 		return errNotFound("成员不存在")
 	}
+	removeShared := queryBool(c, "remove_shared_access")
 	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
-		_, err := h.leaveSpace(c, tx, sp.ID, uid)
+		_, err := h.leaveSpace(c, tx, sp.ID, uid, removeShared)
 		return err
 	})
 	if err != nil {

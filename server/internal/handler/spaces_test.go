@@ -255,15 +255,29 @@ func TestSpaceInvites(t *testing.T) {
 	// A partnered user cannot be invited to another couple space.
 	ac := id(e.must(200, "POST", "/spaces", alice, map[string]any{"type": "couple"}).obj(t))
 	e.must(409, "POST", fmt.Sprintf("/spaces/%d/invites", ac), alice, map[string]any{"username": "dave"})
-	// Joining a couple space drops an empty one of one's own that waits for a
-	// partner, and withdraws its invitation; one with trips is kept (409).
+	// Accepting while waiting in a couple space of one's own that has trips,
+	// when the inviter's has none: the inviter moves into it (the invitation
+	// link's case). When both have trips it is refused (409).
 	bi := e.must(200, "POST", fmt.Sprintf("/spaces/%d/invites", ac), alice, map[string]any{"username": "bob"}).obj(t)
-	bc := e.must(200, "POST", "/spaces", bob, map[string]any{"type": "couple", "name": "等你"}).obj(t)
+	bc := e.must(200, "POST", "/spaces", bob, map[string]any{"type": "couple", "name": "等你", "anniversary": "2024-05-20"}).obj(t)
 	trip := id(e.must(200, "POST", "/trips", bob, map[string]any{"title": "独行", "space_id": id(bc)}).obj(t))
+	hers := id(e.must(200, "POST", "/trips", alice, map[string]any{"title": "她的", "space_id": ac}).obj(t))
 	e.must(409, "POST", fmt.Sprintf("/space-invites/%d/accept", id(bi)), bob, nil)
-	e.must(200, "PATCH", fmt.Sprintf("/trips/%d", trip), bob, map[string]any{"space_id": nil})
-	e.must(200, "POST", fmt.Sprintf("/space-invites/%d/accept", id(bi)), bob, nil)
-	e.must(404, "GET", fmt.Sprintf("/spaces/%d", id(bc)), bob, nil)
+	e.must(200, "PATCH", fmt.Sprintf("/trips/%d", hers), alice, map[string]any{"space_id": nil})
+	e.must(200, "PUT", "/me/default-space", alice, map[string]any{"space_id": ac})
+	joined := e.must(200, "POST", fmt.Sprintf("/space-invites/%d/accept", id(bi)), bob, nil).obj(t)
+	if id(joined) != id(bc) || joined["name"] != "等你" || joined["anniversary"] != "2024-05-20" || num(joined["member_count"]) != 2 ||
+		num(joined["trip_count"]) != 1 || joined["role"] != "owner" {
+		t.Fatalf("alice moved into bob's space: %v", joined)
+	}
+	e.must(404, "GET", fmt.Sprintf("/spaces/%d", ac), alice, nil)
+	e.must(200, "GET", fmt.Sprintf("/trips/%d", trip), alice, nil)
+	if me := e.must(200, "GET", "/me", alice, nil).obj(t); num(me["default_space_id"]) != float64(id(bc)) {
+		t.Fatalf("alice's default space: %v", me["default_space_id"])
+	}
+	if n := e.notices(alice, "space_accept"); len(n) == 0 || !strings.Contains(n[0]["content"].(string), "「等你」") {
+		t.Fatalf("alice's notice: %v", n)
+	}
 	if p := e.must(200, "GET", "/partner", bob, nil).obj(t); p["partner"] == nil || id(p["partner"].(map[string]any)) != aliceID {
 		t.Fatalf("bob's partner: %v", p)
 	}
@@ -437,11 +451,12 @@ func TestSpaceTripAccess(t *testing.T) {
 	e.must(404, "GET", fmt.Sprintf("/trips/%d", bt), dave, nil)
 	e.must(404, "GET", fmt.Sprintf("/trips/%d", bt), alice, nil)
 	e.must(200, "GET", fmt.Sprintf("/trips/%d", bt), bob, nil)
-	// Members of the trip's space are added as co-authors at once.
+	// Members of the trip's space are invited like anyone else (accepting
+	// shows the trip on their profile): only the author's partner joins at once.
 	e.must(200, "PATCH", tp, alice, map[string]any{"space_id": sp})
 	e.must(200, "POST", tp+"/members", alice, map[string]any{"username": "dave"})
-	if mem := e.must(200, "GET", tp+"/members", alice, nil).arr(t); mem[len(mem)-1].(map[string]any)["status"] != "accepted" {
-		t.Fatalf("space member added: %v", mem)
+	if mem := e.must(200, "GET", tp+"/members", alice, nil).arr(t); mem[len(mem)-1].(map[string]any)["status"] != "pending" {
+		t.Fatalf("space member invited: %v", mem)
 	}
 	_ = aliceID
 }
@@ -675,18 +690,27 @@ func TestPartnerOnSpaces(t *testing.T) {
 	if solo["together"] != true || len(solo["members"].([]any)) != 0 {
 		t.Fatalf("couple space trip: %v", solo)
 	}
-	// Cards: the space only for its members; together for everyone.
-	for _, c := range []struct {
-		tok  string
-		seen bool
-	}{{"", false}, {carol, false}, {alice, true}} {
-		for _, it := range items(t, e.must(200, "GET", "/trips", c.tok, nil)) {
-			card := it.(map[string]any)
-			if card["together"] != true || (spaceOf(card) != nil) != c.seen {
-				t.Fatalf("card as %q: together %v space %v", c.tok, card["together"], card["space"])
+	// Cards: the space only for its members; together for them, and for
+	// everyone else only where the partner is a co-author, until the couple
+	// makes the relationship public.
+	check := func(public bool) {
+		t.Helper()
+		for _, c := range []struct {
+			tok  string
+			seen bool
+		}{{"", false}, {carol, false}, {alice, true}} {
+			for _, it := range items(t, e.must(200, "GET", "/trips", c.tok, nil)) {
+				card := it.(map[string]any)
+				together := c.seen || public || id(card) == id(tr)
+				if card["together"] != together || (spaceOf(card) != nil) != c.seen {
+					t.Fatalf("card %v as %q: together %v space %v", card["title"], c.tok, card["together"], card["space"])
+				}
 			}
 		}
 	}
+	check(false)
+	e.must(200, "PATCH", "/partner", alice, map[string]any{"public": true})
+	check(true)
 	if pt := items(t, e.must(200, "GET", "/partner/trips", alice, nil)); len(pt) != 2 {
 		t.Fatalf("partner trips: %v", pt)
 	}
@@ -768,7 +792,7 @@ func TestSpaceAccountDeletion(t *testing.T) {
 	e.join(gs, alice, "carol", carol)
 	e.join(gs, alice, "bob", bob)
 	shared := id(e.must(200, "POST", "/trips", alice, map[string]any{"title": "一起", "space_id": gs}).obj(t))
-	e.must(200, "POST", fmt.Sprintf("/trips/%d/members", shared), alice, map[string]any{"username": "bob"}) // a space member: added at once
+	e.must(200, "POST", fmt.Sprintf("/trips/%d/members", shared), alice, map[string]any{"username": "bob"}) // her partner: added at once
 	e.must(200, "DELETE", "/me", alice, map[string]any{"password": "secret123"})
 
 	if p := e.must(200, "GET", "/partner", bob, nil).obj(t); p["partner"] != nil {
@@ -833,4 +857,221 @@ func TestSpaceRaces(t *testing.T) {
 		}
 		e.must(404, "GET", fmt.Sprintf("/trips/%d", trip), alice, nil)
 	}
+}
+
+// A space becomes a couple space only while its owner is alone in it (a
+// couple needs the other one's consent: an invitation they accept); those
+// invited hear of the new type.
+func TestCoupleSwitchNeedsConsent(t *testing.T) {
+	e := setup(t)
+	alice, _, _ := e.register("alice")
+	bob, _, bobID := e.register("bob")
+	carol, _, _ := e.register("carol")
+	fr := id(e.must(200, "POST", "/spaces", alice, map[string]any{"type": "friends"}).obj(t))
+	e.join(fr, alice, "bob", bob)
+	e.must(409, "PATCH", fmt.Sprintf("/spaces/%d", fr), alice, map[string]any{"type": "couple", "public": true, "name": "我和鲍勃"})
+	if me := e.must(200, "GET", "/me", bob, nil).obj(t); me["partner"] != nil {
+		t.Fatalf("bob got a partner: %v", me["partner"])
+	}
+	// Alone with one invitation pending: the invitee sees the new type when answering.
+	solo := id(e.must(200, "POST", "/spaces", alice, map[string]any{"type": "friends", "name": "等一个人"}).obj(t))
+	inv := e.inviteTo(solo, alice, "carol")
+	if d := e.must(200, "PATCH", fmt.Sprintf("/spaces/%d", solo), alice, map[string]any{"type": "couple"}).obj(t); d["type"] != "couple" {
+		t.Fatalf("switched: %v", d)
+	}
+	if n := e.notices(carol, "system"); len(n) != 1 || !strings.Contains(n[0]["content"].(string), "「情侣」空间") {
+		t.Fatalf("invitee's notice: %v", n)
+	}
+	if in := e.must(200, "GET", "/space-invites", carol, nil).obj(t)["incoming"].([]any); len(in) != 1 ||
+		in[0].(map[string]any)["space"].(map[string]any)["type"] != "couple" {
+		t.Fatalf("carol's invitation: %v", in)
+	}
+	e.must(200, "POST", fmt.Sprintf("/space-invites/%d/accept", id(inv)), carol, nil)
+	// Retyping a shared space tells its members.
+	e.must(200, "PATCH", fmt.Sprintf("/spaces/%d", fr), alice, map[string]any{"type": "family"})
+	if n := e.notices(bob, "system"); len(n) == 0 || !strings.Contains(n[0]["content"].(string), "「家人」空间") {
+		t.Fatalf("member's notice: %v", n)
+	}
+	_ = bobID
+}
+
+// Accepting a couple invitation while waiting alone in a couple space of
+// one's own without trips drops that space, but what was prepared in it
+// (name, anniversary, description, being the default) carries over.
+func TestCoupleJoinKeepsDetails(t *testing.T) {
+	e := setup(t)
+	alice, _, _ := e.register("alice")
+	bob, _, bobID := e.register("bob")
+	own := id(e.must(200, "POST", "/spaces", alice, map[string]any{"type": "couple", "name": "小窝", "anniversary": "2023-05-20",
+		"description": "我们的家"}).obj(t))
+	e.must(200, "PUT", "/me/default-space", alice, map[string]any{"space_id": own})
+	inv := e.must(200, "POST", "/partner/invites", bob, map[string]any{"username": "alice"}).obj(t) // bob's 「我们」
+	e.must(200, "POST", fmt.Sprintf("/partner/invites/%d/accept", id(inv)), alice, nil)
+	e.must(404, "GET", fmt.Sprintf("/spaces/%d", own), alice, nil)
+	me := e.must(200, "GET", "/me", alice, nil).obj(t)
+	sp := e.must(200, "GET", fmt.Sprintf("/spaces/%d", int64(num(me["default_space_id"]))), alice, nil).obj(t)
+	if sp["name"] != "小窝" || sp["anniversary"] != "2023-05-20" || sp["description"] != "我们的家" || num(sp["member_count"]) != 2 ||
+		id(sp["owner"].(map[string]any)) != bobID || sp["type"] != "couple" {
+		t.Fatalf("joined space: %v", sp)
+	}
+}
+
+// Leaving, removing or deleting a couple space with remove_shared_access
+// also ends the two's co-authorship of each other's trips (with_partner
+// made the partner a co-author of every trip made together).
+func TestCoupleBreakupEndsCoAuthorship(t *testing.T) {
+	e := setup(t)
+	alice, _, aliceID := e.register("alice")
+	bob, _, bobID := e.register("bob")
+	cp := id(e.must(200, "POST", "/spaces", alice, map[string]any{"type": "couple"}).obj(t))
+	e.join(cp, alice, "bob", bob)
+	mine := id(e.must(200, "POST", "/trips", alice, map[string]any{"title": "一起", "with_partner": true}).obj(t))
+	solo := id(e.must(200, "POST", "/trips", alice, map[string]any{"title": "只有我"}).obj(t))
+	e.must(200, "POST", fmt.Sprintf("/trips/%d/members", solo), alice, map[string]any{"username": "bob"})
+	his := id(e.must(200, "POST", "/trips", bob, map[string]any{"title": "他的", "with_partner": true}).obj(t))
+	// Without it (the default) both keep access as co-authors.
+	e.must(200, "DELETE", fmt.Sprintf("/spaces/%d/members/%d", cp, bobID), alice, nil)
+	e.must(200, "GET", fmt.Sprintf("/trips/%d", mine), bob, nil)
+	e.must(200, "GET", fmt.Sprintf("/trips/%d", his), alice, nil)
+	// With it: none left, both ways, and each trip counts a revision.
+	e.join(cp, alice, "bob", bob)
+	before := num(e.revisionOf(mine, alice)["revision"])
+	e.must(200, "DELETE", fmt.Sprintf("/spaces/%d/members/%d?remove_shared_access=true", cp, bobID), alice, nil)
+	for _, tr := range []int64{mine, solo} {
+		e.must(404, "GET", fmt.Sprintf("/trips/%d", tr), bob, nil)
+	}
+	e.must(404, "GET", fmt.Sprintf("/trips/%d", his), alice, nil)
+	if num(e.revisionOf(mine, alice)["revision"]) != before+1 {
+		t.Fatalf("revision of a trip whose co-author went: %v", e.revisionOf(mine, alice))
+	}
+	if n := e.notices(bob, "system"); len(n) == 0 || !strings.Contains(n[0]["content"].(string), "结束了你们在彼此旅程中的共同作者关系") {
+		t.Fatalf("bob's notice: %v", n)
+	}
+	// Deleting the couple space: the same.
+	e.join(cp, alice, "bob", bob)
+	again := id(e.must(200, "POST", "/trips", bob, map[string]any{"title": "再一次", "with_partner": true}).obj(t))
+	e.must(200, "DELETE", fmt.Sprintf("/spaces/%d?remove_shared_access=true", cp), alice, nil)
+	e.must(404, "GET", fmt.Sprintf("/trips/%d", again), alice, nil)
+	e.must(200, "GET", fmt.Sprintf("/trips/%d", again), bob, nil)
+	_ = aliceID
+}
+
+// Members who added to a space's trip keep it when it leaves the space:
+// they become its co-authors (an uploader may always delete their photo),
+// and when its author closes the account it passes to them.
+func TestSpaceContributors(t *testing.T) {
+	e := setup(t)
+	alice, _, aliceID := e.register("alice")
+	bob, _, bobID := e.register("bob")
+	carol, _, _ := e.register("carol")
+	sp := id(e.must(200, "POST", "/spaces", alice, map[string]any{"type": "family"}).obj(t))
+	e.join(sp, alice, "bob", bob)
+	e.join(sp, alice, "carol", carol)
+	tr := id(e.must(200, "POST", "/trips", bob, map[string]any{"title": "鲍勃的", "phase": "ongoing", "space_id": sp}).obj(t))
+	tp := fmt.Sprintf("/trips/%d", tr)
+	e.must(200, "POST", tp+"/waypoints", alice, map[string]any{"name": "路边小店", "lng": 120.13, "lat": 30.27, "planned": false})
+	up := e.upload(tp+"/photos", carol, testJPEG(t, 300, 200), nil)
+	if up.status != 200 {
+		t.Fatalf("upload: %d %s", up.status, up.body)
+	}
+	photo := up.obj(t)["photo"].(map[string]any)
+	// Bob leaves the space; his trip leaves with him, alice and carol keep it.
+	e.must(200, "DELETE", fmt.Sprintf("/spaces/%d/members/%d", sp, bobID), bob, nil)
+	for _, tok := range []string{alice, carol} {
+		if d := e.must(200, "GET", tp, tok, nil).obj(t); d["can_edit"] != true || spaceOf(d) != nil {
+			t.Fatalf("contributor after the trip left the space: %v", d)
+		}
+	}
+	mem := e.must(200, "GET", tp+"/members", bob, nil).arr(t)
+	if len(mem) != 3 || mem[1].(map[string]any)["status"] != "accepted" || id(mem[1].(map[string]any)["user"].(map[string]any)) != aliceID {
+		t.Fatalf("members: %v", mem)
+	}
+	// Removed by the author, carol may still delete her photo (it is billed to her).
+	e.must(200, "DELETE", fmt.Sprintf("%s/members/%d", tp, int64(num(mem[2].(map[string]any)["user"].(map[string]any)["id"]))), bob, nil)
+	e.must(404, "GET", tp, carol, nil)
+	e.must(200, "DELETE", fmt.Sprintf("/photos/%d", id(photo)), carol, nil)
+	if me := e.must(200, "GET", "/me", carol, nil).obj(t); num(me["storage_used"]) != 0 {
+		t.Fatalf("carol's storage: %v", me["storage_used"])
+	}
+	// A space's trip whose author closes the account passes to the member who added to it.
+	st := id(e.must(200, "POST", "/trips", carol, map[string]any{"title": "卡罗的", "space_id": sp}).obj(t))
+	e.must(200, "POST", fmt.Sprintf("/trips/%d/waypoints", st), alice, map[string]any{"name": "湖边", "lng": 120.14, "lat": 30.25, "planned": true})
+	e.must(200, "DELETE", "/me", carol, map[string]any{"password": "secret123"})
+	if d := e.must(200, "GET", fmt.Sprintf("/trips/%d", st), alice, nil).obj(t); id(d["author"].(map[string]any)) != aliceID {
+		t.Fatalf("trip of a closed account: %v", d)
+	}
+}
+
+// 「我们一起」 needs a couple: a couple space waiting for a partner does not
+// make its trips together.
+func TestTogetherNeedsTwo(t *testing.T) {
+	e := setup(t)
+	alice, _, _ := e.register("alice")
+	bob, _, _ := e.register("bob")
+	cp := id(e.must(200, "POST", "/spaces", alice, map[string]any{"type": "couple"}).obj(t))
+	e.must(200, "PATCH", fmt.Sprintf("/spaces/%d", cp), alice, map[string]any{"public": true})
+	tr := e.must(200, "POST", "/trips", alice, map[string]any{"title": "等你一起", "space_id": cp, "visibility": "public"}).obj(t)
+	if tr["together"] != false {
+		t.Fatalf("trip in a couple space of one: %v", tr["together"])
+	}
+	e.join(cp, alice, "bob", bob)
+	for _, tok := range []string{"", bob} {
+		if d := e.must(200, "GET", fmt.Sprintf("/trips/%d", id(tr)), tok, nil).obj(t); d["together"] != true {
+			t.Fatalf("together as %q: %v", tok, d["together"])
+		}
+	}
+}
+
+// Adding one's partner to a trip in no space puts it in the couple space,
+// as trips created with the partner are.
+func TestPartnerAddedJoinsCoupleSpace(t *testing.T) {
+	e := setup(t)
+	alice, _, _ := e.register("alice")
+	bob, _, _ := e.register("bob")
+	cp := id(e.must(200, "POST", "/spaces", alice, map[string]any{"type": "couple"}).obj(t))
+	e.join(cp, alice, "bob", bob)
+	tr := id(e.must(200, "POST", "/trips", alice, map[string]any{"title": "只有我"}).obj(t))
+	e.must(200, "POST", fmt.Sprintf("/trips/%d/members", tr), alice, map[string]any{"username": "bob"})
+	if d := e.must(200, "GET", fmt.Sprintf("/trips/%d", tr), alice, nil).obj(t); spaceOf(d) == nil || id(spaceOf(d)) != cp || d["together"] != true {
+		t.Fatalf("trip with the partner: %v", d)
+	}
+	if l := items(t, e.must(200, "GET", fmt.Sprintf("/spaces/%d/trips", cp), bob, nil)); len(l) != 1 {
+		t.Fatalf("couple space trips: %v", l)
+	}
+}
+
+// Pending couple invitations of older versions: a couple space invites one
+// person at a time, so only an inviter's newest one is migrated.
+func TestPartnerMigrationOneInvite(t *testing.T) {
+	e := setup(t)
+	alice, _, aliceID := e.register("alice")
+	bob, _, bobID := e.register("bob")
+	carol, _, carolID := e.register("carol")
+	gdb := e.svc.DB
+	older := model.PartnerInvite{FromID: aliceID, ToID: bobID, Status: model.InvitePending}
+	newer := model.PartnerInvite{FromID: aliceID, ToID: carolID, Status: model.InvitePending}
+	for _, inv := range []*model.PartnerInvite{&older, &newer} {
+		if err := gdb.Create(inv).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Migrate(gdb); err != nil {
+		t.Fatal(err)
+	}
+	list := e.must(200, "GET", "/spaces", alice, nil).arr(t)
+	if len(list) != 1 || num(list[0].(map[string]any)["pending_invite_count"]) != 1 {
+		t.Fatalf("alice's couple space: %v", list)
+	}
+	if in := e.must(200, "GET", "/space-invites", bob, nil).obj(t)["incoming"].([]any); len(in) != 0 {
+		t.Fatalf("bob's invitations: %v", in)
+	}
+	in := e.must(200, "GET", "/space-invites", carol, nil).obj(t)["incoming"].([]any)
+	if len(in) != 1 {
+		t.Fatalf("carol's invitations: %v", in)
+	}
+	var cancelled model.PartnerInvite
+	if err := gdb.First(&cancelled, older.ID).Error; err != nil || cancelled.Status != model.InviteCanceled {
+		t.Fatalf("older invitation: %+v %v", cancelled, err)
+	}
+	e.must(200, "POST", fmt.Sprintf("/space-invites/%d/accept", id(in[0].(map[string]any))), carol, nil)
 }

@@ -302,8 +302,9 @@ type TripCard struct {
 	FavCount      int      `json:"fav_count"`
 	ViewCount     int      `json:"view_count"`
 	Featured      bool     `json:"featured"`
-	// Together: the trip is linked to a couple space, or its author's
-	// partner (the other member of the author's couple space) is a co-author.
+	// Together: the trip is linked to a couple space of two (for viewers
+	// outside it only when the couple is public), or its author's partner
+	// (the other member of the author's couple space) is a co-author.
 	Together bool `json:"together"`
 	// Space is the space the trip is linked to, for viewers who are members
 	// of that space (null for everyone else).
@@ -553,7 +554,9 @@ func (h *Handler) storedTripCards(ctx context.Context, trips []model.Trip, viewe
 		together := false
 		if t.SpaceID != nil {
 			if ts := spaces[*t.SpaceID]; ts != nil {
-				together = ts.couple
+				// A couple space waiting for (or left by) a partner is no couple;
+				// outside it, a couple is told only when it is public.
+				together = ts.couple && ts.pair && (ts.visible || ts.public)
 				if ts.visible {
 					space = ts.ref
 				}
@@ -575,7 +578,9 @@ func (h *Handler) storedTripCards(ctx context.Context, trips []model.Trip, viewe
 // tripSpace is the space of trips' cards (see tripSpaces).
 type tripSpace struct {
 	ref     *SpaceRef
-	couple  bool // a couple space: its trips are together
+	couple  bool // a couple space: its trips are together (see pair, public)
+	pair    bool // it has two members (a couple space waiting for a partner has one)
+	public  bool // a couple space whose relationship its members' profiles show
 	visible bool // the viewer is a member: the card shows it
 }
 
@@ -588,8 +593,21 @@ func (h *Handler) tripSpaces(ctx context.Context, ids []int64, viewer *model.Use
 	}
 	db := h.db.WithContext(ctx)
 	var spaces []model.Space
-	if err := db.Select("id", "name", "type", "type_label").Where("id IN ?", ids).Find(&spaces).Error; err != nil {
+	if err := db.Select("id", "name", "type", "type_label", "public").Where("id IN ?", ids).Find(&spaces).Error; err != nil {
 		return nil, err
+	}
+	var couples []int64
+	for i := range spaces {
+		if spaces[i].Type == model.SpaceCouple {
+			couples = append(couples, spaces[i].ID)
+		}
+	}
+	var pairs []int64 // couple spaces with both partners
+	if len(couples) > 0 {
+		if err := db.Model(&model.SpaceMember{}).Select("space_id").Where("space_id IN ?", couples).
+			Group("space_id").Having("COUNT(*) >= 2").Pluck("space_id", &pairs).Error; err != nil {
+			return nil, err
+		}
 	}
 	var mine []int64
 	if viewer != nil {
@@ -600,7 +618,12 @@ func (h *Handler) tripSpaces(ctx context.Context, ids []int64, viewer *model.Use
 	}
 	for i := range spaces {
 		sp := &spaces[i]
-		out[sp.ID] = &tripSpace{ref: spaceRef(sp), couple: sp.Type == model.SpaceCouple}
+		out[sp.ID] = &tripSpace{ref: spaceRef(sp), couple: sp.Type == model.SpaceCouple, public: sp.Public}
+	}
+	for _, id := range pairs {
+		if ts := out[id]; ts != nil {
+			ts.pair = true
+		}
 	}
 	for _, id := range mine {
 		if ts := out[id]; ts != nil {

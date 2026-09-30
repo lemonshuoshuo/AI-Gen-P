@@ -156,14 +156,17 @@ func Migrate(gdb *gorm.DB) error {
 // shared trips (owned by one, the other an accepted co-author) are linked to
 // it, and it becomes both partners' default space unless they have one.
 // Pending couple invitations become invitations to the inviter's couple
-// space (created for it when needed). Nothing is counted as a trip change.
+// space (created for it when needed): only the newest of an inviter's, as a
+// couple space has one invitation at a time (the older ones are cancelled).
+// Nothing is counted as a trip change.
 func migratePartnerSpaces(gdb *gorm.DB) error {
 	var parts []model.Partnership
 	if err := gdb.Where("space_id IS NULL").Order("id").Find(&parts).Error; err != nil {
 		return err
 	}
 	var invs []model.PartnerInvite
-	if err := gdb.Where("status = ? AND space_invite_id IS NULL", model.InvitePending).Order("id").Find(&invs).Error; err != nil {
+	// Newest first: an inviter's newest invitation is the one kept.
+	if err := gdb.Where("status = ? AND space_invite_id IS NULL", model.InvitePending).Order("id DESC").Find(&invs).Error; err != nil {
 		return err
 	}
 	if len(parts) == 0 && len(invs) == 0 {
@@ -270,15 +273,26 @@ FROM space_members m WHERE m.user_id = ? AND m.couple LIMIT 1`, uid).Scan(&row).
 				}
 				from = sp.ID
 			}
-			var existing []int64
-			if err := tx.Model(&model.SpaceInvite{}).Where("space_id = ? AND invitee_id = ? AND status = ?", from, inv.ToID, model.InvitePending).
-				Pluck("id", &existing).Error; err != nil {
+			var existing []model.SpaceInvite
+			if err := tx.Where("space_id = ? AND status = ?", from, model.InvitePending).Order("id").Find(&existing).Error; err != nil {
 				return err
 			}
 			siID := int64(0)
-			if len(existing) > 0 {
-				siID = existing[0]
-			} else {
+			for _, e := range existing {
+				if e.InviteeID == inv.ToID && siID == 0 {
+					siID = e.ID
+				}
+			}
+			switch {
+			case siID != 0: // the same invitation, migrated already
+			case len(existing) > 0:
+				// The space already invites someone (a newer invitation of the
+				// inviter's): a couple space has one invitation at a time.
+				if err := tx.Model(&model.PartnerInvite{}).Where("id = ?", inv.ID).Update("status", model.InviteCanceled).Error; err != nil {
+					return err
+				}
+				continue
+			default:
 				si := model.SpaceInvite{SpaceID: from, InviterID: inv.FromID, InviteeID: inv.ToID, Message: inv.Message,
 					Status: model.InvitePending, CreatedAt: inv.CreatedAt, UpdatedAt: inv.UpdatedAt}
 				if err := tx.Create(&si).Error; err != nil {

@@ -24,6 +24,8 @@ export interface ReplayStop {
   label?: string
   /** 第几天（标记外圈的颜色）；0 / 缺省为不分天 */
   day?: number
+  /** 住宿：同一家连住几晚合成的这一站有几晚（缺省 1） */
+  nights?: number
 }
 
 export interface PlacedStop extends ReplayStop {
@@ -43,6 +45,11 @@ export interface LegInfo {
   duration_s: number
   /** 按直线估算：路线是两点直线，画得淡一些 */
   estimated: boolean
+  /**
+   * 跨天的转场（路线预览里前一天最后一站 → 后一天第一站，中间没有住宿；服务端没有这一段）：
+   * 不是计划里的路，不提示「推荐」，不计入里程和路上用时
+   */
+  transfer?: boolean
 }
 
 export interface LegInput extends LegInfo {
@@ -109,11 +116,15 @@ function buildTimeline(reaches: number[], total: number, jumps: number[], opts: 
   const dwell = opts.dwell ?? DWELL
   const travelBudget = opts.travelSeconds ?? Math.min(70, Math.max(12, 8 + reaches.length * 1.8))
   const marks = [0, ...reaches, total]
-  const gaps = marks.slice(1).map((m, i) => Math.sqrt(Math.max(0, m - marks[i])) * (weight?.(i) ?? 1))
+  // 1 米以内算作原地（一站的路线、同一处的两站、垫出来的 1 米终点）：不分走路的时间
+  const moves = (i: number) => marks[i + 1] - marks[i] > 1
+  const gaps = marks.slice(1).map((m, i) => (moves(i) ? Math.sqrt(m - marks[i]) * (weight?.(i) ?? 1) : 0))
   const gapSum = gaps.reduce((a, b) => a + b, 0) || 1
   const crosses = (i: number) => jumps.some((b) => b > marks[i] && b <= marks[i + 1])
-  // 没有路程的一段（如出发点就是第一站）只留一点点时间
-  const travel = (i: number) => (gaps[i] < 1 ? 0.35 : Math.max(MIN_TRAVEL, (gaps[i] / gapSum) * travelBudget)) + (crosses(i) ? FLIGHT : 0)
+  const last = gaps.length - 1
+  // 没有路程的一段：出发点就是第一站、两站在同一处时只留一点点时间；最后一站之后没有路时直接结束
+  const travel = (i: number) =>
+    (moves(i) ? Math.max(MIN_TRAVEL, (gaps[i] / gapSum) * travelBudget) : i === last && reaches.length ? 0 : 0.35) + (crosses(i) ? FLIGHT : 0)
   const timeline: RouteModel['timeline'] = [{ t: 0, d: 0 }]
   let t = 0.6
   timeline.push({ t, d: 0 })
@@ -306,6 +317,7 @@ export function buildLegRoute(stops: ReplayStop[], legs: LegInput[], opts: Timel
       distance_m: leg?.distance_m ?? end - start,
       duration_s: leg?.duration_s ?? 0,
       estimated,
+      transfer: leg?.transfer,
       from: i,
       to: i + 1,
       start,
@@ -343,14 +355,19 @@ export function legAt(model: RouteModel, d: number, stop: number | null): Replay
   return model.legs.find((l) => d > l.start && d < l.end) ?? null
 }
 
+/** 只有一个点（或几站在同一处）的路线：为了能画出来垫了 1 米，实际没有路程 */
+const noRoute = (model: RouteModel) => !model.legs.length && model.total <= 1
+
 /**
- * 已经走过的路程（米）：有路段信息时按路段的路程（道路 / 估算的里程）累计，与结束时的「里程」一致；
+ * 已经走过的路程（米）：有路段信息时按路段的路程（道路 / 估算的里程）累计，与结束时的「里程」一致（跨天的转场不算）；
  * 否则就是沿路线的几何长度
  */
 export function travelledAt(model: RouteModel, d: number) {
+  if (noRoute(model)) return 0
   if (!model.legs.length) return d
   let sum = 0
   for (const l of model.legs) {
+    if (l.transfer) continue
     if (d >= l.end) sum += l.distance_m
     else if (d > l.start) sum += (l.distance_m * (d - l.start)) / (l.end - l.start || 1)
   }
@@ -359,7 +376,8 @@ export function travelledAt(model: RouteModel, d: number) {
 
 /** 全程的路程（米）：同 travelledAt */
 export function routeLength(model: RouteModel) {
-  return model.legs.length ? model.legs.reduce((a, l) => a + l.distance_m, 0) : model.total
+  if (noRoute(model)) return 0
+  return model.legs.length ? model.legs.reduce((a, l) => a + (l.transfer ? 0 : l.distance_m), 0) : model.total
 }
 
 /** 里程 → 坐标 */

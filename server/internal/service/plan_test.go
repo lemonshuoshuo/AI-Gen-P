@@ -440,3 +440,29 @@ func TestPlanArrangement(t *testing.T) {
 		t.Fatalf("derived days: %+v %v", res, err)
 	}
 }
+
+// The wishlist (day 0) is a route only while no day has planned stops: then
+// it is the whole plan (the route preview plays it); otherwise its legs,
+// which nobody draws, would only spend 高德 calls.
+func TestTripLegsWishlist(t *testing.T) {
+	s := &Service{Amap: amap.New("")}
+	st := func(id int64, seq, day int, lng float64) model.Waypoint {
+		return model.Waypoint{ID: id, Seq: seq, Day: day, Kind: model.KindStop, Planned: true, Lng: lng, Lat: 30.25}
+	}
+	pairs := func(res TripLegsResult) string {
+		var out []string
+		for _, l := range res.Legs {
+			out = append(out, fmt.Sprintf("%d-%d@%d", l.FromID, l.ToID, l.Day))
+		}
+		return strings.Join(out, ",")
+	}
+	scheduled := []model.Waypoint{st(1, 0, 1, 120.10), st(2, 1, 1, 120.11), st(3, 2, 0, 120.20), st(4, 3, 0, 120.30)}
+	res := s.TripLegs(context.Background(), scheduled, LegsOptions{})
+	if got := pairs(res); got != "1-2@1" || len(res.Days) != 2 || res.Days[1].Day != 0 || res.Days[1].Stops != 2 || res.Days[1].DistanceM != 0 {
+		t.Fatalf("scheduled: legs %s, days %+v", got, res.Days)
+	}
+	wishlist := []model.Waypoint{st(3, 0, 0, 120.20), st(4, 1, 0, 120.30), st(5, 2, 0, 120.25)}
+	if got := pairs(s.TripLegs(context.Background(), wishlist, LegsOptions{})); got != "3-4@0,4-5@0" {
+		t.Fatalf("wishlist only: legs %s", got)
+	}
+}

@@ -210,7 +210,8 @@ export function WaypointForm({
               rating: f.rating,
               cost: f.cost,
               planned_at: w.planned && !lodging ? fromLocal(f.planned_at) : undefined,
-              arrived_at: (phase !== 'planning' || !w.planned) && !unsaved ? fromLocal(f.arrived_at) : undefined,
+              // 只在改了到达时间时提交：表单只到分钟，原样提交会把打卡记录的秒数改掉，还白白多一个版本
+              arrived_at: (phase !== 'planning' || !w.planned) && !unsaved && f.arrived_at !== toLocal(w.arrived_at) ? fromLocal(f.arrived_at) : undefined,
               status: w.planned && phase !== 'planning' && !unsaved ? f.status : undefined,
             })
           }

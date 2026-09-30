@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from 'react'
-import { Bed, Copy, Crosshair, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react'
+import { Bed, Copy, Crosshair, Loader2, PenLine, Plus, RefreshCw, Search, X } from 'lucide-react'
 import type { GeoSearchItem, Waypoint } from '@/api'
 import { dayTone, type PlanGroups } from '@/components/trip/plan'
 import { cn } from '@/lib/cn'
 import { PlaceSearch, type PickSource } from './PlaceSearch'
 import { Stepper } from './Choice'
+import { WaypointForm } from './WaypointForm'
 import { usePlanEditorCtx } from './usePlanEditor'
 
 type LngLat = [number, number]
@@ -63,8 +64,10 @@ export function LodgingRow({
 }) {
   return (
     <div
+      id={`wp-${w.id}`}
       className={cn(
-        'relative flex items-center gap-3 py-3 pr-2 pl-[2.75rem] transition-colors duration-300 md:pr-4 md:pl-[3.25rem]',
+        // 手机上地图吸顶：滚到这一行时停在地图下面
+        'relative flex scroll-mt-[calc(3.75rem+38vh+0.75rem)] items-center gap-3 py-3 pr-2 pl-[2.75rem] transition-colors duration-300 md:scroll-mt-3 md:pr-4 md:pl-[3.25rem]',
         selected ? 'bg-surface' : 'hover:bg-surface/60',
         busy && 'opacity-60',
         className,
@@ -78,6 +81,26 @@ export function LodgingRow({
         {(w.district || w.address) && <span className="block truncate text-[11.5px] text-ink-500">{[w.district, w.address].filter(Boolean).join(' · ')}</span>}
       </button>
       {actions}
+    </div>
+  )
+}
+
+/** 住宿的编辑框：名称、第几晚、地址、备注（旅行中 / 已完成还有体验）；保存时和游玩点一样改草稿 */
+export function LodgingEditor({ w, maxDay, onClose }: { w: Waypoint; maxDay: number; onClose: () => void }) {
+  const editor = usePlanEditorCtx()
+  // 与游玩点的编辑框一样铺底色，盖住当天的时间线
+  return (
+    <div className="relative bg-surface">
+      <div className="animate-fade-in mx-4 border-t border-ink-200 pt-5 pb-6 md:mx-8">
+        <WaypointForm
+          w={w}
+          phase={editor.trip?.phase ?? 'planning'}
+          maxDay={maxDay}
+          saving={editor.isBusy(w.id)}
+          onCancel={onClose}
+          onSave={(p) => void editor.update(w, p).then((ok) => ok && onClose())}
+        />
+      </div>
     </div>
   )
 }
@@ -103,6 +126,8 @@ export function LodgingSlot({
   picking,
   city,
   near,
+  editingId,
+  onEdit,
 }: {
   night: number
   groups: PlanGroups
@@ -118,6 +143,9 @@ export function LodgingSlot({
   picking?: boolean
   city?: string
   near?: LngLat | null
+  /** 正在编辑的地点（住宿行下面展开编辑框） */
+  editingId?: number | null
+  onEdit?: (id: number | null) => void
 }) {
   const editor = usePlanEditorCtx()
   const [open, setOpen] = useState(false)
@@ -164,6 +192,19 @@ export function LodgingSlot({
           busy={editor.isBusy(lodging.id)}
           actions={
             <div className="flex shrink-0 items-center gap-0.5">
+              {onEdit && (
+                <button
+                  type="button"
+                  className={cn(iconBtn, editingId === lodging.id && 'bg-ink-900/[0.08] text-ink-900')}
+                  disabled={editor.isBusy(lodging.id)}
+                  onClick={() => onEdit(editingId === lodging.id ? null : lodging.id)}
+                  aria-expanded={editingId === lodging.id}
+                  title="编辑住宿：名称、第几晚、备注"
+                  aria-label={`编辑住宿「${lodging.name || '住宿'}」`}
+                >
+                  <PenLine className="size-3.5" strokeWidth={1.5} />
+                </button>
+              )}
               <button type="button" className={iconBtn} disabled={editor.isBusy(lodging.id)} onClick={() => setOpen((v) => !v)} title="更换住宿" aria-label="更换住宿">
                 <RefreshCw className="size-3.5" strokeWidth={1.5} />
               </button>
@@ -171,7 +212,7 @@ export function LodgingSlot({
                 type="button"
                 className={cn(iconBtn, 'hover:text-brand-600')}
                 disabled={editor.isBusy(lodging.id)}
-                onClick={() => void editor.remove(lodging, { undo: true })}
+                onClick={() => editor.clearLodging(lodging)}
                 title="清除住宿"
                 aria-label={`清除住宿「${lodging.name}」`}
               >
@@ -180,6 +221,7 @@ export function LodgingSlot({
             </div>
           }
         />
+        {onEdit && editingId === lodging.id && <LodgingEditor w={lodging} maxDay={Math.max(1, groups.dayCount)} onClose={() => onEdit(null)} />}
         {open && <div className="pr-4 pl-[2.75rem] md:pl-[3.25rem]">{search}</div>}
       </div>
     )

@@ -360,8 +360,9 @@ function Cover({ trip, onScroll }: { trip: TripDetail; onScroll: () => void }) {
       )}
     >
       <SpaceTypeIcon type={trip.space.type} className={cn('size-3', onPhoto && '!text-white')} />
-      <span className="truncate">{trip.space.name}</span>
-      <span className={cn('shrink-0', onPhoto ? 'text-white/70' : 'text-ink-500')}>· {trip.space.type_label}</span>
+      {/* 名称优先：很长的自定义类型名（如「周末山野徒步爱好者团」）也截断，不会把空间名挤成一个字 */}
+      <span className="min-w-0 truncate">{trip.space.name}</span>
+      <span className={cn('max-w-[5.5em] min-w-0 truncate', onPhoto ? 'text-white/70' : 'text-ink-500')}>· {trip.space.type_label}</span>
     </Link>
   )
   const kicker = (
@@ -691,7 +692,8 @@ function TripDetailView() {
     trip?.revision,
     (r) => {
       const before = qc.getQueryData<TripDetail>(key)
-      void refetch().then((res) => {
+      // 不打断正在进行的获取：网络慢时（获取比轮询间隔还久）每次轮询都取消重来，同行的人的修改就永远显示不出来
+      void refetch({ cancelRefetch: false }).then((res) => {
         if (res.data?.has_track) void qc.invalidateQueries({ queryKey: ['track', res.data.id] })
         if (!res.data || !r.updated_by || r.updated_by.id === myId) return
         const text = describeUpdate(before, res.data, r.updated_by)
@@ -964,8 +966,8 @@ function TripDetailView() {
                     className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line px-2 py-0.5 text-xs tracking-wide text-ink-700 transition-colors hover:border-ink-500 hover:text-ink-900"
                   >
                     <SpaceTypeIcon type={trip.space.type} className="size-3" />
-                    <span className="truncate">{trip.space.name}</span>
-                    <span className="shrink-0 text-ink-500">· {trip.space.type_label}</span>
+                    <span className="min-w-0 truncate">{trip.space.name}</span>
+                    <span className="max-w-[5.5em] min-w-0 truncate text-ink-500">· {trip.space.type_label}</span>
                   </Link>
                 ) : (
                   trip.together && (

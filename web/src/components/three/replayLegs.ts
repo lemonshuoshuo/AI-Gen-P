@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type LegMode, type TravelMode, type TripDetail, type TripLeg, type TripLegs, type Waypoint } from '@/api'
-import { groupPlan, isLodging } from '@/components/trip/plan'
+import { groupPlan, isLodging, stopLabels } from '@/components/trip/plan'
 import { haversine } from '@/lib/geo'
 import { bySeq } from '@/lib/trip'
 import type { LegInput } from './replay'
@@ -13,6 +13,11 @@ type LngLat = [number, number]
 /** 服务端还在算（pending > 0）时最多等这么久（加上打开页面、加载旅程约 10 秒）再开始播放，之后没算完的路段按直线估算 */
 export const LEGS_WAIT_MS = 9_000
 const LEGS_POLL_MS = 2_000
+/** 开始播放后继续在后台取（服务端只在有人来取时接着算），「再看一次」用上：直到算完或连续几次没有进展 */
+const LEGS_BACKGROUND_POLL_MS = 4_000
+const LEGS_MAX_STALE = 3
+/** 同一家住宿连住几晚（坐标相近）算一站：与服务端 legs 不给同一家酒店连住的两晚之间算路段的距离一致 */
+const SAME_LODGING_M = 50
 /** 估算的路段超过这个直线距离时不猜出行方式（多半是飞机、火车） */
 const NO_MODE_BEYOND_M = 300_000
 
@@ -71,7 +76,7 @@ export function planSequence(trip: Pick<TripDetail, 'waypoints' | 'days'>): SeqI
       if (!w) continue
       const last = out[out.length - 1]
       if (last && last.ids.includes(w.id)) continue
-      if (last && isLodging(last.w) && isLodging(w) && haversine(pt(last.w), pt(w)) < 30) {
+      if (last && isLodging(last.w) && isLodging(w) && haversine(pt(last.w), pt(w)) < SAME_LODGING_M) {
         last.ids.push(w.id)
         continue
       }
@@ -81,7 +86,23 @@ export function planSequence(trip: Pick<TripDetail, 'waypoints' | 'days'>): SeqI
   return out
 }
 
-/** 标记上的序号：分了天的旅程每天各自从 1 编号（与行程页一致），否则按顺序编号；住宿不编号 */
+/**
+ * 标记上的序号：与行程页相同（每天的游玩点按顺序各自从 1 编号，含计划外的打卡；「想去」也从 1 编号），这样回放里的
+ * 「3 号」就是行程页上的「3 号」，哪怕实际先去了别的地方；行程页上没有编号的点再按回放的顺序补上。住宿不编号
+ */
+export function tripLabels(trip: Pick<TripDetail, 'waypoints' | 'days'>, seq: Waypoint[]): Map<number, string> {
+  const page = stopLabels(groupPlan(trip.waypoints, trip.days))
+  const rest = sequenceLabels(seq.filter((w) => !page.has(w.id)))
+  const out = new Map<number, string>()
+  for (const w of seq) {
+    if (isLodging(w)) continue
+    const l = page.get(w.id) ?? rest.get(w.id)
+    if (l) out.set(w.id, l)
+  }
+  return out
+}
+
+/** 按顺序编号：分了天的旅程每天各自从 1 编号，否则按顺序编号；住宿不编号 */
 export function sequenceLabels(seq: Waypoint[]): Map<number, string> {
   const byDay = seq.some((w) => w.day > 0 && !isLodging(w))
   const count = new Map<number, number>()
@@ -96,9 +117,17 @@ export function sequenceLabels(seq: Waypoint[]): Map<number, string> {
   return out
 }
 
+/** 两站属于同一天的路线（住宿是第 N 天的终点，也是第 N+1 天的起点）；「想去」（day=0）的点之间也算 */
+function sameRouteDay(a: Waypoint, b: Waypoint) {
+  const days = (w: Waypoint) => (isLodging(w) ? [w.day, w.day + 1] : [w.day])
+  const db = days(b)
+  return days(a).some((d) => db.includes(d))
+}
+
 /**
  * 相邻两站之间的路段：legs 里有这一段（或反方向的一段）时用高德的路线，否则两点直线（按直线估算路程与用时，
- * 出行方式按距离推荐）。回放的打卡顺序可能与计划不同，也会有计划外的打卡点
+ * 出行方式按距离推荐）。回放的打卡顺序可能与计划不同，也会有计划外的打卡点。
+ * 不在同一天路线里的两站（前一天最后一站 → 后一天第一站，中间没有住宿）是转场（transfer）：没有推荐的方式，不计里程
  */
 export function legInputs(seq: SeqItem[], legs: TripLeg[] | undefined, travel: TravelMode): LegInput[] {
   const idx = new Map<string, TripLeg>()
@@ -134,14 +163,16 @@ export function legInputs(seq: SeqItem[], legs: TripLeg[] | undefined, travel: T
       continue
     }
     const straight = haversine(pt(a.w), pt(b.w))
+    const transfer = !sameRouteDay(a.w, b.w)
     const known = straight <= NO_MODE_BEYOND_M
     const mode = known ? modeFor(straight, travel) : null
     out.push({
       path: straightPath,
       mode,
-      recommended: known ? recommendMode(straight, travel) : null,
+      recommended: known && !transfer ? recommendMode(straight, travel) : null,
       ...estimateLeg(straight, mode ?? 'driving'),
       estimated: true,
+      transfer: transfer || undefined,
     })
   }
   return out
@@ -174,6 +205,8 @@ export function useReplayLegs(trip: TripDetail | undefined, enabled: boolean) {
     const t = window.setTimeout(() => setTimedOut(true), Math.max(0, left))
     return () => window.clearTimeout(t)
   }, [on])
+  // 等待期之后仍在后台接着取（服务端只在有人来取时接着算），直到算完或连续几次没有进展：「再看一次」用上
+  const progress = useRef({ at: 0, last: Infinity, stale: 0 })
   const q = useQuery({
     queryKey: ['legs', trip?.id, trip?.travel_mode ?? '', true, sig],
     queryFn: ({ signal }) => api.trips.legs(trip!.id, trip!.travel_mode, signal, true),
@@ -182,8 +215,17 @@ export function useReplayLegs(trip: TripDetail | undefined, enabled: boolean) {
     retry: false,
     refetchInterval: (query) => {
       const pending = (query.state.data as TripLegs | undefined)?.pending ?? 0
+      if (!pending) return false
       const waited = since.current == null ? 0 : Date.now() - since.current
-      return pending > 0 && waited < LEGS_WAIT_MS ? LEGS_POLL_MS : false
+      if (waited < LEGS_WAIT_MS) return LEGS_POLL_MS
+      const p = progress.current
+      // 同一次结果只统计一次（这个函数可能被多次调用）
+      if (p.at !== query.state.dataUpdatedAt) {
+        p.stale = pending >= p.last ? p.stale + 1 : 0
+        p.last = pending
+        p.at = query.state.dataUpdatedAt
+      }
+      return p.stale >= LEGS_MAX_STALE ? false : LEGS_BACKGROUND_POLL_MS
     },
   })
   const pending = q.data?.pending ?? 0

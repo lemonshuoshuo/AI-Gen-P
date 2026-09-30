@@ -290,8 +290,10 @@ export function ConflictDialog({
   const open = !!conflict && !!data
   const byMe = conflict?.by?.id === meId
   const name = byMe ? '你（在其他页面或设备上）' : conflict?.by ? who(conflict.by) : '同行的人'
+  // 覆盖会撤销的：计划的修改（打卡进度一类的 soft 修改保留，包括对方删掉的打卡记录——覆盖也不会把它们建回来）
   const lost = data ? data.theirs.filter((c) => !c.soft) : []
   const added = data ? data.theirs.filter((c) => c.kind === 'add' && !c.soft).length : 0
+  const removedHistory = data ? data.theirs.filter((c) => c.soft && c.key.startsWith('rm:')).length : 0
   return (
     <Modal
       open={open}
@@ -347,7 +349,8 @@ export function ConflictDialog({
             </li>
             <li>
               <span className="text-ink-900">用我的版本覆盖</span>
-              {`：以你现在看到的为准保存${lost.length ? `，${byMe ? '那边' : '对方'}的 ${lost.length} 处修改会被撤销${added ? `（包括新增的 ${added} 个地点）` : ''}` : ''}。打卡记录、照片和评价不受影响。`}
+              {`：以你现在看到的为准保存${lost.length ? `，${byMe ? '那边' : '对方'}的 ${lost.length} 处修改会被撤销${added ? `（包括新增的 ${added} 个地点）` : ''}` : ''}。`}
+              {`打卡记录不受影响：${byMe ? '那边' : '对方'}新的打卡、照片和写的评价都保留${removedHistory ? `，删掉的 ${removedHistory} 条打卡记录也不会恢复` : ''}。`}
             </li>
           </ul>
         </div>
@@ -358,23 +361,29 @@ export function ConflictDialog({
 
 /* ---------------- 恢复上次的草稿 ---------------- */
 
+/**
+ * 上次没保存的修改：恢复，或明确选「不用了」才丢掉。按 Esc、点背景（手机上是底部面板，很容易碰到）只是先关上，
+ * 草稿留着，标题下有「恢复上次没保存的修改」，下次打开编辑页也还会问
+ */
 export function RestoreDialog({
   open,
   savedAt,
   changes,
   onRestore,
   onDrop,
+  onLater,
 }: {
   open: boolean
   savedAt: number
   changes: PlanChange[]
   onRestore: () => void
   onDrop: () => void
+  onLater: () => void
 }) {
   return (
     <Modal
       open={open}
-      onClose={onDrop}
+      onClose={onLater}
       title={
         <span className="flex items-center gap-2.5">
           <CloudOff className="size-5 shrink-0 text-brand-600" strokeWidth={1.5} />
@@ -383,8 +392,11 @@ export function RestoreDialog({
       }
       footer={
         <>
-          <Button variant="ghost" onClick={onDrop}>
-            不用了
+          <Button variant="ghost" onClick={onDrop} className="mr-auto text-red-700">
+            不用了，丢掉
+          </Button>
+          <Button variant="outline" onClick={onLater}>
+            稍后再说
           </Button>
           <Button onClick={onRestore}>恢复这些修改</Button>
         </>
@@ -392,6 +404,7 @@ export function RestoreDialog({
     >
       <p className="mb-2 text-[13px] leading-relaxed text-ink-500">
         {fromNow(new Date(savedAt).toISOString())}你在这台设备上改了 {changes.length} 处，页面关闭前没有保存。恢复后记得点「保存」；如果期间别人也改过，保存时会先让你对比。
+        先关掉也不会丢：点标题下的「恢复上次没保存的修改」就能再打开。
       </p>
       <ChangeList changes={changes} empty="" limit={8} />
     </Modal>

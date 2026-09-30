@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { MapMouseEvent } from 'maplibre-gl'
-import { ArrowLeft, Box, Crosshair, Eye, Heart, Loader2, Mountain, Play, Star, Trash2, UserPlus, X } from 'lucide-react'
+import { ArrowLeft, Box, Crosshair, Eye, Heart, History, Loader2, Mountain, Play, Star, Trash2, UserPlus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, isNotFound, type Phase, type TripDetail, type TripMember, type Visibility, type Waypoint, type WaypointInput } from '@/api'
 import { BaseMap, useMap } from '@/components/map/BaseMap'
@@ -503,7 +503,10 @@ function MembersPanel({ trip }: { trip: TripDetail }) {
   const partnerIn = partner && members.some((m) => m.user.id === partner.id)
   return (
     <div className="space-y-8">
-      <p className="text-[14px] leading-[1.8] text-ink-500">共同作者可以一起编辑路线、打卡、上传照片。和情侣一起的旅程会出现在「我们」的足迹里。</p>
+      <p className="text-[14px] leading-[1.8] text-ink-500">
+        共同作者可以一起编辑路线、打卡、上传照片。{partner ? '把情侣加进来时，还不属于任何空间的旅程会一起放进你们的情侣空间，出现在「我们」的足迹里。' : ''}
+        邀请别人（包括同一个空间的成员）需要对方接受。
+      </p>
       {trip.is_owner && partner && !partnerIn && (
         <button
           type="button"
@@ -600,6 +603,8 @@ function TripEditor() {
   const [pickPoint, setPickPoint] = useState<LngLat | null>(null)
   const [flyTarget, setFlyTarget] = useState<LngLat | null>(null)
   const [arrangeOpen, setArrangeOpen] = useState<false | 'pool' | 'all'>(false)
+  // 旅行中 / 已完成的旅程新加的点：加入计划，或补记为已打卡（立即保存）。按已保存的状态：草稿里刚改成「已完成」还没保存时不算
+  const [addAs, setAddAs] = useState<'plan' | 'visited' | null>(null)
   const [changesOpen, setChangesOpen] = useState(false)
   const [hintClosed, setHintClosed] = useState(false)
   const desktop = useIsDesktop()
@@ -639,7 +644,11 @@ function TripEditor() {
   const labels = useMemo(() => stopLabels(groups), [groups])
   // 路段按已保存的计划向服务端要（真实道路）；草稿里新连起来的两点先按直线估算，保存后再换成真实道路
   const legsQ = useTripLegs(trip?.id, base?.waypoints ?? [], trip?.travel_mode, { geometry: true })
-  const planned = useMemo(() => planLegs(groups, legsQ.data?.legs, trip?.travel_mode ?? 'auto'), [groups, legsQ.data, trip?.travel_mode])
+  // 草稿里拖动过位置的点：路段按直线估算（服务端的路段是按已保存的位置算的）
+  const planned = useMemo(
+    () => planLegs(groups, legsQ.data?.legs, trip?.travel_mode ?? 'auto', base?.waypoints),
+    [groups, legsQ.data, trip?.travel_mode, base?.waypoints],
+  )
   const focus = tab === 'all' ? null : tab
   const segments = useMemo(() => {
     const plan = plannedSegments(groups, planned.legs, { focus })
@@ -680,7 +689,10 @@ function TripEditor() {
   const defaultTarget: PickTarget = { kind: 'stop', day: typeof tab === 'number' ? tab : 0 }
   const targetLabel = (t: PickTarget | null) =>
     !t ? '' : t.kind === 'lodging' ? (t.night === 0 ? '出发前一晚的住宿' : `第 ${t.night} 晚的住宿`) : t.day === 0 ? `「${pName}」` : `第 ${t.day} 天`
-  const addFlags: WaypointInput = trip.phase === 'finished' ? { planned: false } : { planned: true, status: 'todo' }
+  const savedPhase = base?.phase ?? trip.phase
+  const addMode = savedPhase === 'planning' ? 'plan' : (addAs ?? (savedPhase === 'finished' ? 'visited' : 'plan'))
+  // 搜索添加和地图点选用同一个选择
+  const addFlags: WaypointInput = addMode === 'plan' ? { planned: true, status: 'todo' } : { planned: false }
 
   const select = (w: Waypoint, fly = true) => {
     setSelected(w.id)
@@ -710,8 +722,15 @@ function TripEditor() {
     if (!desktop) window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   const chooseAt = (target: PickTarget, input: WaypointInput, openEditor: boolean) => {
-    if (target.kind === 'lodging') editor.setLodging(target.night, { ...input, category: 'hotel' })
-    else void editor.addStop(input, target.day, addFlags).then((w) => w && onAdded(w, openEditor))
+    if (target.kind === 'lodging') {
+      const w = editor.setLodging(target.night, { ...input, category: 'hotel' })
+      // 直接用坐标选的住宿没有名称（保存时按地址命名）：打开编辑框，填上真正的名字
+      if (w && openEditor) {
+        select(w)
+        setEditing(w.id)
+        scrollTo.current = w.id
+      }
+    } else void editor.addStop(input, target.day, addFlags).then((w) => w && onAdded(w, openEditor))
   }
   // 旧逻辑（服务端没有 /geo/pick 或用户选择直接用坐标）：不带名称，保存时服务端逆地理补全地址并自动命名；打开编辑框让用户填写真正的名字
   const pickByCoords = (p: LngLat) => {
@@ -872,6 +891,8 @@ function TripEditor() {
               </Link>
               <Link
                 to={`/trips/${trip.id}/replay?plan=1`}
+                // 预览结束时的「继续编辑」返回这里（后退），不再叠一层编辑页
+                state={{ from: 'edit' }}
                 onClick={(e) => {
                   if (canPreview) return
                   e.preventDefault()
@@ -899,6 +920,16 @@ function TripEditor() {
             </h1>
             <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
               <DraftStatus state={saveState} count={count} onShow={() => setChangesOpen(true)} onDiscard={() => void discard()} className="mr-auto" />
+              {editor.restore && editor.restoreHidden && (
+                <button
+                  type="button"
+                  onClick={editor.showRestore}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-brand-300 bg-brand-50 px-3 text-[12.5px] text-ink-900 transition-colors hover:border-brand-500"
+                >
+                  <History className="size-3.5 text-brand-600" strokeWidth={1.5} />
+                  恢复上次没保存的修改
+                </button>
+              )}
               <PresenceBadge editors={editor.editors} />
             </div>
             {(editor.notice || editor.synced || (editor.editors.length > 0 && !hintClosed)) && (
@@ -944,6 +975,9 @@ function TripEditor() {
                 pickTarget={pickTarget}
                 onAdded={(w) => onAdded(w)}
                 onArrange={(scope) => setArrangeOpen(scope ?? 'pool')}
+                addAs={addMode}
+                onAddAs={savedPhase === 'planning' ? null : setAddAs}
+                addFlags={addFlags}
                 city={trip.cities[0]}
                 near={near}
               />
@@ -1028,7 +1062,7 @@ function TripEditor() {
         }
       />
       <RestoreDialog
-        open={!!editor.restore}
+        open={!!editor.restore && !editor.restoreHidden}
         savedAt={editor.restore?.savedAt ?? 0}
         changes={restoreChanges}
         onRestore={() => {
@@ -1036,6 +1070,7 @@ function TripEditor() {
           toast.success('已恢复上次的修改', { description: '确认没问题后点「保存」' })
         }}
         onDrop={editor.dropRestore}
+        onLater={editor.hideRestore}
       />
       <LeaveDialog
         open={blocker.state === 'blocked'}

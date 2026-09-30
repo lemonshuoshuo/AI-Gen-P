@@ -188,9 +188,10 @@ export function AvatarStack({ users, size, className, ringClass }: { users: Trav
         </span>
       ))}
       {more > 0 && (
+        // 压在最后一个头像下面（和头像的叠法一致）：多出来的宽度正好被盖住，「+N」在露出来的部分居中；小尺寸时字也不小于 10px
         <span
           className={cn('font-num relative flex shrink-0 items-center justify-center rounded-full bg-surface-2 text-ink-900 ring-2', ringClass ?? 'ring-paper')}
-          style={{ width: size, height: size, marginLeft: -overlap, fontSize: size * 0.36 }}
+          style={{ width: size + overlap, height: size, marginLeft: -overlap, paddingLeft: overlap, fontSize: Math.max(10, size * 0.36) }}
         >
           +{more}
         </span>

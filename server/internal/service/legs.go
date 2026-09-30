@@ -149,11 +149,13 @@ func EstimateTravel(mode string, straight float64, transit bool) (distM, durS in
 }
 
 // dayRoute is a day's route: the lodging of the night before (nil when
-// none), its planned stops by seq and the lodging of the night.
+// none), its planned stops by seq and the lodging of the night. unrouted:
+// the day is listed without legs (see dayRoutes).
 type dayRoute struct {
 	day        int
 	start, end *model.Waypoint
 	stops      []*model.Waypoint
+	unrouted   bool
 }
 
 // points returns the day's route from start to end.
@@ -171,8 +173,11 @@ func (d *dayRoute) points() []*model.Waypoint {
 
 // dayRoutes splits the plan into days: day N goes from the lodging of night
 // N-1 through its planned stops (by seq) to the lodging of night N. Days
-// with neither stops nor lodging to go between are left out; day 0 (未分天)
-// has no lodging and comes last.
+// with neither stops nor lodging to go between are left out. Day 0 (未分天,
+// the wishlist) has no lodging, comes last and is a route only while no day
+// has planned stops (the plan is then the wishlist in order, as the route
+// preview plays it); otherwise nobody draws it and its legs would only spend
+// 高德 calls: it is listed unrouted.
 func dayRoutes(wps []model.Waypoint) []dayRoute {
 	stops := PlannedRoute(wps)
 	lodging := Lodgings(wps)
@@ -187,15 +192,17 @@ func dayRoutes(wps []model.Waypoint) []dayRoute {
 		maxDay = max(maxDay, n+1)
 	}
 	var out []dayRoute
+	scheduled := false // a day has planned stops
 	for d := 1; d <= maxDay; d++ {
 		r := dayRoute{day: d, start: lodging[d-1], end: lodging[d], stops: byDay[d]}
+		scheduled = scheduled || len(r.stops) > 0
 		if len(r.stops) == 0 && (r.start == nil || r.end == nil) {
 			continue
 		}
 		out = append(out, r)
 	}
 	if pool := byDay[0]; len(pool) > 0 {
-		out = append(out, dayRoute{day: 0, stops: pool})
+		out = append(out, dayRoute{day: 0, stops: pool, unrouted: scheduled})
 	}
 	return out
 }
@@ -219,6 +226,9 @@ func (s *Service) TripLegs(ctx context.Context, wps []model.Waypoint, opts LegsO
 			day.EndLodgingID = &dr.end.ID
 		}
 		pts := dr.points()
+		if dr.unrouted {
+			pts = nil
+		}
 		for i := 1; i < len(pts); i++ {
 			a, b := pts[i-1], pts[i]
 			straight := geo.Haversine(a.Lng, a.Lat, b.Lng, b.Lat)

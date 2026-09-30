@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -663,5 +664,42 @@ func TestTripFieldsChanged(t *testing.T) {
 	after.Status = model.TripPending
 	if !tripFieldsChanged(&cur, &after) {
 		t.Error("a status change is no change")
+	}
+}
+
+// A plan may list all of a trip's waypoints, however many there are (a
+// trip with thousands of check-ins from photos is still saved); only the
+// waypoints one save creates are bounded.
+func TestSavePlanManyWaypoints(t *testing.T) {
+	e := setup(t)
+	alice, _, aliceID := e.register("alice")
+	tid := id(e.must(200, "POST", "/trips", alice, map[string]any{"title": "很多照片", "days": 1}).obj(t))
+	base := fmt.Sprintf("/trips/%d", tid)
+	wps := make([]model.Waypoint, maxPlanWaypoints+5)
+	for i := range wps {
+		wps[i] = model.Waypoint{TripID: tid, Seq: i, Day: 1, Kind: model.KindStop, Planned: i%2 == 0, Status: model.WPVisited,
+			Name: fmt.Sprintf("点%d", i), Lng: 120.1 + float64(i)*1e-4, Lat: 30.2, Category: "other", CreatedByID: aliceID}
+	}
+	if err := e.svc.DB.CreateInBatches(&wps, 500).Error; err != nil {
+		t.Fatal(err)
+	}
+	rev := num(e.must(200, "GET", base, alice, nil).obj(t)["revision"])
+	items := make([]any, 0, len(wps)+1)
+	for _, w := range wps {
+		items = append(items, map[string]any{"id": w.ID})
+	}
+	items = append(items, map[string]any{"client_key": "tmp1", "name": "新的", "lng": 120.3, "lat": 30.3, "day": 1})
+	res := e.must(200, "PUT", base+"/plan", alice, map[string]any{"base_revision": rev, "waypoints": items}).obj(t)
+	if trip := res["trip"].(map[string]any); len(trip["waypoints"].([]any)) != len(wps)+1 || num(res["id_map"].(map[string]any)["tmp1"]) == 0 {
+		t.Fatalf("saved %d waypoints", len(trip["waypoints"].([]any)))
+	}
+	many := make([]any, maxPlanWaypoints+1)
+	for i := range many {
+		many[i] = map[string]any{"name": fmt.Sprint("新", i), "lng": 120.2, "lat": 30.2, "day": 1}
+	}
+	rev = num(e.must(200, "GET", base, alice, nil).obj(t)["revision"])
+	if r := e.req("PUT", base+"/plan", alice, map[string]any{"base_revision": rev, "waypoints": many}); r.status != 400 ||
+		!strings.Contains(string(r.body), "单次最多新增") {
+		t.Fatalf("too many new waypoints: %d %s", r.status, r.body)
 	}
 }

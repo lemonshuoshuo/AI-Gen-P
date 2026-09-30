@@ -318,7 +318,9 @@ func itemError(i int, err error) error {
 	return &planItemError{&apiError{ae.Status, ae.Code, fmt.Sprintf("第 %d 项：%s", i+1, ae.Message)}, i}
 }
 
-// maxPlanWaypoints bounds the waypoints of one PUT /trips/:id/plan.
+// maxPlanWaypoints bounds the waypoints one PUT /trips/:id/plan creates
+// (items without an id, or, when forced, with the id of a waypoint deleted
+// meanwhile); the trip's own waypoints may all be listed, however many.
 const maxPlanWaypoints = 1000
 
 // planItem is a waypoint of PUT /trips/:id/plan: an existing one (id) to
@@ -390,9 +392,6 @@ func (h *Handler) writePlanRequest(c *gin.Context) error {
 		return errBad("缺少 base_revision（草稿所基于的旅程版本）")
 	}
 	items := *req.Waypoints
-	if len(items) > maxPlanWaypoints {
-		return errBad(fmt.Sprintf("单次最多保存 %d 个地点", maxPlanWaypoints))
-	}
 	// A stale draft is refused before any work (and again under the lock).
 	if !req.Force && *req.BaseRevision != t.Revision {
 		return h.respondConflict(c, t)
@@ -416,6 +415,15 @@ func (h *Handler) writePlanRequest(c *gin.Context) error {
 	byID := make(map[int64]*model.Waypoint, len(loaded))
 	for i := range loaded {
 		byID[loaded[i].ID] = &loaded[i]
+	}
+	created := 0
+	for i := range items {
+		if id := items[i].ID; id == nil || *id == 0 || byID[*id] == nil {
+			created++
+		}
+	}
+	if created > maxPlanWaypoints {
+		return errBad(fmt.Sprintf("单次最多新增 %d 个地点", maxPlanWaypoints))
 	}
 	prep := make([]planWaypoint, len(items))
 	seenID, seenKey := map[int64]bool{}, map[string]bool{}

@@ -156,12 +156,31 @@ export interface DayTotal {
   estimated: boolean
 }
 
+/** 草稿里挪动超过这么多米的点：服务端按原来位置算的路段不再适用 */
+const MOVED_M = 5
+
 /**
- * 草稿的每天路线的各段：服务端（按已保存的计划）算好的路段直接用（含真实道路），草稿里新连起来的两点先按直线估算，
- * 保存后再换成高德路线。另算每天的合计（同服务端 legs.days：不含停留游玩时间）
+ * 草稿的每天路线的各段：服务端（按已保存的计划）算好的路段直接用（含真实道路），草稿里新连起来的两点、拖动过位置的点
+ * （与 base——路段所依据的已保存的地点——相比挪动了）先按直线估算，保存后再换成高德路线：地图上是一条到新位置的点线，
+ * 用时和合计也立即跟着变。另算每天的合计（同服务端 legs.days：不含停留游玩时间）
  */
-export function planLegs(g: PlanGroups, server: TripLeg[] | undefined, mode: TravelMode): { legs: TripLeg[]; totals: Map<number, DayTotal> } {
+export function planLegs(
+  g: PlanGroups,
+  server: TripLeg[] | undefined,
+  mode: TravelMode,
+  base?: Pick<Waypoint, 'id' | 'lng' | 'lat'>[],
+): { legs: TripLeg[]; totals: Map<number, DayTotal> } {
   const idx = legIndex(server)
+  const saved = new Map((base ?? []).map((w) => [w.id, [w.lng, w.lat] as [number, number]]))
+  const fits = (l: TripLeg, a: Waypoint, b: Waypoint) => {
+    for (const w of [a, b]) {
+      const p = saved.get(w.id)
+      if (p && haversine(p, [w.lng, w.lat]) > MOVED_M) return false
+    }
+    // 两端的直线距离也要对得上：刚保存、新的路段还没取到时，先显示的是上一次（按旧位置）的结果
+    const straight = haversine([a.lng, a.lat], [b.lng, b.lat])
+    return Math.abs(straight - l.straight_m) <= Math.max(25, straight * 0.02)
+  }
   const legs: TripLeg[] = []
   const totals = new Map<number, DayTotal>()
   const chain = (list: Waypoint[], day: number) => {
@@ -172,7 +191,8 @@ export function planLegs(g: PlanGroups, server: TripLeg[] | undefined, mode: Tra
       if (a.id === b.id) continue
       // 同一家酒店连住：没有路段（同服务端）
       if (isLodging(a) && isLodging(b) && haversine([a.lng, a.lat], [b.lng, b.lat]) < 50) continue
-      const l = legBetween(idx, a, b) ?? estimateLeg(a, b, mode, day)
+      const found = legBetween(idx, a, b)
+      const l = found && fits(found, a, b) ? found : estimateLeg(a, b, mode, day)
       legs.push(l)
       t.distance_m += l.distance_m
       t.duration_s += l.duration_s

@@ -255,7 +255,8 @@ export default function TravelModePage() {
   useRevisionPoll(trip?.id, trip?.revision, (r) => {
     if (pending > 0) return
     const before = qc.getQueryData<TripDetail>(key)
-    void refetch().then((res) => {
+    // 不打断正在进行的获取：网络慢时（获取比轮询间隔还久）每次轮询都取消重来，同行的人的修改就永远显示不出来
+    void refetch({ cancelRefetch: false }).then((res) => {
       if (!res.data || !r.updated_by || r.updated_by.id === me?.id) return
       const text = describeUpdate(before, res.data, r.updated_by)
       if (text) toast(text, { id: `trip-sync-${res.data.id}` })
