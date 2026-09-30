@@ -72,6 +72,7 @@ export function SpacePicker({
   loading,
   none = NEW_TRIP_NONE,
   className,
+  gridClassName = 'grid gap-2 sm:grid-cols-2',
 }: {
   spaces: Space[] | undefined
   value: number | null
@@ -80,6 +81,8 @@ export function SpacePicker({
   /** 「不属于任何空间」这一项的文字 */
   none?: { title: string; sub: string; effect: string }
   className?: string
+  /** 选项的排列（默认宽屏两列） */
+  gridClassName?: string
 }) {
   const me = useAuth((s) => s.user)!
   const picked = spaces?.find((s) => s.id === value) ?? null
@@ -93,7 +96,7 @@ export function SpacePicker({
         </div>
       ) : (
         <>
-          <OptionGroup label="和谁一起" className="grid gap-2 sm:grid-cols-2">
+          <OptionGroup label="和谁一起" className={gridClassName}>
             <PickOption
               selected={!picked}
               onClick={() => onChange(null)}
@@ -212,7 +215,7 @@ export function TripSpaceDialog({
       ) : (
         <div className="space-y-3">
           <p className="text-[13.5px] leading-relaxed text-ink-500">加入空间后，空间的全部成员都能查看、编辑和打卡（和共同作者一样），它会出现在空间的足迹里；随时可以移出。</p>
-          <SpacePicker spaces={spacesQ.data} value={value} onChange={setValue} loading={spacesQ.isLoading} none={TRIP_NONE} />
+          <SpacePicker spaces={spacesQ.data} value={value} onChange={setValue} loading={spacesQ.isLoading} none={TRIP_NONE} gridClassName="grid gap-2" />
         </div>
       )}
     </Modal>

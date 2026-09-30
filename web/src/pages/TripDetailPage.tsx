@@ -349,10 +349,28 @@ function Cover({ trip, onScroll }: { trip: TripDetail; onScroll: () => void }) {
   const dates = dateRange(trip.start_date, trip.end_date)
   const who = [trip.author, ...trip.members].map((u) => u.nickname || u.username).join(' & ')
   const onPhoto = !!trip.cover_url
+  // 所属空间（只返回给空间成员）：封面上就能看到并点进空间
+  const spaceLink = trip.space && (
+    <Link
+      to={`/spaces/${trip.space.id}`}
+      title="打开这个空间"
+      className={cn(
+        'animate-fade-in inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-full border px-2.5 text-[12px] leading-none transition-colors',
+        onPhoto ? 'border-white/45 text-white hover:bg-white/10' : 'border-line text-ink-700 hover:border-ink-400 hover:text-ink-900',
+      )}
+    >
+      <SpaceTypeIcon type={trip.space.type} className={cn('size-3', onPhoto && '!text-white')} />
+      <span className="truncate">{trip.space.name}</span>
+      <span className={cn('shrink-0', onPhoto ? 'text-white/70' : 'text-ink-500')}>· {trip.space.type_label}</span>
+    </Link>
+  )
   const kicker = (
-    <p className={cn('eyebrow animate-fade-in', onPhoto && '!text-white/75')}>
-      {phaseEyebrow[trip.phase]} <span className="mx-1.5 opacity-60">·</span> {phase.label}
-    </p>
+    <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2.5">
+      <p className={cn('eyebrow animate-fade-in', onPhoto && '!text-white/75')}>
+        {phaseEyebrow[trip.phase]} <span className="mx-1.5 opacity-60">·</span> {phase.label}
+      </p>
+      {spaceLink}
+    </div>
   )
   const captions = (
     <div className={cn('grid grid-cols-2 gap-x-6 gap-y-5 border-t pt-5 md:grid-cols-4', onPhoto ? 'border-white/20' : 'border-ink-200')}>

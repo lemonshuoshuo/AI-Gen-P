@@ -18,7 +18,8 @@ export default function TogetherPage() {
 
   if (invite) return <Navigate to={`/spaces?invite=${encodeURIComponent(invite)}`} replace />
   if (direct) return <Navigate to={`/spaces/${direct}`} replace />
-  if (q.isLoading) return <PageLoader />
+  // 按刚取到的列表决定去哪（缓存里的列表可能还有已删除或已退出的空间）；取失败时才用缓存
+  if (q.isLoading || (q.isFetching && !q.isFetchedAfterMount)) return <PageLoader />
   if (!q.data)
     return (
       <LoadError

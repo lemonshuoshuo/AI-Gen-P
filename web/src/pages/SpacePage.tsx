@@ -3,10 +3,11 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarHeart, Copy, Crown, LogOut, Plus, Send, Settings2, Trash2, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
-import { api, errorMessage, isNotFound, type Phase, type SpaceDetail, type SpaceMember, type SpaceType } from '@/api'
+import { api, errorMessage, isNotFound, type Phase, type Space, type SpaceDetail, type SpaceMember, type SpaceType } from '@/api'
 import { LabelRow } from '@/components/editorial'
 import {
   MemberStack,
+  SpaceSwitcher,
   SpaceTypeBadge,
   SpaceTypeChooser,
   anniversaryLabel,
@@ -239,7 +240,7 @@ function EditSpaceForm({ s, onSaved }: { s: SpaceDetail; onSaved: (d: SpaceDetai
   return (
     <div className="space-y-5">
       <Field label="空间名称">
-        <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={30} className="font-display text-[16px]" />
+        <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={30} />
       </Field>
       <div>
         <span className="mb-2 block text-[12.5px] font-medium text-ink-600">类型</span>
@@ -533,15 +534,30 @@ export default function SpacePage() {
     enabled: !!s,
   })
   const [settings, setSettings] = useState<SettingsFocus | null>(null)
+  const nav = useNavigate()
   useDocumentTitle(s?.name ?? '我们')
   useEffect(() => {
     if (s) void loadFootprintsView()
   }, [s])
-  // 默认空间已不存在（被移出、空间被删除）：本地保存的 Me 过期了，刷新后「我们」会打开总览
+  // 空间已不存在或自己已不在其中（被移出、空间被删除）：本地保存的 Me 可能过期了，刷新它。
+  // 打开的正是本地记着的默认空间（点「我们」进来的）时，刷新后回到「我们」，按新的默认空间 / 总览重新打开
   const gone = isNotFound(q.error)
   useEffect(() => {
-    if (gone) void useAuth.getState().refreshMe()
-  }, [gone])
+    if (!gone) return
+    const wasDefault = useAuth.getState().user?.default_space_id === sid
+    // 缓存的空间列表里也去掉它（否则「我们」按旧列表又会打开这里），再在后台刷新列表与邀请
+    qc.setQueryData<Space[]>(['spaces'], (l) => l?.filter((x) => x.id !== sid))
+    void qc.invalidateQueries({ queryKey: ['spaces'] })
+    void qc.invalidateQueries({ queryKey: ['space-invites'] })
+    void useAuth
+      .getState()
+      .refreshMe()
+      .then(() => {
+        if (!wasDefault || useAuth.getState().user?.default_space_id === sid) return
+        toast('原来的默认空间已不存在，或你已不在其中')
+        void nav('/together', { replace: true })
+      })
+  }, [gone, sid, nav, qc])
 
   if (!Number.isInteger(sid) || sid <= 0) return <Empty className="min-h-[60vh]" title="页面不存在" />
   if (q.isLoading) return <PageLoader />
@@ -602,15 +618,17 @@ export default function SpacePage() {
     ) : null
 
   return (
-    <div className="mx-auto max-w-[90rem] px-4 pt-8 pb-24 md:px-8 md:pt-14 md:pb-32">
-      <header className="animate-slide-up">
+    <div className="mx-auto max-w-[90rem] px-4 pt-5 pb-24 md:px-8 md:pt-8 md:pb-32">
+      {/* 切换空间 / 回到总览（从默认空间进来时也能一眼看到别的空间和待回应的邀请） */}
+      <SpaceSwitcher current={s.id} />
+      <header className="animate-slide-up mt-6 md:mt-10">
         <LabelRow
           label={
             <Link to="/spaces" className="transition-colors hover:text-ink-500">
               Together · 我们
             </Link>
           }
-          count={others.length ? memberNames(s.members) : undefined}
+          count={`${s.member_count} 人`}
           extra={
             <div className="-mr-2 flex items-center gap-1">
               {s.can_invite && (
@@ -639,6 +657,7 @@ export default function SpacePage() {
                   <UserPlus className="size-4" strokeWidth={1.5} />
                 </button>
               )}
+              {others.length > 0 && <p className="min-w-0 truncate text-[13.5px] text-ink-700">{memberNames(s.members, 4)}</p>}
             </div>
             <div className="mt-6 flex flex-wrap items-center gap-2">
               <SpaceTypeBadge space={s} />

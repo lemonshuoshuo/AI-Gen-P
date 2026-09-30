@@ -1,10 +1,11 @@
-// 空间「我们」的公共部件：类型、徽章、成员头像、邀请卡片，以及空间数据的查询与刷新
-import { useState, type ReactNode } from 'react'
+// 空间「我们」的公共部件：类型、徽章、成员头像、邀请卡片、空间切换条，以及空间数据的查询与刷新
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Link } from 'react-router'
 import { useQuery, type QueryClient } from '@tanstack/react-query'
-import { Check, Heart, House, Sparkles, Tag, Users, type LucideIcon } from 'lucide-react'
+import { Check, Heart, House, LayoutGrid, Plus, Sparkles, Tag, Users, type LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage, type Space, type SpaceDetail, type SpaceInvite, type SpaceRef, type SpaceType, type UserBrief } from '@/api'
-import { Avatar, Button, ChoiceChip, OptionGroup } from '@/components/ui'
+import { Avatar, Button, ChoiceChip, OptionGroup, selectedClass } from '@/components/ui'
 import { invalidateTripLists } from '@/lib/cache'
 import { cn } from '@/lib/cn'
 import { beijingToday, dayjs, fromNow } from '@/lib/format'
@@ -196,6 +197,78 @@ export async function setDefaultSpace(qc: QueryClient, id: number | null) {
   qc.setQueryData<Space[]>(['spaces'], (list) => list?.map((s) => ({ ...s, is_default: s.id === id })))
   qc.setQueriesData<SpaceDetail>({ queryKey: ['space'] }, (d) => (d ? { ...d, is_default: d.id === id } : d))
   return me
+}
+
+/* ---------------- 空间切换条 ---------------- */
+
+/**
+ * 空间页顶部的切换条：「全部空间」（总览；有待我回应的邀请时带数字）、我的每个空间（当前的是实心胶囊 + 勾）、「新建」。
+ * 从默认空间也能一眼看到别的空间、回到总览；手机上横向滑动，当前空间自动滚进视野
+ */
+export function SpaceSwitcher({ current, className }: { current: number; className?: string }) {
+  const spaces = useSpaces().data
+  const incoming = useSpaceInvites().data?.incoming.length ?? 0
+  const listRef = useRef<HTMLUListElement>(null)
+  useEffect(() => {
+    const el = listRef.current?.querySelector<HTMLElement>('[aria-current="page"]')
+    const box = el?.closest('nav')
+    if (!el || !box || box.scrollWidth <= box.clientWidth) return
+    // 只滚动切换条本身（scrollIntoView 会连整页一起滚），而且只在当前空间没露全时才滚：
+    // 「全部空间」在最前面，能不挪就不挪
+    const b = box.getBoundingClientRect()
+    const r = el.getBoundingClientRect()
+    // 左边被钉住的「全部空间」挡着的部分也算看不到
+    const left = (listRef.current?.firstElementChild?.getBoundingClientRect().right ?? b.left) + 8
+    const pad = 24
+    if (r.right > b.right - pad) box.scrollLeft += r.right - b.right + pad
+    else if (r.left < left) box.scrollLeft -= left - r.left
+  }, [current, spaces?.length])
+  if (!spaces) return <div aria-hidden className={cn('h-10', className)} />
+  const chip = 'h-9 gap-1.5 px-3.5 text-[13px]'
+  return (
+    <nav aria-label="切换空间" className={cn('-mx-4 overflow-x-auto px-4 [scrollbar-width:none] md:-mx-8 md:px-8 [&::-webkit-scrollbar]:hidden', className)}>
+      <ul ref={listRef} className="flex w-max items-center gap-2 py-0.5">
+        {/* 「全部空间」钉在左边：横向滑动时也一直看得到（粘性定位的边界是 nav 的内容区，所以 left 要减去 nav 的内边距） */}
+        <li className="sticky -left-4 z-10 -ml-4 flex items-center gap-2.5 bg-paper pr-0.5 pl-4 md:-left-8 md:-ml-8 md:pl-8">
+          <Link to="/spaces" className={selectedClass(false, 'chip', chip)}>
+            <LayoutGrid aria-hidden strokeWidth={1.75} />
+            全部空间
+            {incoming > 0 && (
+              <>
+                <span aria-hidden className="font-num ml-0.5 min-w-[18px] rounded-full bg-brand-fill px-1.5 text-center text-[11px] leading-[18px] font-semibold text-on-brand">
+                  {incoming}
+                </span>
+                <span className="sr-only">（{incoming} 个待回应的邀请）</span>
+              </>
+            )}
+          </Link>
+          <span aria-hidden className="h-5 w-px bg-line" />
+        </li>
+        {spaces.map((s) => {
+          const on = s.id === current
+          return (
+            <li key={s.id}>
+              <Link
+                to={`/spaces/${s.id}`}
+                aria-current={on ? 'page' : undefined}
+                title={`${s.name} · ${s.type_label}${s.is_default ? ' · 默认空间' : ''}`}
+                className={selectedClass(on, 'chip', cn(chip, 'max-w-[15rem]'))}
+              >
+                {on ? <Check aria-hidden strokeWidth={2.75} /> : <SpaceTypeIcon type={s.type} />}
+                <span className="truncate">{s.name}</span>
+              </Link>
+            </li>
+          )
+        })}
+        <li>
+          <Link to="/spaces?new=1" className={selectedClass(false, 'chip', cn(chip, 'border-dashed'))}>
+            <Plus aria-hidden strokeWidth={1.75} />
+            新建
+          </Link>
+        </li>
+      </ul>
+    </nav>
+  )
 }
 
 /* ---------------- 收到的邀请 ---------------- */

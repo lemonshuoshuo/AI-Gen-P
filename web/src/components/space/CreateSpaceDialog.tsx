@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { Loader2, Send, UserPlus, X } from 'lucide-react'
@@ -24,12 +24,23 @@ const descExamples: Record<SpaceType, string> = {
  * 新建空间：类型（情侣 / 闺蜜 / 朋友 / 家人 / 自定义）、名称、纪念日（情侣）、简介，
  * 以及马上邀请几个人（先查用户名，填错了当场提示）。创建后打开新空间
  */
-export function CreateSpaceDialog({ open, onClose, initialType }: { open: boolean; onClose: () => void; initialType?: SpaceType }) {
+export function CreateSpaceDialog({
+  open,
+  onClose,
+  initialType,
+  invitee,
+}: {
+  open: boolean
+  onClose: () => void
+  initialType?: SpaceType
+  /** 预先放进「邀请成员」的用户名（如邀请链接的主人） */
+  invitee?: string
+}) {
   if (!open) return null
-  return <CreateSpaceForm onClose={onClose} initialType={initialType} />
+  return <CreateSpaceForm onClose={onClose} initialType={initialType} invitee={invitee} />
 }
 
-function CreateSpaceForm({ onClose, initialType }: { onClose: () => void; initialType?: SpaceType }) {
+function CreateSpaceForm({ onClose, initialType, invitee }: { onClose: () => void; initialType?: SpaceType; invitee?: string }) {
   const me = useAuth((s) => s.user)!
   const nav = useNavigate()
   const qc = useQueryClient()
@@ -46,10 +57,25 @@ function CreateSpaceForm({ onClose, initialType }: { onClose: () => void; initia
   const [people, setPeople] = useState<UserBrief[]>([])
   const [message, setMessage] = useState('')
   const [saving, setSaving] = useState(false)
+  // 预先放进邀请名单的人：查到了才加（查不到时不打扰，自己再输）
+  useEffect(() => {
+    const u = invitee?.replace(/^@/, '')
+    if (!u || !USERNAME.test(u) || u.toLowerCase() === me.username.toLowerCase()) return
+    let alive = true
+    api.users
+      .get(u)
+      .then((p) => alive && setPeople((l) => (l.some((x) => x.id === p.id) ? l : [...l, p])))
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [invitee, me.username])
   const today = beijingToday()
   const meta = spaceTypeOf(type)
   const max = type === 'couple' ? 1 : 49
-  const namePlaceholder = type === 'custom' ? label.trim() || '如：周末爬山小分队' : meta.defaultName
+  // 不填名称时的默认名（与服务端一致）：内置类型各有默认名，自定义类型用它的类型名称
+  const defaultName = type === 'custom' ? label.trim() : meta.defaultName
+  const namePlaceholder = defaultName || '如：周末爬山小分队'
 
   const add = async () => {
     const u = who.trim().replace(/^@/, '')
@@ -143,8 +169,11 @@ function CreateSpaceForm({ onClose, initialType }: { onClose: () => void; initia
           </Field>
         )}
 
-        <Field label="空间名称" hint={name.trim() ? undefined : namePlaceholder ? `不填时叫「${namePlaceholder}」` : undefined}>
-          <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={30} placeholder={namePlaceholder} className="font-display text-[16px]" />
+        <Field
+          label="空间名称"
+          hint={name.trim() ? undefined : defaultName ? `不填时叫「${defaultName}」` : type === 'custom' ? '不填时用上面的类型名称' : undefined}
+        >
+          <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={30} placeholder={namePlaceholder} />
         </Field>
 
         {type === 'couple' && (

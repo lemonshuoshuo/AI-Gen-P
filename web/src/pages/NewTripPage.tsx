@@ -687,13 +687,13 @@ export default function NewTripPage() {
   const titleRef = useRef<HTMLInputElement>(null)
   // AI 规划：路线没保存成功、刚建的旅程也没删掉时记下来，重试前先删，避免留下空旅程
   const orphanTrip = useRef<number | null>(null)
-  // 和谁一起：旅程所属的空间。没选过时默认为地址里的 ?space=（从空间页进来）、默认空间、有情侣时的情侣空间
+  // 和谁一起：旅程所属的空间。没选过时默认为地址里的 ?space=（从空间页进来），否则有情侣时是情侣空间
+  // （和原来默认打开的「和 TA 一起」一样）；不自动放进其他空间，免得随手建的旅程被一群人看到
   const spacesQ = useSpaces()
   const spaces = spacesQ.data
   const [pickedSpace, setPickedSpace] = useState<number | null | undefined>(undefined)
   const paramSpace = Number(params.get('space')) || null
-  const fallbackSpace =
-    spaces?.find((s) => s.id === paramSpace) ?? spaces?.find((s) => s.is_default) ?? spaces?.find((s) => s.type === 'couple' && s.member_count > 1)
+  const fallbackSpace = spaces?.find((s) => s.id === paramSpace) ?? spaces?.find((s) => s.type === 'couple' && s.member_count > 1)
   const spaceId = pickedSpace !== undefined ? pickedSpace : (fallbackSpace?.id ?? null)
   const space = spaces?.find((s) => s.id === spaceId) ?? null
   // 情侣空间：同时把情侣加为共同作者（和原来的「和 TA 一起」一样，旅程也算作对方的旅程和足迹）

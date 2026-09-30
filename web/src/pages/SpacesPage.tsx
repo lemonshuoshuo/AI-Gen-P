@@ -180,8 +180,21 @@ function StartGrid({ onPick }: { onPick: (t: SpaceType) => void }) {
   )
 }
 
-/** 邀请链接 /together?invite=用户名：对方打开后一键邀请链接的主人加入自己的情侣空间（没有时自动创建） */
-function LinkedInvite({ username, invitedBy, onDone }: { username: string; invitedBy: boolean; onDone: () => void }) {
+/**
+ * 邀请链接 /together?invite=用户名：对方打开后一键邀请链接的主人加入自己的情侣空间（没有时自动创建）；
+ * 已经有情侣时可以新建一个别的空间邀请 TA
+ */
+function LinkedInvite({
+  username,
+  invitedBy,
+  onDone,
+  onCreate,
+}: {
+  username: string
+  invitedBy: boolean
+  onDone: () => void
+  onCreate: () => void
+}) {
   const me = useAuth((s) => s.user)!
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
@@ -198,6 +211,11 @@ function LinkedInvite({ username, invitedBy, onDone }: { username: string; invit
               : '点「发送邀请」，TA 在通知里接受后，你们就有了共同的情侣空间'}
         </p>
       </div>
+      {!invitedBy && me.partner && (
+        <Button variant="outline" icon={<Plus className="size-4" strokeWidth={1.5} />} onClick={onCreate}>
+          新建空间邀请 TA
+        </Button>
+      )}
       {!invitedBy && !me.partner && (
         <Button
           loading={busy}
@@ -231,7 +249,9 @@ export default function SpacesPage() {
   const spacesQ = useSpaces()
   const invitesQ = useSpaceInvites()
   const newParam = params.get('new')
-  const [creating, setCreating] = useState<{ type?: SpaceType } | null>(newParam ? { type: isSpaceType(newParam) ? newParam : undefined } : null)
+  const [creating, setCreating] = useState<{ type?: SpaceType; invitee?: string } | null>(
+    newParam ? { type: isSpaceType(newParam) ? newParam : undefined } : null,
+  )
   const [cancelling, setCancelling] = useState<number | null>(null)
   useDocumentTitle('我们')
 
@@ -273,6 +293,7 @@ export default function SpacesPage() {
           username={linked}
           invitedBy={incoming.some((i) => i.inviter.username.toLowerCase() === linked.toLowerCase())}
           onDone={() => dropParam('invite')}
+          onCreate={() => setCreating({ type: 'friends', invitee: linked })}
         />
       )}
 
@@ -373,6 +394,7 @@ export default function SpacesPage() {
       <CreateSpaceDialog
         open={!!creating}
         initialType={creating?.type}
+        invitee={creating?.invitee}
         onClose={() => {
           setCreating(null)
           dropParam('new')
