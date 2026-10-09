@@ -7,8 +7,9 @@ import { Postmark, cityShort } from '@/components/editorial'
 import { cn } from '@/lib/cn'
 import { dayjs, fmtDate } from '@/lib/format'
 import { formatKm } from '@/lib/geo'
+import { useThemeScope } from '@/theme'
 
-/** 里程拆成数字 + 单位，数字用大号 Cormorant */
+/** 里程拆成数字 + 单位（数字用主题的大数字档 text-num） */
 function km(v: number): [string, string] {
   if (!v) return ['0', '公里']
   if (v < 1) return [String(Math.round(v * 1000)), '米']
@@ -21,8 +22,8 @@ const pad2 = (n: number) => String(n).padStart(2, '0')
 const stagger = (k: number, base = 0): CSSProperties => ({ animationDelay: `${base + k * 70}ms`, animationFillMode: 'backwards' })
 
 /**
- * 一行细字统计：大号细 Cormorant 数字，标签在上、单位在旁，统计之间用竖细线分隔。
- * dark：放在照片 / 夜色地图上时用白色系
+ * 一行统计：主题的大数字档（font-num text-num），标签在上、单位在旁，统计之间用竖细线分隔。
+ * dark：放在照片 / 夜色地图上时用当前主题的深色令牌（局部强制深色）
  */
 export function FootprintStats({
   data,
@@ -46,9 +47,10 @@ export function FootprintStats({
     { label: '里程', value: dist, unit: distUnit },
     { label: '在路上', value: s.days, unit: '天' },
   ]
-  const line = dark ? 'border-white/12' : 'border-ink-200'
+  const scope = useThemeScope('dark')
+  const line = 'border-line'
   return (
-    <div className={cn('grid grid-cols-2 border-t sm:grid-cols-3 lg:grid-cols-6', line, className)}>
+    <div {...(dark ? scope : undefined)} className={cn('grid grid-cols-2 border-t sm:grid-cols-3 lg:grid-cols-6', line, className)}>
       {items.map((i, k) => (
         <div
           key={i.label}
@@ -64,15 +66,13 @@ export function FootprintStats({
             line,
           )}
         >
-          <p className={cn('flex items-center gap-1.5 text-xs tracking-[0.08em]', dark ? 'text-white/55' : 'text-ink-500')}>
+          <p className="flex items-center gap-1.5 text-xs tracking-[0.08em] text-ink-500">
             {accent && k === 1 && <span className={cn('size-1.5 shrink-0 rounded-full bg-current', accent)} aria-hidden />}
             {i.label}
           </p>
-          <div className="mt-3 flex items-baseline gap-1 sm:mt-4">
-            <span className={cn('font-num text-[2.5rem] leading-[0.9] font-light whitespace-nowrap sm:text-5xl', dark ? 'text-white' : 'text-ink-900')}>
-              {i.value}
-            </span>
-            {i.unit && <span className={cn('shrink-0 text-xs', dark ? 'text-white/45' : 'text-ink-400')}>{i.unit}</span>}
+          <div className="mt-3 flex items-baseline gap-1">
+            <span className="font-num text-num whitespace-nowrap text-ink-900">{i.value}</span>
+            {i.unit && <span className="shrink-0 text-xs text-ink-500">{i.unit}</span>}
           </div>
         </div>
       ))}
@@ -81,8 +81,8 @@ export function FootprintStats({
 }
 
 /**
- * 页头的大号数字：城市、省份、里程、在路上的天数。
- * 一行四格（手机上也是一行，数字小一号、单位并进标签），每一格上方是细线 + 一行小标签（中文亮、英文灰），下面是超大细字 Cormorant
+ * 页头的数字：城市、省份、里程、在路上的天数。
+ * 一行四格（手机上也是一行、单位并进标签），每一格上方是细线 + 一行小标签（中文亮、英文灰），下面是主题的大数字档（text-num）
  */
 export function FootprintNumerals({ data, className }: { data: Footprints; className?: string }) {
   const s = data.stats
@@ -100,7 +100,7 @@ export function FootprintNumerals({ data, className }: { data: Footprints; class
           key={it.label}
           style={stagger(k, 120)}
           className={cn(
-            'animate-slide-up min-w-0 border-t border-ink-200 pt-3 pr-2 pb-6 sm:pr-4 md:pr-6 md:pb-8 xl:pr-8',
+            'animate-slide-up min-w-0 border-t border-ink-200 pt-3 pr-2 pb-5 sm:pr-4 md:pr-6 md:pb-6 xl:pr-8',
             k > 0 && 'border-l pl-2.5 sm:pl-4 md:pl-6 xl:pl-8',
             k === 3 && 'pr-0 sm:pr-0 md:pr-0 xl:pr-0',
           )}
@@ -112,16 +112,12 @@ export function FootprintNumerals({ data, className }: { data: Footprints; class
             </span>
             <span className="eyebrow max-lg:hidden">{it.en}</span>
           </p>
-          <p className="mt-3 flex min-w-0 items-baseline gap-2 sm:mt-4 md:mt-6">
+          <p className="mt-3 flex min-w-0 items-baseline gap-1.5 sm:mt-4">
             <span
               className={cn(
-                'font-num font-light tracking-[-0.02em] whitespace-nowrap text-ink-900',
-                // 位数多的里程（如 12,345）小一号，保证一格放得下
-                it.value.length > 4
-                  ? 'text-[1.75rem] sm:text-[clamp(2.5rem,5.4vw,5.75rem)]'
-                  : 'text-[2.25rem] sm:text-[clamp(3rem,7vw,7.5rem)]',
-                // 行高放在字号之后：cn（tailwind-merge）会让后面的字号类覆盖前面的行高
-                'leading-[0.8]',
+                'font-num text-num whitespace-nowrap text-ink-900',
+                // 手机上一格只有约 70px 宽：位数多的里程（如 3,304）用小一档（区块标题的字号），保证放得下
+                it.value.length > 4 && 'max-sm:text-[length:var(--text-h2)]',
               )}
             >
               {it.value}
@@ -237,11 +233,11 @@ function PathSketch({ path }: { path: [number, number][] }) {
   )
 }
 
-/** 排版封面上的地名：字越多越小，保证一行放得下 */
+/** 排版封面上的地名：最大是旅程封面的展示字号（text-hero，≤ 60px），字越多越小，保证一行放得下 */
 const leadSize = (n: number) =>
-  n <= 2 ? 'text-[5rem] md:text-[7rem]' : n === 3 ? 'text-[4.25rem] md:text-[5.5rem]' : 'text-[3.25rem] md:text-[4.25rem]'
+  n <= 2 ? 'text-[length:var(--text-hero)]' : n === 3 ? 'text-[length:var(--text-h1)]' : 'text-[length:var(--text-h2)]'
 
-/** 旅程时间线：一行一段旅程——左侧年份和日期，中间标题，右侧封面（没有封面时是超大宋体地名 + 路线细线 + 邮戳） */
+/** 旅程时间线：一行一段旅程——左侧年份（大数字档）和日期，中间标题（区块标题的字号），右侧封面（没有封面时是展示字体的地名 + 路线细线 + 邮戳） */
 export function TripRows({ rows }: { rows: TripRowData[] }) {
   if (!rows.length) return null
   return (
@@ -260,11 +256,11 @@ export function TripRows({ rows }: { rows: TripRowData[] }) {
             >
               <div className="flex items-baseline gap-4 md:col-span-3 md:flex-col md:gap-3">
                 <span className="font-num text-[13px] text-ink-400">{pad2(i + 1)}</span>
-                <span className="font-num text-[2rem] leading-none font-light text-ink-900 md:text-[3.25rem]">{d.year}</span>
+                <span className="font-num text-num text-ink-900">{d.year}</span>
                 <span className="font-num text-[13px] tracking-wide text-ink-500">{d.range}</span>
               </div>
               <div className="flex min-w-0 flex-col md:col-span-5">
-                <h3 className="font-display text-[1.875rem] leading-[1.08] font-normal text-ink-900 md:text-[2.75rem]">{t.title}</h3>
+                <h3 className="font-display text-[length:var(--text-h2)] leading-snug font-normal text-ink-900">{t.title}</h3>
                 {cities.length > 0 && <p className="mt-4 text-[13px] text-ink-900">{cities.join(' · ')}</p>}
                 <p className={cn('caption', cities.length ? 'mt-0.5' : 'mt-4')}>
                   <span className="font-num">{t.places}</span> 个地点 · <span className="font-num">{formatKm(t.distance_km)}</span>
@@ -276,11 +272,11 @@ export function TripRows({ rows }: { rows: TripRowData[] }) {
               </div>
               <div className="max-md:order-first md:col-span-4">
                 {t.cover ? (
-                  <div className="aspect-[4/3] overflow-hidden rounded-sm bg-surface">
+                  <div className="aspect-[4/3] overflow-hidden rounded-image bg-surface">
                     <FadeImg src={t.cover} className="size-full object-cover group-hover:scale-[1.03]" />
                   </div>
                 ) : (
-                  // 没有封面：近黑 + 超大宋体地名 + 路线细线 + 邮戳，上方一条细线（不画整圈边框，不像空卡片）
+                  // 没有封面：展示字体的地名（ink-700，不压过标题）+ 路线细线 + 邮戳，上方一条细线（不画整圈边框，不像空卡片）
                   <div className="relative flex aspect-[4/3] flex-col justify-end overflow-hidden border-t border-ink-200 pb-1 transition-colors duration-500 group-hover:border-ink-400">
                     <PathSketch path={t.path} />
                     <Postmark
@@ -289,7 +285,7 @@ export function TripRows({ rows }: { rows: TripRowData[] }) {
                       unit={days ? (days > 1 ? 'DAYS' : 'DAY') : 'STOPS'}
                       ring={`TripHub · ${d.year} · ${Math.round(t.distance_km).toLocaleString()} km · `}
                     />
-                    <p className={cn('font-display relative text-ink-900', leadSize(lead.length), 'leading-[0.85]')}>{lead}</p>
+                    <p className={cn('font-display relative text-ink-700', leadSize(lead.length), 'leading-none')}>{lead}</p>
                     {cities.length > 1 && (
                       <p className="relative mt-4 flex items-center gap-3 text-xs tracking-[0.12em] text-ink-500">
                         <span className="h-px w-8 bg-ink-400" aria-hidden />
@@ -341,7 +337,7 @@ export function FootprintMoments({ data, limit = 8 }: { data: Footprints; limit?
           )}
         >
           <Link to={`/trips/${p.trip_id}`} className="group block">
-            <div className={cn('overflow-hidden rounded-sm bg-surface', i === 0 ? 'aspect-[4/5] max-lg:aspect-[3/2]' : 'aspect-[4/5]')}>
+            <div className={cn('overflow-hidden rounded-image bg-surface', i === 0 ? 'aspect-[4/5] max-lg:aspect-[3/2]' : 'aspect-[4/5]')}>
               <FadeImg src={p.photo_thumb_url!} alt={p.name} className="size-full object-cover group-hover:scale-[1.03]" />
             </div>
             <p className="mt-3 truncate text-[13px] text-ink-900">{p.name}</p>

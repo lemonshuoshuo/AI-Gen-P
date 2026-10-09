@@ -30,7 +30,7 @@ import { diffPlan, isNew } from '@/components/editor/planDraft'
 import { PlanEditorProvider, usePlanEditor, usePlanEditorCtx, useUnsavedWarning } from '@/components/editor/usePlanEditor'
 import { PlanMarkers, planMarkerItems } from '@/components/trip/PlanMarkers'
 import { actualSegments, groupPlan, isLodging, plannedSegments, stopLabels, type PlanGroups } from '@/components/trip/plan'
-import { Avatar, Button, Empty, Field, Input, LoadError, PageLoader, Select, Switch, Textarea, buttonClass, confirmDialog } from '@/components/ui'
+import { Avatar, Button, Empty, Field, Input, LoadError, OptionGroup, PageLoader, Select, Switch, Textarea, buttonClass, confirmDialog, selectedClass } from '@/components/ui'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { invalidateTripLists } from '@/lib/cache'
 import { cn } from '@/lib/cn'
@@ -80,12 +80,11 @@ function FitTab({ points, tabKey }: { points: LngLat[]; tabKey: string }) {
   return null
 }
 
-/** 地图上的胶囊按钮：玻璃底 + 细线；按下时为强调色边框 + 底色 */
-const mapChip = (on: boolean) =>
-  cn(
-    'inline-flex h-10 items-center gap-1.5 rounded-full border px-4 text-[13px] tracking-[0.02em] transition-colors duration-300',
-    on ? 'border-brand-500 bg-brand-100 text-ink-900' : 'glass border-ink-900/15 text-ink-800 hover:border-ink-900/45 hover:text-ink-900',
-  )
+/**
+ * 地图上的胶囊按钮：主题的 chip（th-chip，按钮上写 aria-pressed）。
+ * 没按下时是玻璃底 + 细线；按下时是主题的实心 chip（手帐砖红、山野金色、夜航反色…），一眼看出是开着的
+ */
+const mapChip = (on: boolean) => cn('th-chip h-10 gap-1.5 px-4 text-[13px] shadow-card', !on && 'glass border-line text-ink-800 hover:border-ink-300')
 
 /** 地图左上角：点选地点、3D 视角（倾斜地图看路线的起伏走向） */
 function MapTools({
@@ -143,7 +142,7 @@ function MapTools({
       </div>
       {/* 宽屏上候选面板会盖住这条提示：选了位置后不再显示 */}
       {pickMode && !(picking && desktop) && (
-        <p className="glass animate-fade-in max-w-xs rounded-2xl border border-ink-900/15 px-4 py-2 text-xs leading-relaxed text-ink-700">
+        <p className="glass animate-fade-in max-w-xs rounded-2xl border border-line px-4 py-2 text-xs leading-relaxed text-ink-700 shadow-card">
           {picking ? '点地图上的其他位置，可以重新选择' : `点击地图上的景点、店铺或任意位置，选好后加到${targetLabel}`}
         </p>
       )}
@@ -164,10 +163,13 @@ function PanelHead({ eyebrow, count, aside }: { eyebrow: string; count?: ReactNo
   )
 }
 
-/** 面板页签：选中为强调色下划线 + 实心小圆点 + 淡底色 */
+/**
+ * 面板页签：主题的 Tab（th-tabs / th-tab，与 TabBar 同一套规则）——手帐 / 晴海 / 夜航是 ink-900 + 600 字重 + 2px 强调色下划线，
+ * 山野、暮色是胶囊；间距由主题决定（不再覆盖成固定的 gap）
+ */
 function PanelTabs({ value, onChange, options }: { value: Panel; onChange: (p: Panel) => void; options: { value: Panel; label: string; count?: number }[] }) {
   return (
-    <div role="tablist" aria-label="编辑内容" className="scrollbar-none -mx-1 flex gap-1 overflow-x-auto border-b border-ink-200">
+    <div role="tablist" aria-label="编辑内容" className="th-tabs">
       {options.map((o) => {
         const on = o.value === value
         return (
@@ -177,15 +179,10 @@ function PanelTabs({ value, onChange, options }: { value: Panel; onChange: (p: P
             role="tab"
             aria-selected={on}
             onClick={() => onChange(o.value)}
-            className={cn(
-              'relative flex h-10 shrink-0 items-center gap-1.5 rounded-t-md px-3 text-[13.5px] tracking-[0.02em] transition-colors duration-200',
-              on ? 'bg-brand-50 font-medium text-ink-900' : 'text-ink-500 hover:text-ink-900',
-            )}
+            className={selectedClass(on, 'tab', 'inline-flex items-center gap-1.5')}
           >
-            {on && <span aria-hidden className="size-1.5 rounded-full bg-brand-500" />}
             {o.label}
-            {o.count ? <span className={cn('font-num text-[13px]', on ? 'text-ink-700' : 'text-ink-400')}>{o.count}</span> : null}
-            <span aria-hidden className={cn('absolute inset-x-0 -bottom-px h-0.5 rounded-full', on ? 'bg-brand-500' : 'bg-transparent')} />
+            {o.count ? <span className={cn('font-num text-[12.5px] font-normal', on ? 'opacity-80' : 'text-ink-400')}>{o.count}</span> : null}
           </button>
         )
       })}
@@ -220,7 +217,7 @@ function InfoPanel({ trip, onSave }: { trip: TripDetail; onSave: () => void }) {
       <section className="space-y-5">
         <PanelHead eyebrow="Basics · 基本信息" aside={infoDirty ? <span className="text-brand-600">有未保存的修改</span> : undefined} />
         <Field label="标题">
-          <Input value={trip.title} onChange={(e) => set({ title: e.target.value })} maxLength={100} className="font-display h-12 text-[18px]" />
+          <Input value={trip.title} onChange={(e) => set({ title: e.target.value })} maxLength={100} className="font-display h-12 text-[length:var(--text-card)]" />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="开始日期">
@@ -238,13 +235,13 @@ function InfoPanel({ trip, onSave }: { trip: TripDetail; onSave: () => void }) {
         <p className="-mt-2 text-xs text-ink-400">设置了日期时按日期分天；没有日期也可以在「路线」里直接设置玩几天</p>
         <div>
           <span className="mb-2 block text-xs font-medium tracking-[0.06em] text-ink-500">旅程状态</span>
-          <div role="radiogroup" aria-label="旅程状态" className="flex flex-wrap gap-1.5">
+          <OptionGroup label="旅程状态" className="flex flex-wrap gap-1.5">
             {(Object.keys(phases) as Phase[]).map((p) => (
               <ChoiceChip key={p} selected={trip.phase === p} onClick={() => set({ phase: p })}>
                 {phases[p].label}
               </ChoiceChip>
             ))}
-          </div>
+          </OptionGroup>
         </div>
       </section>
       {trip.is_owner && (
@@ -252,17 +249,17 @@ function InfoPanel({ trip, onSave }: { trip: TripDetail; onSave: () => void }) {
           <PanelHead eyebrow="Sharing · 谁能看到" />
           <div>
             <span className="mb-2 block text-xs font-medium tracking-[0.06em] text-ink-500">谁可以看</span>
-            <div role="radiogroup" aria-label="谁可以看" className="flex flex-wrap gap-1.5">
+            <OptionGroup label="谁可以看" className="flex flex-wrap gap-1.5">
               {(['private', 'unlisted', 'public'] as Visibility[]).map((v) => (
                 <ChoiceChip key={v} selected={trip.visibility === v} onClick={() => set({ visibility: v })}>
                   {visibilities[v].label}
                 </ChoiceChip>
               ))}
-            </div>
+            </OptionGroup>
             <p className="mt-1.5 text-xs text-ink-400">
               {visibilities[trip.visibility].desc}
               {trip.status === 'pending' && <span className="mt-0.5 block text-amber-700">公开申请审核中，通过后才会出现在发现广场</span>}
-              {trip.status === 'hidden' && <span className="mt-0.5 block text-brand-600">已被管理员隐藏，改为公开也不会显示</span>}
+              {trip.status === 'hidden' && <span className="mt-0.5 block text-red-600">已被管理员隐藏，改为公开也不会显示</span>}
             </p>
           </div>
           <Field
@@ -282,7 +279,7 @@ function InfoPanel({ trip, onSave }: { trip: TripDetail; onSave: () => void }) {
       <section className="space-y-5">
         <PanelHead eyebrow="Journal · 游记" />
         <Field label="一句话简介">
-          <Textarea value={trip.summary} onChange={(e) => set({ summary: e.target.value })} maxLength={500} className="font-display min-h-20 text-[16px]" />
+          <Textarea value={trip.summary} onChange={(e) => set({ summary: e.target.value })} maxLength={500} className="font-display min-h-20 text-[15.5px]" />
         </Field>
         <Field label="游记正文" hint="支持 Markdown：## 标题、**加粗**、- 列表">
           <Textarea
@@ -371,7 +368,7 @@ function PhotosPanel({ trip, refresh }: { trip: TripDetail; refresh: () => void 
               const isCover = trip.cover_url === p.url
               return (
                 <figure key={p.id} className="min-w-0">
-                  <div className="group relative aspect-[4/5] overflow-hidden bg-ink-100">
+                  <div className="group relative aspect-[4/5] overflow-hidden rounded-lg bg-ink-100">
                     <img
                       src={p.thumb_url}
                       alt=""
@@ -515,7 +512,7 @@ function MembersPanel({ trip }: { trip: TripDetail }) {
         >
           <Avatar user={partner} size={40} />
           <span className="flex-1 text-[14px] text-ink-700">
-            把 <span className="font-display text-[17px] text-ink-900">{partner.nickname || partner.username}</span> 加入这段旅程
+            把 <span className="font-display text-[length:var(--text-card)] text-ink-900">{partner.nickname || partner.username}</span> 加入这段旅程
           </span>
           <Heart className="size-4 text-pink-500 transition-colors group-hover:fill-pink-500" strokeWidth={1.5} />
         </button>
@@ -542,7 +539,7 @@ function MembersPanel({ trip }: { trip: TripDetail }) {
               <div className="min-w-0 flex-1 text-[13px] leading-[1.45]">
                 <Link
                   to={`/u/${m.user.username}`}
-                  className="font-display block truncate text-[18px] leading-snug text-ink-900 transition-colors hover:text-ink-600"
+                  className="font-display block truncate text-[length:var(--text-card)] leading-snug text-ink-900 transition-colors hover:text-ink-600"
                 >
                   {m.user.nickname || m.user.username}
                 </Link>
@@ -915,7 +912,7 @@ function TripEditor() {
                 )}
               </div>
             </div>
-            <h1 className="font-display mt-4 line-clamp-2 text-[24px] leading-[1.15] text-ink-900 md:mt-5 md:text-[32px]">
+            <h1 className="font-display mt-3 line-clamp-2 text-[length:var(--text-h2)] leading-[1.2] text-ink-900 md:mt-4">
               {trip.title.trim() || '未命名旅程'}
             </h1>
             <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">

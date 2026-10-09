@@ -2,45 +2,55 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { useSite } from '@/hooks/useSite'
 import { cn } from '@/lib/cn'
+import { useTypeEpoch } from '@/theme'
 
 // 手机上链接行高 40px，方便点按
 const linkCls = 'inline-flex h-10 items-center transition-colors duration-300 hover:text-ink-900 md:h-auto'
 
+/** 字标最大占视口宽度的比例：是页面的落款（水印），不是新的视觉焦点 */
+const WORDMARK_MAX_VW = 0.14
+
 /**
- * 超大字标：按栏宽实测后撑满整行（左缘对齐页面栏线），完整显示、不裁切；
- * 用暗一档的墨色，作为页面的落款而不是新的视觉焦点
+ * 字标：按实测字宽换算字号（左缘对齐页面栏线），不超过栏宽、也不超过约 14vw，完整显示不裁切；
+ * 用 ink-200 的淡墨色，像纸上的水印。主题字体是懒加载的，换主题后字宽也会变：
+ * useTypeEpoch() 在字体到达、换主题时变化，放进依赖里重新测量；ResizeObserver 同时观察容器和文字本身
  */
 function Wordmark({ name }: { name: string }) {
   const box = useRef<HTMLDivElement>(null)
   const text = useRef<HTMLSpanElement>(null)
   const [size, setSize] = useState<number | null>(null)
+  const epoch = useTypeEpoch()
   useLayoutEffect(() => {
     const b = box.current
     const t = text.current
     if (!b || !t) return
     let alive = true
-    // 字号与字宽成正比：按当前字号下的实际宽度一次换算到栏宽
+    // 字号与字宽成正比：按当前字号下的实际宽度一次换算到栏宽，再按视口宽度封顶
     const fit = () => {
       const w = t.getBoundingClientRect().width
       const cur = parseFloat(getComputedStyle(t).fontSize)
       const avail = b.clientWidth
-      if (alive && w > 0 && avail > 0) setSize(Math.floor(((cur * avail) / w) * 10) / 10)
+      if (!alive || !(w > 0) || !(avail > 0) || !(cur > 0)) return
+      const cap = document.documentElement.clientWidth * WORDMARK_MAX_VW
+      const next = Math.floor(Math.min((cur * avail) / w, cap) * 10) / 10
+      setSize((s) => (s != null && Math.abs(s - next) < 0.5 ? s : next))
     }
     fit()
     void document.fonts?.ready.then(fit)
     const ro = new ResizeObserver(fit)
     ro.observe(b)
+    ro.observe(t)
     return () => {
       alive = false
       ro.disconnect()
     }
-  }, [name])
+  }, [name, epoch])
   return (
-    <div ref={box} aria-hidden className="pt-6 pb-8 select-none md:pt-10 md:pb-12">
+    <div ref={box} aria-hidden className="max-w-full overflow-hidden pt-4 pb-6 select-none md:pt-8 md:pb-10">
       <span
         ref={text}
-        className="font-display inline-block pb-[0.12em] leading-[0.9] tracking-[-0.02em] whitespace-nowrap text-ink-300"
-        style={{ fontSize: size ? `${size}px` : `min(${Math.min(21, 150 / Math.max(name.length, 1))}vw, ${Math.min(19, 133 / Math.max(name.length, 1))}rem)` }}
+        className="font-display inline-block pb-[0.12em] leading-[0.9] tracking-[-0.02em] whitespace-nowrap text-ink-200"
+        style={{ fontSize: size ? `${size}px` : `min(${Math.min(14, 130 / Math.max(name.length, 1))}vw, ${Math.min(13, 110 / Math.max(name.length, 1))}rem)` }}
       >
         {name}
       </span>

@@ -47,9 +47,9 @@ export default function FootprintsPage() {
             )
           }
         />
-        <div className="mt-12 grid gap-x-8 gap-y-8 md:mt-20 lg:grid-cols-12 lg:items-end">
-          <h1 className="text-display-xl font-normal max-sm:text-[4.25rem] lg:col-span-7">我的足迹</h1>
-          <div className="lg:col-span-4 lg:col-start-9 lg:pb-3">
+        <div className="mt-8 grid gap-x-8 gap-y-4 md:mt-12 lg:grid-cols-12 lg:items-end">
+          <h1 className="text-display-lg lg:col-span-7">我的足迹</h1>
+          <div className="lg:col-span-4 lg:col-start-9 lg:pb-1.5">
             <p className="text-[15px] leading-[1.8] text-ink-900">
               {since ? (
                 <>
@@ -67,9 +67,9 @@ export default function FootprintsPage() {
       </header>
 
       {empty ? (
-        <section className="animate-slide-up mt-16 border-t border-ink-200 pt-16 pb-8 text-center md:mt-24 md:pt-24 [animation-delay:120ms] [animation-fill-mode:backwards]">
-          <p className="font-num text-[clamp(5rem,16vw,12rem)] leading-[0.8] font-light text-ink-300">0</p>
-          <p className="font-display mt-8 text-3xl text-ink-900">还没有足迹</p>
+        <section className="animate-slide-up mt-12 border-t border-ink-200 pt-14 pb-8 text-center md:mt-16 md:pt-20 [animation-delay:120ms] [animation-fill-mode:backwards]">
+          <p className="font-num text-num text-ink-400">0</p>
+          <p className="text-display-md mt-5 text-ink-900">还没有足迹</p>
           <p className="caption mt-2">第一次打卡，地图上就会亮起第一座城市</p>
           <Link to="/trips/new" className={buttonClass({ size: 'lg', className: 'mt-10' })}>
             记录第一段旅程

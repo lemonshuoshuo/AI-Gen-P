@@ -127,7 +127,12 @@ function ToolCell({
       aria-pressed={pressed}
       className={cn(
         'group flex h-16 min-w-0 flex-col items-center justify-center gap-1.5 px-1 transition-colors duration-300 focus-visible:bg-ink-900/[0.06] focus-visible:outline-none',
-        tone === 'rec' ? 'text-brand-600 hover:text-brand-700' : pressed ? 'text-ink-900' : 'text-ink-700 hover:bg-ink-900/[0.03] hover:text-ink-900',
+        // 按下的开关（正在记录、行程清单已展开）：强调色底纹 + 强调色字，一眼看出是开着的
+        tone === 'rec'
+          ? 'bg-brand-50 font-medium text-brand-700 hover:text-brand-800'
+          : pressed
+            ? 'bg-brand-50 font-medium text-brand-700'
+            : 'text-ink-700 hover:bg-ink-900/[0.03] hover:text-ink-900',
       )}
     >
       {active ? <Spinner className="size-5" /> : icon}
@@ -679,7 +684,7 @@ export default function TravelModePage() {
             {trip.phase === 'ongoing' && <span className="size-1.5 shrink-0 rounded-full bg-brand-500" aria-hidden />}
             {trip.phase === 'ongoing' ? 'On the road · 旅行中' : 'Travel mode · 旅行模式'}
           </p>
-          <div className="font-display mt-1 truncate text-[1.25rem] leading-tight text-ink-900 sm:text-[1.5rem]">{trip.title}</div>
+          <div className="font-display mt-1 truncate text-[length:var(--text-card)] leading-tight text-ink-900 sm:text-[1.25rem]">{trip.title}</div>
           {/* 窄屏放不下时换行：标题截断，位置公开状态不截断 */}
           <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-ink-500">
             <span>
@@ -758,12 +763,13 @@ export default function TravelModePage() {
               <button
                 type="button"
                 onClick={() => setFollow((v) => !v)}
-                className={cn(mapChipClass, 'w-10 px-0 sm:w-9', follow ? '!text-ink-900' : '!text-ink-500')}
+                // 跟随中：主题的实心 chip（与筛选 chip 选中时一样），不跟随：玻璃细线
+                className={cn(mapChipClass, 'w-10 px-0 sm:w-9', follow ? '!border-transparent !bg-[var(--chip-on-bg)] !text-[var(--chip-on-fg)]' : '!text-ink-500')}
                 title={follow ? '跟随中' : '不跟随'}
                 aria-label={follow ? '跟随中' : '不跟随'}
                 aria-pressed={follow}
               >
-                <Navigation className={cn('size-4', follow && 'fill-ink-900')} strokeWidth={1.4} />
+                <Navigation className={cn('size-4', follow && 'fill-current')} strokeWidth={1.4} />
               </button>
               <button
                 type="button"
@@ -807,7 +813,7 @@ export default function TravelModePage() {
 
       {/* 底部面板：深色浮层 + 细线，主操作是一枚大号朱砂胶囊 */}
       {/* 桌面上是浮在地图左下角的面板，地图占满整屏 */}
-      <div className="pb-safe relative z-20 max-h-[62dvh] overflow-y-auto rounded-t-xl border-t border-ink-200 bg-surface md:absolute md:bottom-6 md:left-6 md:max-h-[calc(100dvh-8.5rem)] md:w-[27rem] md:rounded-xl md:border md:pt-5 md:shadow-float">
+      <div className="pb-safe relative z-20 max-h-[62dvh] overflow-y-auto rounded-t-modal border-t border-ink-200 bg-surface md:absolute md:bottom-6 md:left-6 md:max-h-[calc(100dvh-8.5rem)] md:w-[27rem] md:rounded-modal md:border md:pt-5 md:shadow-float">
         {/* 拖动条只在手机上：桌面的浮动面板始终展开 */}
         <button
           type="button"
@@ -829,7 +835,7 @@ export default function TravelModePage() {
               </div>
               <div className="mt-2 flex items-center gap-3">
                 <WaypointNumber w={next} label={labelOf.get(next.id) ?? ''} />
-                <div className="font-display min-w-0 flex-1 truncate text-[1.625rem] leading-tight text-ink-900 sm:text-[1.875rem]">{next.name}</div>
+                <div className="font-display min-w-0 flex-1 truncate text-[length:var(--text-h2)] leading-tight text-ink-900">{next.name}</div>
                 {/* key：手动选的出行方式不带到下一站 */}
                 <NavigateMenu
                   key={next.id}
@@ -884,15 +890,15 @@ export default function TravelModePage() {
             </div>
           )}
 
-          {/* 主操作：整个面板里唯一的实心按钮 */}
+          {/* 主操作：整个面板里唯一的实心按钮——主题的 accent 按钮（每页最重要的一个动作），底色与字色对比 ≥ 4.5 */}
           <div className={cn(next || plannedTotal > 0 ? 'mt-4 border-t border-ink-200 pt-4' : 'pt-1')}>
             <button
               type="button"
               disabled={checking}
               onClick={startCheckin}
-              className="flex h-14 w-full items-center justify-center gap-2.5 rounded-full bg-brand-400 text-[15.5px] font-medium tracking-[0.06em] text-white transition-colors duration-300 hover:bg-brand-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-900 active:bg-brand-300 disabled:opacity-60"
+              className={buttonClass({ variant: 'accent', size: 'lg', block: true, className: 'h-14 gap-2.5 text-[15.5px] tracking-[0.06em]' })}
             >
-              {checking ? <Spinner className="text-white" /> : <MapPinPlus className="size-5" strokeWidth={1.5} />}
+              {checking ? <Spinner className="text-current" /> : <MapPinPlus className="size-5" strokeWidth={1.5} />}
               我到了，打卡
             </button>
           </div>
@@ -959,7 +965,7 @@ export default function TravelModePage() {
                     <p className="eyebrow">Nearby · 推荐</p>
                     {rec?.ai_used && <span className="eyebrow">AI</span>}
                   </div>
-                  <h3 className="font-display mt-2 text-[1.5rem] font-normal">推荐下一站</h3>
+                  <h3 className="font-display mt-2 text-[length:var(--text-card)] font-normal">推荐下一站</h3>
                   {recLoading ? (
                     <div className="flex items-center gap-2 py-6 text-[13px] text-ink-500">
                       <Spinner className="size-4" />

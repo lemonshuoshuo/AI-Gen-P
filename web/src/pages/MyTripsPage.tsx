@@ -13,14 +13,14 @@ import { flattenPages } from '@/lib/pages'
 
 type TripInvite = { trip: TripCard; from: UserBrief; created_at: string }
 
-/** 邀请行里的小封面：有照片用照片，没有时是近黑底上的宋体城市名 */
+/** 邀请行里的小封面：有照片用照片，没有时是强调色淡底纹上的题字城市名（与旅程卡片的排版封面一致） */
 function MiniCover({ trip }: { trip: TripCard }) {
   return (
-    <div className="relative aspect-[4/5] w-14 shrink-0 overflow-hidden bg-surface text-ink-900 sm:w-16">
+    <div className="relative aspect-[4/5] w-14 shrink-0 overflow-hidden rounded-lg bg-brand-50 text-brand-700 sm:w-16">
       {trip.cover_url ? (
         <img src={trip.cover_thumb_url || trip.cover_url} alt="" loading="lazy" className="size-full object-cover" />
       ) : (
-        <span className="font-display absolute bottom-2 left-2 text-[1.35rem] leading-none">{cityShort(trip.cities?.[0] ?? '').slice(0, 2) || '旅'}</span>
+        <span className="font-display absolute bottom-2 left-2 text-[1.125rem] leading-none">{cityShort(trip.cities?.[0] ?? '').slice(0, 2) || '旅'}</span>
       )}
     </div>
   )
@@ -43,7 +43,7 @@ function InviteRow({ inv }: { inv: TripInvite }) {
     <li className="flex items-center gap-4 py-5 sm:gap-6">
       <MiniCover trip={inv.trip} />
       <div className="min-w-0 flex-1">
-        <Link to={`/trips/${inv.trip.id}`} className="font-display line-clamp-1 text-[1.3rem] text-ink-900 transition-colors hover:text-ink-600 md:text-[1.5rem]">
+        <Link to={`/trips/${inv.trip.id}`} className="font-display line-clamp-1 text-[length:var(--text-card)] text-ink-900 transition-colors hover:text-ink-600">
           {inv.trip.title}
         </Link>
         <div className="caption mt-1.5 flex items-center gap-2">
@@ -109,7 +109,7 @@ export default function MyTripsPage() {
       {spaceInvites && spaceInvites.length > 0 && (
         <Link
           to="/spaces"
-          className="group mt-14 flex min-h-12 items-center gap-3 border-y border-ink-200 py-3 text-sm text-ink-700 md:mt-20"
+          className="group mt-10 flex min-h-12 items-center gap-3 border-y border-ink-200 py-3 text-sm text-ink-700 md:mt-14"
         >
           <Heart className="size-4 shrink-0 text-pink-500" strokeWidth={1.5} />
           <span className="min-w-0 flex-1 truncate">
@@ -123,7 +123,7 @@ export default function MyTripsPage() {
       {partnerInvites.length > 0 && (
         <Link
           to="/together"
-          className="group mt-14 flex min-h-12 items-center gap-3 border-y border-ink-200 py-3 text-sm text-ink-700 md:mt-20"
+          className="group mt-10 flex min-h-12 items-center gap-3 border-y border-ink-200 py-3 text-sm text-ink-700 md:mt-14"
         >
           <Heart className="size-4 shrink-0 text-pink-500" strokeWidth={1.5} />
           <span className="min-w-0 flex-1 truncate">
@@ -134,7 +134,7 @@ export default function MyTripsPage() {
       )}
 
       {tripInvites.length > 0 && (
-        <section className="mt-14 md:mt-20" aria-labelledby="invites-title">
+        <section className="mt-10 md:mt-14" aria-labelledby="invites-title">
           <LabelRow id="invites-title" label="Invitations · 待处理的邀请" count={tripInvites.length} />
           <ul className="max-w-4xl divide-y divide-ink-200 border-b border-ink-200">
             {tripInvites.map((inv) => (
@@ -144,7 +144,7 @@ export default function MyTripsPage() {
         </section>
       )}
 
-      <div className="mt-16 flex flex-col gap-1 border-t border-ink-200 pt-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-10 md:mt-24">
+      <div className="mt-12 flex flex-col gap-1 border-t border-ink-200 pt-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-10 md:mt-16">
         <FilterLinks<Phase | ''>
           label="阶段"
           value={phase}
@@ -162,7 +162,7 @@ export default function MyTripsPage() {
         />
       </div>
 
-      <div className="mt-10 md:mt-14">
+      <div className="mt-8 md:mt-10">
         {q.isLoading ? (
           <TripGridSkeleton />
         ) : q.isLoadingError ? (

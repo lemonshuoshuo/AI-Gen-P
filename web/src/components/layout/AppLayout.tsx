@@ -174,7 +174,7 @@ function BellLink() {
     >
       <Bell className="size-[18px]" strokeWidth={1.4} />
       {!!unread && (
-        <span className="absolute top-1 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-400 px-1 text-[9.5px] font-medium text-white tabular-nums">
+        <span className="absolute top-1 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-fill px-1 text-[9.5px] font-semibold text-on-brand tabular-nums ring-2 ring-paper">
           {unread > 99 ? '99+' : unread}
         </span>
       )}

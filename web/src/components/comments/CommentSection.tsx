@@ -120,12 +120,12 @@ export function CommentSection({ tripId, placeId, count, onCountChange, waypoint
             </button>
           )}
           {!c.deleted && c.author.id !== user?.id && (
-            <button type="button" className="inline-flex h-10 items-center px-1 transition-colors hover:text-brand-600 md:h-8" onClick={() => requireAuth(() => setReporting(c.id))}>
+            <button type="button" className="inline-flex h-10 items-center px-1 transition-colors hover:text-red-600 md:h-8" onClick={() => requireAuth(() => setReporting(c.id))}>
               举报
             </button>
           )}
           {c.can_delete && !c.deleted && (
-            <button type="button" className="inline-flex size-10 items-center justify-center transition-colors hover:text-brand-600 md:size-8" onClick={() => remove(c)} aria-label="删除" title="删除">
+            <button type="button" className="inline-flex size-10 items-center justify-center transition-colors hover:text-red-600 md:size-8" onClick={() => remove(c)} aria-label="删除" title="删除">
               <Trash2 className="size-3.5" strokeWidth={1.25} />
             </button>
           )}

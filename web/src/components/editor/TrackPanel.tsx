@@ -93,16 +93,12 @@ export function TrackPanel({ trip }: { trip: TripDetail }) {
               <div className="grid grid-cols-2 divide-x divide-ink-200 border-b border-ink-200 pb-6">
                 <div className="pr-5">
                   <p className="eyebrow">Distance · 轨迹里程</p>
-                  <span className="font-num mt-4 inline-block text-[3.5rem] leading-[0.85] font-light tracking-tight text-ink-900">
-                    {km.split(' ')[0]}
-                  </span>
+                  <span className="font-num text-num mt-3 inline-block tracking-tight text-ink-900">{km.split(' ')[0]}</span>
                   <span className="ml-1.5 text-xs text-ink-500">{km.split(' ')[1]}</span>
                 </div>
                 <div className="pl-5">
                   <p className="eyebrow">Points · 轨迹点</p>
-                  <span className="font-num mt-4 inline-block text-[3.5rem] leading-[0.85] font-light tracking-tight text-ink-900">
-                    {t.point_count.toLocaleString()}
-                  </span>
+                  <span className="font-num text-num mt-3 inline-block tracking-tight text-ink-900">{t.point_count.toLocaleString()}</span>
                 </div>
               </div>
               {t.started_at && (
@@ -112,7 +108,7 @@ export function TrackPanel({ trip }: { trip: TripDetail }) {
               )}
             </>
           ) : (
-            <p className="font-display text-[19px] leading-[1.6] text-ink-600">
+            <p className="font-display text-[length:var(--text-card)] leading-[1.6] text-ink-600">
               还没有 GPS 轨迹。出发后旅行模式会自动记录，也可以导入运动手表或户外 App 导出的 GPX 文件。
             </p>
           )}

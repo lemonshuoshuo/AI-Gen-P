@@ -48,6 +48,11 @@ function CreateSpaceForm({ onClose, initialType, invitee }: { onClose: () => voi
   // 每人只能在一个情侣空间里
   const couple = spaces.data?.find((s) => s.type === 'couple')
   const [type, setType] = useState<SpaceType>(initialType && !(initialType === 'couple' && couple) ? initialType : couple ? 'friends' : 'couple')
+  // 空间列表晚于弹窗到达（直接打开 /spaces?new=1 时）：已经在情侣空间里就不能再选「情侣」，
+  // 换成「朋友」——选中的类型不能是那个灰掉、点不了的选项
+  useEffect(() => {
+    if (couple && type === 'couple') setType('friends')
+  }, [couple, type])
   const [label, setLabel] = useState('')
   const [name, setName] = useState('')
   const [desc, setDesc] = useState('')

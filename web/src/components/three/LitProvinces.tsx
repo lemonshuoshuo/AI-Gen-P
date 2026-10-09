@@ -6,14 +6,15 @@ import { useMap } from '@/components/map/BaseMap'
 import { fc, removeLayers, upsertSource } from '@/components/map/layers'
 import { AUTO_DAY_ZOOM } from '@/components/map/style'
 import { loadAtlas, loadPrefectures } from '@/lib/atlas'
+import { useLitPalette, type LitPalette, type LitTheme } from './palette'
 
-export type LitTheme = 'sunset' | 'love'
+export type { LitPalette, LitTheme } from './palette'
 
 /**
  * 足迹地图按缩放分三档（阈值以约 1000px 宽的地图为准，见 zoomShift）：
  * - 全国（< region）：去过的省份立体拔高（高度有上限），城市光柱立在省份顶面上；
  * - 省级（region – city）：省份压平淡出，点亮去过的地级市（半透明面 + 细边）和城市小光柱；
- * - 城市 / 街巷（≥ city）：底图转为石墨色、镜头倾斜成 2.5D，显示旅程路线和照片 / 印章标记。
+ * - 城市 / 街巷（≥ city）：底图过渡到当前模式的底图（浅色模式是纸色地图）、镜头倾斜成 2.5D，显示旅程路线和照片 / 印章标记。
  * 过渡全部用 MapLibre 的缩放插值完成，缩放时不需要重建图层。
  */
 export const STAGE_ZOOM = { region: 5.5, city: 8.5 }
@@ -29,7 +30,7 @@ export function zoomShift(width: number, height = width) {
 }
 export const stageOf = (z: number, shift = 0): Stage =>
   z < STAGE_ZOOM.region + shift ? 'country' : z < STAGE_ZOOM.city + shift ? 'region' : 'city'
-/** 夜色 → 石墨色的过渡区间（与 setAutoDayZoom 一起用） */
+/** 夜色 → 当前模式底图的过渡区间（与 setAutoDayZoom 一起用） */
 export const dayWindow = (shift = 0): [number, number] => [AUTO_DAY_ZOOM[0] + shift, AUTO_DAY_ZOOM[1] + shift]
 
 /** 省份拔高（米）：按打卡数的平方根增长，30–120 km；不按「最多的省」归一化，只去过一个省也只是一块矮台 */
@@ -44,47 +45,11 @@ export const columnHeight = (count: number) => Math.round(60_000 + 180_000 * Mat
 /** 省级视图下城市小光柱的高度（米） */
 export const smallColumnHeight = (count: number) => Math.round(5_000 + 17_000 * Math.sqrt(Math.min(count, 40) / 40))
 
-export interface LitPalette {
-  /** 去过的省份 / 城市：打卡少 → 多 */
-  low: string
-  high: string
-  /** 夜色下去过的省界 */
-  line: string
-  /** 光柱 */
-  column: string
-  /** 路线：夜色（金）/ 城市级石墨底图（朱砂或胭脂） */
-  routeNight: string
-  routeDay: string
-  /** 选中、强调 */
-  accent: string
-}
-
-// 「夜航」：去过的省份是石墨色的石刻（打卡越多越亮，最亮也只到中灰，约 50% 明度），象牙白细线勾出省界；
-// 城市光柱是金色、顶端一圈象牙白的细帽；城市级的实际路线是朱砂。
-// 情侣空间的地面与足迹页相同（不做粉色大色块），胭脂色只留在光柱、路线和强调色上
-const STONE = { low: '#3b3833', high: '#8c8474', line: '#e9dcbc' }
-export const litPalettes: Record<LitTheme, LitPalette> = {
-  sunset: {
-    ...STONE,
-    column: '#e2c27a',
-    routeNight: '#d8bc7e',
-    routeDay: '#de7c5d',
-    accent: '#cf6041',
-  },
-  love: {
-    ...STONE,
-    column: '#d58f9f',
-    routeNight: '#e0b6c0',
-    routeDay: '#cf8a9b',
-    accent: '#c47488',
-  },
-}
-/** 光柱顶端的细帽（象牙白），让金色光柱在石墨色的省份上立得住 */
-const COLUMN_CAP = '#f6ecd2'
-
-/** 没去过的地方：夜色下为青灰细线，放大到城市级（石墨底图）后为暖灰细线 */
-const IDLE_NIGHT = 'rgb(150,185,185)'
-const IDLE_DAY = 'rgb(122,117,106)'
+/*
+ * 配色全部来自主题令牌（见 ./palette）：夜色里用当前主题深色模式的令牌——去过的省份是石刻色（打卡越多越亮，
+ * 带一点主题的路线色），象牙白细线勾出省界，城市光柱是主题的路线色（手帐砖橙、山野松绿、晴海海蓝、暮色腮红、夜航金色），
+ * 顶端一圈象牙白的细帽；「我们」的光柱与路线是胭脂色。放大到城市级后，边界与路线换成当前模式底图上的路线色。
+ */
 
 const Z = ['zoom'] as unknown as number
 const lit = ['>', ['get', 'count'], 0] as ExpressionSpecification
@@ -157,7 +122,7 @@ export function LitProvinces({
   const map = useMap()
   const { data: atlas } = useQuery({ queryKey: ['atlas'], queryFn: loadAtlas, staleTime: Infinity })
   const P = idPrefix
-  const pal = litPalettes[theme]
+  const pal = useLitPalette(theme)
 
   useEffect(() => {
     if (!map || !atlas) return
@@ -174,12 +139,12 @@ export function LitProvinces({
 
     // 平面填充：没去过的省份一层极淡的底色；去过的省份在拔高部分淡出后（省级视图）留一层淡淡的颜色
     setOrAdd(map, { id: `${P}-fill`, type: 'fill', source: `${P}-prov` }, {
-      'fill-color': ['case', lit, color, IDLE_NIGHT],
+      'fill-color': ['case', lit, color, pal.idle],
       'fill-opacity': ['interpolate', ['linear'], Z, z(4.8), ['case', lit, 0, 0.05], z(6.2), ['case', lit, 0.05, 0.04], D0, ['case', lit, 0.04, 0.03], D1, 0],
     }, before)
-    // 省界：夜色下为青灰细线（去过的为象牙白），城市级为暖灰细线
+    // 省界：夜色下为冷灰细线（去过的为象牙白），城市级为底图上的细线（去过的为路线色）
     setOrAdd(map, { id: `${P}-line`, type: 'line', source: `${P}-prov` }, {
-      'line-color': ['interpolate', ['linear'], Z, D0, ['case', lit, pal.line, IDLE_NIGHT], D1, ['case', lit, pal.routeDay, IDLE_DAY]],
+      'line-color': ['interpolate', ['linear'], Z, D0, ['case', lit, pal.line, pal.idle], D1, ['case', lit, pal.routeDay, pal.idleDay]],
       'line-opacity': ['interpolate', ['linear'], Z, z(3), ['case', lit, 0.85, 0.26], D0, ['case', lit, 0.7, 0.3], D1, ['case', lit, 0.35, 0.18]],
       'line-width': ['interpolate', ['linear'], Z, 3, ['case', lit, 1, 0.5], 8, ['case', lit, 1.4, 0.8]],
     }, before)
@@ -240,12 +205,12 @@ export function LitProvinces({
       'fill-extrusion-height': ['interpolate', ['linear'], Z, z(4.6), ['get', 'cap'], z(6.0), 0],
     }, before)
     setOrAdd(map, { id: `${P}-col-l-cap`, type: 'fill-extrusion', source: `${P}-col-l` }, {
-      'fill-extrusion-color': COLUMN_CAP,
+      'fill-extrusion-color': pal.cap,
       'fill-extrusion-opacity': bigOpacity,
       'fill-extrusion-base': ['interpolate', ['linear'], Z, z(4.6), ['get', 'cap'], z(6.0), 0],
       'fill-extrusion-height': ['interpolate', ['linear'], Z, z(4.6), ['get', 'top'], z(6.0), 0],
     }, before)
-    // 进入石墨色过渡带（AUTO_DAY_ZOOM）之前就收起，城市级画面里不留残影
+    // 进入夜色 → 底图的过渡带（AUTO_DAY_ZOOM）之前就收起，城市级画面里不留残影
     const smallOpacity = ['interpolate', ['linear'], Z, z(5.3), 0, z(6.0), 0.92, z(7.6), 0.92, z(8.15), 0]
     setOrAdd(map, { id: `${P}-col-s`, type: 'fill-extrusion', source: `${P}-col-s` }, {
       'fill-extrusion-color': pal.column,
@@ -254,7 +219,7 @@ export function LitProvinces({
       'fill-extrusion-height': ['interpolate', ['linear'], Z, z(5.3), 0, z(6.2), ['get', 'cap'], z(7.6), ['get', 'cap'], z(8.2), 0],
     }, before)
     setOrAdd(map, { id: `${P}-col-s-cap`, type: 'fill-extrusion', source: `${P}-col-s` }, {
-      'fill-extrusion-color': COLUMN_CAP,
+      'fill-extrusion-color': pal.cap,
       'fill-extrusion-opacity': smallOpacity,
       'fill-extrusion-base': ['interpolate', ['linear'], Z, z(5.3), 0, z(6.2), ['get', 'cap'], z(7.6), ['get', 'cap'], z(8.2), 0],
       'fill-extrusion-height': ['interpolate', ['linear'], Z, z(5.3), 0, z(6.2), ['get', 'top'], z(7.6), ['get', 'top'], z(8.2), 0],
@@ -294,7 +259,7 @@ export function LitPrefectures({
 }) {
   const map = useMap()
   const P = idPrefix
-  const pal = litPalettes[theme]
+  const pal = useLitPalette(theme)
   const provinces = useMemo(() => [...new Set(cities.map((c) => c.code.slice(0, 2) + '0000'))].sort(), [cities])
   const { data: prefs } = useQuery({
     queryKey: ['atlas-prefectures', provinces.join()],
@@ -329,7 +294,7 @@ export function LitPrefectures({
       'line-opacity': ['interpolate', ['linear'], Z, z(5.0), 0, z(6.0), 0.28, D0, 0.22, D1, 0],
     }, before)
     setOrAdd(map, { id: `${P}-pref-line`, type: 'line', source: `${P}-pref` }, {
-      'line-color': ['interpolate', ['linear'], Z, D0, ['case', lit, pal.line, IDLE_NIGHT], D1, ['case', lit, pal.routeDay, IDLE_DAY]],
+      'line-color': ['interpolate', ['linear'], Z, D0, ['case', lit, pal.line, pal.idle], D1, ['case', lit, pal.routeDay, pal.idleDay]],
       'line-opacity': ['interpolate', ['linear'], Z, z(5.0), 0, z(6.0), ['case', lit, 0.9, 0.22], D1, ['case', lit, 0.55, 0.14], z(12), ['case', lit, 0.3, 0.08]],
       'line-width': ['interpolate', ['linear'], Z, 6, ['case', lit, 1.1, 0.5], 10, ['case', lit, 1.6, 0.7]],
     }, before)

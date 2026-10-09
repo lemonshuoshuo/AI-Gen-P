@@ -143,7 +143,8 @@ export function WaypointForm({
             <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="体验如何">
               {(Object.keys(verdicts) as Exclude<Verdict, ''>[]).map((v) => {
                 const on = f.verdict === v
-                const c = verdicts[v].color
+                const vd = verdicts[v]
+                // 与上面的状态 chip 同一套形状（th-chip）；选中是评价色实心 + 勾（600 档底 + 纸色字，深浅色下都 ≥ 5:1）
                 return (
                   <button
                     key={v}
@@ -151,15 +152,10 @@ export function WaypointForm({
                     role="radio"
                     aria-checked={on}
                     onClick={() => set('verdict', on ? '' : v)}
-                    className={cn(
-                      'inline-flex h-10 items-center gap-2 rounded-full border px-4 text-[13.5px] tracking-wide transition-colors duration-300',
-                      on && 'border-[1.5px]',
-                      on ? 'font-medium' : 'border-ink-200 text-ink-500 hover:border-ink-500 hover:text-ink-900',
-                    )}
-                    style={on ? { color: c, borderColor: c + '99', background: c + '14' } : undefined}
+                    className={cn('th-chip h-10 gap-2 px-4 text-[13.5px] tracking-wide', on && cn(vd.solid, 'font-semibold'))}
                   >
-                    {on ? <Check className="size-3.5" strokeWidth={2.5} /> : <span className="text-[11px] leading-none">{verdicts[v].mark}</span>}
-                    {verdicts[v].label}
+                    {on ? <Check className="size-3.5" strokeWidth={2.5} /> : <span className={cn('text-[11px] leading-none', vd.text)}>{vd.mark}</span>}
+                    {vd.label}
                   </button>
                 )
               })}

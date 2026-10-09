@@ -31,7 +31,7 @@ export default function FavoritesPage() {
           )
         }
       />
-      <div className="mt-16 md:mt-24">
+      <div className="mt-12 md:mt-16">
         {q.isLoading ? (
           <TripGridSkeleton />
         ) : q.isLoadingError ? (

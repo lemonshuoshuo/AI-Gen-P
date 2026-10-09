@@ -41,14 +41,14 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
     <div className="animate-slide-up [animation-delay:180ms] [animation-fill-mode:backwards]">
       <LabelRow
         label="Last 14 days · 近 14 天"
-        extra={<TextTabs label="指标" value={metric} onChange={setMetric} options={metrics} className="-mr-2" />}
+        extra={<TextTabs label="指标" value={metric} onChange={setMetric} options={metrics} className="-mr-3 ml-0" />}
       />
 
       <div className="mt-8 flex flex-wrap items-end justify-between gap-x-10 gap-y-4 md:mt-12">
         <h2 className="text-display-md font-normal">{label}</h2>
         <p className="flex items-baseline gap-3">
           <span className="text-[13px] text-ink-500">合计</span>
-          <span className="font-num text-[3.5rem] leading-[0.85] font-light text-ink-900 md:text-[4.5rem]">{total}</span>
+          <span className="font-num text-num text-ink-900">{total}</span>
         </p>
       </div>
 
@@ -90,8 +90,8 @@ export function TrendChart({ trend }: { trend: AdminStats['trend'] }) {
                     <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-ink-200 opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus-visible:opacity-100" />
                     <div
                       className={cn(
-                        'relative w-[3px] transition-colors duration-300 sm:w-1',
-                        isToday ? 'bg-brand-500' : 'bg-ink-700 group-hover:bg-ink-900 group-focus-visible:bg-ink-900',
+                        'relative w-1 rounded-t-[2px] transition-colors duration-300 sm:w-1.5',
+                        isToday ? 'bg-brand-600' : 'bg-ink-700 group-hover:bg-ink-900 group-focus-visible:bg-ink-900',
                       )}
                       style={{ height: `${h}%`, minHeight: v > 0 ? 2 : 0 }}
                     />

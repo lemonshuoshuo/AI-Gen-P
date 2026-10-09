@@ -50,7 +50,7 @@ function Badge({ n, unit, prefix }: { n: number | string; unit: string; prefix?:
 const monoAvatar = '!bg-surface-2 ring-1 ring-inset ring-ink-300 !text-ink-800'
 
 /**
- * 目录（Exemplar 的字体样张式）：左栏西文小标签，中间超大宋体，右侧灰色补充 + 箭头，行间细线。
+ * 目录（Exemplar 的字体样张式）：左栏西文小标签，中间卡片标题字号（text-card）的名称，右侧灰色补充 + 箭头，行间细线。
  * 悬停只改颜色，不位移。
  */
 function Directory({ label, items, start = 0 }: { label: string; items: LinkItem[]; start?: number }) {
@@ -62,7 +62,7 @@ function Directory({ label, items, start = 0 }: { label: string; items: LinkItem
           <li key={it.to} className="border-b border-ink-200">
             <Link
               to={it.to}
-              className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 py-5 md:grid-cols-12 md:gap-x-8 md:py-7"
+              className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 py-4 md:grid-cols-12 md:gap-x-8 md:py-5"
             >
               <span className="col-span-2 flex items-baseline gap-3 max-md:mb-1.5 md:col-span-4">
                 <span className="font-num text-[13px] text-ink-400 transition-colors duration-300 group-hover:text-ink-900">
@@ -71,7 +71,7 @@ function Directory({ label, items, start = 0 }: { label: string; items: LinkItem
                 <span className="eyebrow transition-colors duration-300 group-hover:!text-ink-700">{it.en}</span>
               </span>
               <span className="min-w-0 md:col-span-5">
-                <span className="font-display block text-[1.875rem] leading-[1.1] text-ink-800 transition-colors duration-300 group-hover:text-ink-900 md:text-[2.75rem]">
+                <span className="font-display block text-[length:var(--text-card)] leading-snug text-ink-900 transition-colors duration-300 group-hover:text-brand-700">
                   {it.label}
                 </span>
                 {it.extra && <span className="mt-2 block text-[13px] text-ink-500 md:hidden">{it.extra}</span>}
@@ -79,8 +79,8 @@ function Directory({ label, items, start = 0 }: { label: string; items: LinkItem
               <span className="flex items-center justify-end gap-6 md:col-span-3">
                 {it.extra && <span className="hidden min-w-0 truncate text-[13px] text-ink-500 md:inline">{it.extra}</span>}
                 <ArrowRight
-                  className="size-5 shrink-0 text-ink-300 transition-colors duration-300 group-hover:text-ink-900"
-                  strokeWidth={1.25}
+                  className="size-4 shrink-0 text-ink-400 transition-colors duration-300 group-hover:text-ink-900"
+                  strokeWidth={1.5}
                 />
               </span>
             </Link>
@@ -120,9 +120,6 @@ export default function MePage() {
   const defaultSpace = spaces?.find((s) => s.is_default)
   const stats = profile.data?.stats
   const name = user.nickname || user.username
-  // 名字够短时手机上也用更大的字号，让名字始终是页面唯一的焦点：中文按 1、西文按 0.55 个字宽估算
-  const nameWidth = [...name].reduce((w, ch) => w + ((ch.codePointAt(0) ?? 0) < 0x250 ? 0.55 : 1), 0)
-  const nameCls = nameWidth <= 4.5 ? 'max-sm:text-[4.75rem]' : nameWidth <= 5.8 ? 'max-sm:text-[3.75rem]' : undefined
 
   const main: LinkItem[] = [
     { to: `/u/${user.username}`, label: '我的主页', en: 'Profile' },
@@ -169,7 +166,7 @@ export default function MePage() {
 
   return (
     <div className="mx-auto max-w-[90rem] px-4 pt-10 pb-24 [font-variant-numeric:lining-nums] md:px-8 md:pt-20 md:pb-32">
-      {/* 刊头：细线标签行 + 超大宋体名字；右栏头像与说明文字对 */}
+      {/* 刊头：细线标签行 + 名字（页面 H1，text-display-lg）；右栏头像与说明文字对 */}
       <header className="animate-slide-up">
         <LabelRow
           label="Traveler · 旅人"
@@ -180,10 +177,8 @@ export default function MePage() {
             </span>
           }
         />
-        <div className="mt-10 grid gap-x-8 gap-y-10 md:mt-16 lg:grid-cols-12 lg:items-end">
-          <h1 className={cn('text-display-xl min-w-0 font-normal break-words lg:col-span-8', nameCls)}>
-            {name}
-          </h1>
+        <div className="mt-8 grid gap-x-8 gap-y-8 md:mt-12 lg:grid-cols-12 lg:items-end">
+          <h1 className="text-display-lg min-w-0 font-normal break-words lg:col-span-8">{name}</h1>
           <div className="flex items-center gap-5 lg:col-span-4 lg:col-start-9 lg:pb-3">
             <Avatar user={user} size={56} className={monoAvatar} />
             <div className="min-w-0 flex-1">
@@ -203,8 +198,8 @@ export default function MePage() {
         </div>
       </header>
 
-      {/* 数据：大号细字 Cormorant 数字，竖细线分隔；大屏左侧三分之一是标签栏，数字从与设置页、通知页同一条竖线起排 */}
-      <section className="animate-slide-up mt-16 [animation-delay:80ms] [animation-fill-mode:backwards] md:mt-28" aria-label="数据">
+      {/* 数据：主题的大数字（font-num text-num），竖细线分隔；大屏左侧三分之一是标签栏，数字从与设置页、通知页同一条竖线起排 */}
+      <section className="animate-slide-up mt-14 [animation-delay:80ms] [animation-fill-mode:backwards] md:mt-20" aria-label="数据">
         <div className="grid border-t border-ink-200 lg:grid-cols-12 lg:gap-x-8 lg:border-b">
           <div className="hidden pt-5 lg:col-span-4 lg:block">
             <p className="eyebrow">Numbers · 数据</p>
@@ -216,7 +211,7 @@ export default function MePage() {
                 key={label}
                 to={`/u/${user.username}`}
                 className={cn(
-                  'group min-w-0 border-b border-ink-200 pt-5 pb-7 md:pt-6 md:pb-10 lg:border-b-0',
+                  'group min-w-0 border-b border-ink-200 pt-5 pb-6 md:pt-6 md:pb-8 lg:border-b-0',
                   i % 2 === 1 && 'border-l pl-5 md:pl-8',
                   i === 2 && 'md:border-l md:pl-8',
                 )}
@@ -224,7 +219,7 @@ export default function MePage() {
                 <p className="eyebrow">
                   {en} · {label}
                 </p>
-                <p className="font-num mt-6 text-[2.75rem] leading-none font-light text-ink-900 transition-colors duration-300 group-hover:text-ink-700 md:mt-10 md:text-[5.5rem]">
+                <p className="font-num text-num mt-4 text-ink-900 transition-colors duration-300 group-hover:text-brand-700 md:mt-6">
                   {v == null ? '–' : fmtCount(v)}
                 </p>
               </Link>
@@ -237,7 +232,7 @@ export default function MePage() {
           <div className="lg:col-span-4">
             <p className="eyebrow">Level · 等级</p>
             <p className="mt-3 flex items-baseline gap-3">
-              <span className="font-num text-[2.5rem] leading-none font-light text-ink-900">{user.exp}</span>
+              <span className="font-num text-[length:var(--text-h2)] leading-none text-ink-900">{user.exp}</span>
               <span className="text-[13px] text-ink-500">
                 {nextExp ? (
                   <>
@@ -251,16 +246,16 @@ export default function MePage() {
           </div>
           <div className="lg:col-span-8 lg:pb-2">
             <div
-              className="relative h-px bg-ink-300"
+              className="relative h-1 rounded-full bg-ink-200"
               role="progressbar"
               aria-label="升级进度"
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={Math.round(progress * 100)}
             >
-              <div className="absolute inset-y-0 left-0 bg-ink-900" style={{ width: `${progress * 100}%` }} />
+              <div className="absolute inset-y-0 left-0 rounded-full bg-brand-600" style={{ width: `${progress * 100}%` }} />
               <span
-                className="absolute top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-500 ring-4 ring-paper"
+                className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-600 ring-4 ring-paper"
                 style={{ left: `${progress * 100}%` }}
                 aria-hidden
               />
@@ -285,7 +280,7 @@ export default function MePage() {
         </div>
       </section>
 
-      <div className="mt-20 space-y-16 md:mt-32 md:space-y-24">
+      <div className="mt-16 space-y-14 md:mt-24 md:space-y-20">
         <Directory label="Journal · 旅行" items={main} />
         <Directory label="Account · 账户" items={more} start={main.length} />
       </div>

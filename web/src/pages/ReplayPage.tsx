@@ -48,7 +48,7 @@ type RGB = [number, number, number]
 
 /** deck.gl 图层的颜色（从设计令牌解析：随主题变化） */
 interface Palette {
-  /** 强调色：轨迹、光晕（夜色里是金色，「我们」是玫瑰色） */
+  /** 强调色：轨迹、光晕（主题的路线色，「我们」是胭脂色） */
   accent: RGB
   /** 轨迹主线：强调色略提亮 */
   line: RGB
@@ -534,7 +534,7 @@ function footprintsToReplay(fp: Footprints) {
         lng: c[0],
         lat: c[1],
         name: pt?.name ?? t.title,
-        color: pt ? categoryOf(pt.category).color : '#9d4a5f',
+        color: categoryOf(pt?.category).color,
         sub: pt ? [pt.city, fmtDate(pt.date)].filter(Boolean).join(' · ') : undefined,
         tag: t.title,
         photo: pt?.photo_thumb_url || (i === 0 ? t.cover_thumb_url || t.cover_url || undefined : undefined),
@@ -668,13 +668,13 @@ function LegCaption({ leg, next, plan, accent }: { leg: ReplayLeg; next?: Placed
   )
 }
 
-/** 结束卡片上的统计：大号细字数字 + 小单位 */
+/** 结束卡片上的统计：主题的大数字档（text-num）+ 小单位 */
 function Stat({ label, value, unit, className }: { label: string; value: string | number; unit: string; className?: string }) {
   return (
     <div className={cn('pt-4', className)}>
       <div className="text-xs text-ink-500">{label}</div>
       <div className="mt-2.5 flex items-baseline justify-center gap-1">
-        <span className="font-num text-[2rem] leading-[0.9] font-light text-ink-900 sm:text-[2.5rem]">{value}</span>
+        <span className="font-num text-num text-ink-900">{value}</span>
         <span className="text-xs text-ink-500">{unit}</span>
       </div>
     </div>
@@ -749,7 +749,7 @@ export default function ReplayPage() {
     [spaceId, spaceMembers, together, me, partner, trip],
   )
   const togetherTitle = (spaceId != null ? spaceQ.data?.name : partnerQ.data?.title) || '我们一起走过的地方'
-  const accent = together ? ACCENTS.love : ACCENTS.gold
+  const accent = together ? ACCENTS.love : ACCENTS.route
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null)
   const [palette, setPalette] = useState<Palette>(FALLBACK)
   // 令牌在强制深色的容器上解析（提交到 DOM 之后再读，主题切换时重新读）
@@ -796,7 +796,7 @@ export default function ReplayPage() {
   const loading = together ? fpQ.isLoading : tripQ.isLoading || (!plan && trip?.has_track && trackQ.isLoading)
   if (loading)
     return (
-      <div {...scope} className="bg-night min-h-dvh">
+      <div {...scope} className="bg-night min-h-dvh text-ink-900">
         <PageLoader label={plan ? '正在准备路线预览…' : '正在准备 3D 回放…'} />
       </div>
     )
@@ -820,36 +820,41 @@ export default function ReplayPage() {
   // 旅程已加载、还在等高德算路线：先把地图和片名放出来
   const waiting = !data && !together && !!trip && !legsSnap && !err
   // 后台刷新失败时继续播放已加载的数据，404 说明旅程已删除或不再可见
+  // 出错、没有路线时也留在夜色里（与加载中的画面一致，不会闪一下浅色页面）
   if ((!data && !waiting) || isNotFound(err))
     return (
-      <LoadError
-        className="min-h-dvh"
-        error={err}
-        title="无法回放"
-        desc={err ? undefined : '请检查网络连接'}
-        notFoundTitle={together ? '空间不存在，或你已不在其中' : '旅程不存在或无权查看'}
-        onRetry={() => (together ? fpQ.refetch() : tripQ.error ? tripQ.refetch() : trackQ.refetch())}
-        back={
-          <Link to={isNotFound(err) ? (together ? '/spaces' : '/') : backTo} className={buttonClass({ variant: 'outline' })}>
-            返回
-          </Link>
-        }
-      />
+      <div {...scope} className="bg-night min-h-dvh text-ink-900">
+        <LoadError
+          className="min-h-dvh"
+          error={err}
+          title="无法回放"
+          desc={err ? undefined : '请检查网络连接'}
+          notFoundTitle={together ? '空间不存在，或你已不在其中' : '旅程不存在或无权查看'}
+          onRetry={() => (together ? fpQ.refetch() : tripQ.error ? tripQ.refetch() : trackQ.refetch())}
+          back={
+            <Link to={isNotFound(err) ? (together ? '/spaces' : '/') : backTo} className={buttonClass({ variant: 'outline' })}>
+              返回
+            </Link>
+          }
+        />
+      </div>
     )
   if (data && !data.model.stops.length && data.model.coords.length < 3)
     return (
-      <Empty
-        className="min-h-dvh"
-        title={together ? '还没有一起的足迹' : plan ? '还没有计划的地点' : '这段旅程还没有路线'}
-        desc={
-          together ? '新建旅程时在「和谁一起」里选这个空间，打卡后就能回放' : plan ? '在编辑页添加地点后，再来预览路线' : '添加打卡点或记录轨迹后再来回放'
-        }
-        action={
-          <Link to={backTo} onClick={goBack} className={buttonClass({ variant: 'outline' })}>
-            返回
-          </Link>
-        }
-      />
+      <div {...scope} className="bg-night min-h-dvh text-ink-900">
+        <Empty
+          className="min-h-dvh"
+          title={together ? '还没有一起的足迹' : plan ? '还没有计划的地点' : '这段旅程还没有路线'}
+          desc={
+            together ? '新建旅程时在「和谁一起」里选这个空间，打卡后就能回放' : plan ? '在编辑页添加地点后，再来预览路线' : '添加打卡点或记录轨迹后再来回放'
+          }
+          action={
+            <Link to={backTo} onClick={goBack} className={buttonClass({ variant: 'outline' })}>
+              返回
+            </Link>
+          }
+        />
+      </div>
     )
 
   const model = data?.model

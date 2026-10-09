@@ -1,8 +1,8 @@
-import { Fragment, useEffect, useEffectEvent, useState, type ReactNode } from 'react'
+import { useEffect, useEffectEvent, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { Ellipsis, Search, X } from 'lucide-react'
 import type { Paged, UserBrief } from '@/api'
-import { Button, IconButton, Input, Menu } from '@/components/ui'
+import { Button, IconButton, Input, Menu, selectedClass } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { fmtBytes } from '@/lib/format'
 
@@ -116,7 +116,10 @@ export function LabelRow({
   )
 }
 
-/** 文字筛选：「待处理 / 已处理 / 全部」，当前项象牙白细下划线 */
+/**
+ * 文字筛选：「待处理 / 已处理 / 全部」。主题的 Tab 语言（selectedClass 'filter'）：
+ * 下划线主题 2px 强调色下划线 + 600 字重，山野 / 暮色实心胶囊；未选中 ink-500
+ */
 export function TextTabs<T extends string>({
   value,
   onChange,
@@ -132,39 +135,28 @@ export function TextTabs<T extends string>({
   className?: string
 }) {
   return (
-    <div role="group" aria-label={label} className={cn('-mx-2 flex flex-wrap items-center text-[13.5px]', className)}>
-      {options.map((o, i) => (
-        <Fragment key={o.value || '_all'}>
-          {i > 0 && (
-            <span aria-hidden className="text-ink-300">
-              /
-            </span>
-          )}
-          <button
-            type="button"
-            aria-pressed={value === o.value}
-            onClick={() => onChange(o.value)}
-            className={cn(
-              'inline-flex h-10 items-center px-2 tracking-wide whitespace-nowrap transition-colors duration-300',
-              value === o.value
-                ? 'text-ink-900 underline decoration-ink-900 decoration-1 underline-offset-[7px]'
-                : 'text-ink-400 hover:text-ink-900',
-            )}
-          >
-            {o.label}
-          </button>
-        </Fragment>
+    <div role="group" aria-label={label} className={cn('-mx-3 flex flex-wrap items-center gap-x-1 text-[13.5px]', className)}>
+      {options.map((o) => (
+        <button
+          key={o.value || '_all'}
+          type="button"
+          aria-pressed={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={selectedClass(value === o.value, 'filter', 'inline-flex h-10 items-center px-3 whitespace-nowrap md:h-8')}
+        >
+          {o.label}
+        </button>
       ))}
     </div>
   )
 }
 
-/** 大号细字数字：Cormorant Light */
+/** 数字：主题的数字字体（等高、等宽），字重由主题决定；字号由调用方给 */
 export const Num = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <span className={cn('font-num font-light text-ink-900', className)}>{children}</span>
+  <span className={cn('font-num text-ink-900', className)}>{children}</span>
 )
 
-/** 各管理页的页头：细线标签行，下面大号宋体标题 + 一句灰色说明；右侧放操作 */
+/** 各管理页的页头：细线标签行，下面页面 H1（text-display-lg，手机 28–30px）+ 一句灰色说明；右侧放操作 */
 export function PanelHeader({
   eyebrow,
   title,
@@ -177,12 +169,12 @@ export function PanelHeader({
   extra?: ReactNode
 }) {
   return (
-    <header className="animate-slide-up mb-12 md:mb-16">
+    <header className="animate-slide-up mb-10 md:mb-12">
       {eyebrow && <LabelRow label={eyebrow} />}
-      <div className="mt-8 flex flex-wrap items-end justify-between gap-x-10 gap-y-6 md:mt-12">
+      <div className="mt-6 flex flex-wrap items-end justify-between gap-x-10 gap-y-5 md:mt-8">
         <div className="min-w-0">
-          <h1 className="text-display-lg font-normal max-sm:text-[2.75rem]">{title}</h1>
-          {desc && <p className="mt-4 max-w-xl text-[14px] leading-[1.8] text-ink-500">{desc}</p>}
+          <h1 className="text-display-lg font-normal">{title}</h1>
+          {desc && <p className="mt-3 max-w-xl text-[14px] leading-[1.8] text-ink-500">{desc}</p>}
         </div>
         {extra && <div className="md:pb-1">{extra}</div>}
       </div>
@@ -237,7 +229,7 @@ export function ActionButton({
       icon={icon}
       disabled={disabled}
       onClick={onClick}
-      className={cn('max-lg:h-10 lg:size-9 lg:px-0 [&_svg]:stroke-[1.5]', danger && 'text-ink-500 hover:bg-transparent hover:text-brand-600', className)}
+      className={cn('max-lg:h-10 lg:size-9 lg:px-0 [&_svg]:stroke-[1.5]', danger && 'text-ink-500 hover:bg-transparent hover:text-red-600', className)}
     >
       <span className="lg:hidden">{label}</span>
     </Button>

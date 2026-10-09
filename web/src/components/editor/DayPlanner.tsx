@@ -18,7 +18,7 @@ import { ArrowDown, ArrowUp, Bed, Crosshair, GripVertical, Heart, Loader2, MoreH
 import type { GeoSearchItem, Phase, TripDetail, TripLeg, Waypoint, WaypointInput } from '@/api'
 import { PlaceStatsBadge, WaypointNumber } from '@/components/trip/WaypointItem'
 import { dayTone, isLodging, legBetween, legIndex, type DayPlan, type PlanGroups } from '@/components/trip/plan'
-import { Button, CategoryChip, Modal, Select, VerdictBadge, confirmDialog } from '@/components/ui'
+import { Button, CategoryChip, Modal, OptionGroup, Select, VerdictBadge, confirmDialog, selectedClass } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { dayjs, fmtMinutes } from '@/lib/format'
 import { formatDistance } from '@/lib/geo'
@@ -223,14 +223,18 @@ function StopRow({
       ref={setNodeRef}
       id={`wp-${w.id}`}
       style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={cn(
-        'relative scroll-mt-[calc(3.75rem+38vh+0.75rem)] transition-colors duration-300 md:scroll-mt-3',
-        selected || editing ? 'bg-surface' : 'hover:bg-surface/60',
-        isDragging && 'z-10 bg-surface-2 shadow-float',
-        busy && 'opacity-55',
+      // 选中：主题的列表行选中态（强调色底纹 + 左侧亮条或圆点 + 标题 600）；只在编辑、没选中时铺浅底
+      className={selectedClass(
+        selected,
+        'row',
+        cn(
+          'scroll-mt-[calc(3.75rem+38vh+0.75rem)] transition-colors duration-300 md:scroll-mt-3',
+          !selected && (editing ? 'bg-surface' : 'hover:bg-surface/60'),
+          isDragging && 'z-10 bg-surface-2 shadow-float',
+          busy && 'opacity-55',
+        ),
       )}
     >
-      <span aria-hidden className={cn('absolute inset-y-0 left-0 w-0.5 bg-brand-500 transition-opacity', selected ? 'opacity-100' : 'opacity-0')} />
       <div className="flex items-center gap-2 py-2.5 pr-1.5 pl-1 md:pr-3 md:pl-3">
         <button
           type="button"
@@ -257,7 +261,7 @@ function StopRow({
         <button type="button" onClick={onSelect} aria-pressed={selected} className="min-w-0 flex-1 pl-1 text-left">
           <span
             className={cn(
-              'font-display block truncate text-[16.5px] leading-snug text-ink-900',
+              'th-sel-title font-display block truncate text-[16.5px] leading-snug text-ink-900',
               w.status === 'skipped' && 'text-ink-400 line-through decoration-ink-300 decoration-1',
             )}
           >
@@ -311,7 +315,7 @@ function StopRow({
           </button>
           <button
             type="button"
-            className={cn(iconBtn, 'hidden hover:text-brand-600 md:flex')}
+            className={cn(iconBtn, 'hidden hover:text-red-600 md:flex')}
             disabled={busy}
             onClick={onDelete}
             aria-label={`删除「${w.name || '未命名地点'}」`}
@@ -710,9 +714,9 @@ export function RoutePlanner(props: RoutePlannerProps) {
 
   const arrangeCta = (compact?: boolean) =>
     groups.pool.some((w) => w.planned) && (
-      <div className={cn('rounded-lg border border-brand-300 bg-brand-50', compact ? 'px-4 py-3' : 'p-4')}>
+      <div className={cn('rounded-card border border-brand-300 bg-brand-50', compact ? 'px-4 py-3' : 'p-4')}>
         <div className="flex items-center gap-3">
-          <Sparkles className="size-5 shrink-0 text-brand-500" strokeWidth={1.5} />
+          <Sparkles className="size-5 shrink-0 text-brand-600" strokeWidth={1.5} />
           <div className="min-w-0 flex-1">
             <p className="text-[14.5px] font-medium text-ink-900">一键排好路线</p>
             <p className="mt-0.5 text-[12px] leading-relaxed text-ink-600">
@@ -764,7 +768,7 @@ export function RoutePlanner(props: RoutePlannerProps) {
   /** 某一天里：从「想去」挑几个加进来 */
   const poolPicks = (day: number) =>
     groups.pool.length > 0 && (
-      <section className="rounded-lg border border-ink-200 px-4 py-3">
+      <section className="rounded-card border border-line px-4 py-3">
         <p className="flex items-baseline gap-2 text-[12.5px] text-ink-500">
           <Heart className="size-3.5 translate-y-[2px]" strokeWidth={1.5} />从「{pName}」里挑，加到第 {day} 天
         </p>
@@ -777,7 +781,7 @@ export function RoutePlanner(props: RoutePlannerProps) {
                 type="button"
                 disabled={editor.isBusy(w.id)}
                 onClick={() => void editor.moveToDay(w, day)}
-                className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full border border-ink-200 px-3 text-[12px] text-ink-800 transition-colors hover:border-brand-500 hover:text-ink-900 disabled:opacity-40"
+                className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full border border-ink-200 px-3 text-[12px] text-ink-800 transition-colors hover:border-brand-600 hover:text-ink-900 disabled:opacity-40"
               >
                 <Plus className="size-3.5" strokeWidth={1.5} />
                 加到这天
@@ -824,24 +828,22 @@ export function RoutePlanner(props: RoutePlannerProps) {
           type="button"
           onClick={() => onPick({ kind: 'stop', day: target })}
           aria-pressed={picking}
-          className={cn(
-            'inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[12px] transition-colors',
-            picking ? 'border-brand-500 bg-brand-100 text-ink-900' : 'border-ink-200 text-ink-700 hover:border-ink-500 hover:text-ink-900',
-          )}
+          // 按下时是主题的实心 chip：一眼看出正在地图上点选
+          className={selectedClass(picking, 'chip', 'h-8 gap-1.5 px-3 text-[12px]')}
         >
           <Crosshair className="size-3.5" strokeWidth={1.5} />
           {picking ? '正在地图上点选…' : '在地图上点选'}
         </button>
         {onAddAs && (
           // 搜索添加和地图点选都按这里的选择；「记为已打卡」立即保存
-          <div role="radiogroup" aria-label="新加的点" className="ml-auto flex gap-1.5">
+          <OptionGroup label="新加的点" className="ml-auto flex gap-1.5">
             <ChoiceChip size="sm" role="radio" selected={addAs === 'plan'} onClick={() => onAddAs('plan')}>
               加入计划
             </ChoiceChip>
             <ChoiceChip size="sm" role="radio" selected={addAs === 'visited'} onClick={() => onAddAs('visited')}>
               记为已打卡
             </ChoiceChip>
-          </div>
+          </OptionGroup>
         )}
       </div>
     </div>
@@ -876,7 +878,7 @@ export function RoutePlanner(props: RoutePlannerProps) {
             {groups.dayCount > 0 && arrangeCta(true)}
             {groups.dayCount > 0 && !groups.pool.some((w) => w.planned) && groups.days.reduce((n, d) => n + d.stops.length, 0) >= 3 && (
               <p className="flex flex-wrap items-center gap-x-2 text-[12.5px] text-ink-500">
-                <Sparkles className="size-3.5 text-brand-500" strokeWidth={1.5} />
+                <Sparkles className="size-3.5 text-brand-600" strokeWidth={1.5} />
                 顺序不满意？
                 <button
                   type="button"

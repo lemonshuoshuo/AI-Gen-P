@@ -1,7 +1,8 @@
-// 「夜航」版式积木：细线区块头、页头、文字筛选、注记、细线邮戳、滚动淡入
-// 只给发现 / 社区相关页面用，样式全部取自 index.css 的令牌
+// 版式积木：细线区块头、页头、文字筛选、注记、细线邮戳、滚动淡入
+// 只给发现 / 社区相关页面用，样式全部取自主题令牌（字号档、选中态见 docs/DESIGN.md）
 import { useEffect, useId, useRef, useState, type CSSProperties, type ElementType, type ReactNode } from 'react'
 import { Link } from 'react-router'
+import { buttonClass, selectedClass } from '@/components/ui'
 import { cn } from '@/lib/cn'
 
 /* ---------------- 细线标签行：一条 border-t，下面左侧 eyebrow + 灰色计数，右侧操作 ---------------- */
@@ -31,7 +32,7 @@ export function LabelRow({
   )
 }
 
-/* ---------------- 页头：细线标签行 + 大号宋体 H1，右侧一句导语和操作 ---------------- */
+/* ---------------- 页头：细线标签行 + 页面 H1（text-display-lg，手机 28–30px），右侧一句导语和操作 ---------------- */
 export function PageHead({
   eyebrow,
   title,
@@ -51,11 +52,11 @@ export function PageHead({
   return (
     <header className={cn('animate-slide-up', className)}>
       {eyebrow && <LabelRow label={eyebrow} extra={meta && <span className="font-num text-[13px] text-ink-400">{meta}</span>} />}
-      <div className="mt-10 grid gap-x-8 gap-y-6 md:mt-16 lg:grid-cols-12 lg:items-end">
-        <h1 className="text-display-lg font-normal [font-variant-numeric:lining-nums] max-sm:text-[3.25rem] lg:col-span-7">{title}</h1>
+      <div className="mt-8 grid gap-x-8 gap-y-5 md:mt-12 lg:grid-cols-12 lg:items-end">
+        <h1 className="text-display-lg font-normal [font-variant-numeric:lining-nums] lg:col-span-7">{title}</h1>
         {(dek || actions) && (
-          <div className="flex flex-col items-start gap-6 lg:col-span-4 lg:col-start-9 lg:pb-3">
-            {dek && <p className="max-w-sm text-[14.5px] leading-[1.8] text-pretty text-ink-500">{dek}</p>}
+          <div className="flex flex-col items-start gap-5 lg:col-span-4 lg:col-start-9 lg:pb-1">
+            {dek && <p className="max-w-sm text-[14px] leading-[1.8] text-pretty text-ink-500">{dek}</p>}
             {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
           </div>
         )}
@@ -94,13 +95,15 @@ export function SectionHead({
   )
 }
 
-/* ---------------- 文字筛选：「全部 / 游记 / 路线攻略」，当前项象牙白下划线 ---------------- */
+/*
+ * 文字筛选：「全部 / 游记 / 路线攻略」「热门 / 高分 / 避雷榜」。用主题的 Tab 语言（selectedClass 'filter'）：
+ * 手帐 / 晴海 / 夜航是 ink-900 + 600 字重 + 2px 强调色下划线，山野 / 暮色是实心胶囊；未选中 ink-500，不靠「变灰」表达选中
+ */
 export function FilterLinks<T extends string>({
   value,
   onChange,
   options,
   label,
-  separator = true,
   className,
 }: {
   value: T
@@ -108,41 +111,29 @@ export function FilterLinks<T extends string>({
   options: { value: T; label: ReactNode }[]
   /** 组名：显示为 eyebrow，同时作为读屏的分组名称 */
   label?: string
-  /** 选项之间的斜线；false 时只用间距分隔（选项多、会折行时） */
+  /** @deprecated 不再显示斜线分隔（选项之间只用间距），保留以兼容旧的调用 */
   separator?: boolean
   className?: string
 }) {
   return (
-    <div role="group" aria-label={label} className={cn('flex flex-wrap items-center text-[13.5px]', !separator && 'gap-x-3', className)}>
+    <div role="group" aria-label={label} className={cn('flex flex-wrap items-center gap-x-1 gap-y-1 text-[13.5px]', className)}>
       {label && (
         <span aria-hidden className="eyebrow mr-2">
           {label}
         </span>
       )}
-      {options.map((o, i) => {
+      {options.map((o) => {
         const active = o.value === value
         return (
-          // 斜线和它后面的选项是一个整体：折行时斜线只会出现在行首，不会孤零零挂在行尾
-          <span key={o.value || '_all'} className="inline-flex items-center">
-            {separator && i > 0 && (
-              <span aria-hidden className="text-ink-300">
-                /
-              </span>
-            )}
-            <button
-              type="button"
-              aria-pressed={active}
-              onClick={() => onChange(o.value)}
-              className={cn(
-                'inline-flex h-10 items-center rounded-sm px-2 whitespace-nowrap tracking-wide transition-colors duration-300 md:h-8',
-                active
-                  ? 'text-ink-900 underline decoration-ink-900 decoration-1 underline-offset-[7px]'
-                  : 'text-ink-400 hover:text-ink-900',
-              )}
-            >
-              {o.label}
-            </button>
-          </span>
+          <button
+            key={o.value || '_all'}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(o.value)}
+            className={selectedClass(active, 'filter', 'inline-flex h-10 items-center px-3 whitespace-nowrap md:h-8')}
+          >
+            {o.label}
+          </button>
         )
       })}
     </div>
@@ -189,9 +180,10 @@ export function TextLink({ to, children, className }: { to: string; children: Re
 }
 
 /* ---------------- 注记：左侧一条细线的说明文字（代替彩色底的提示框） ---------------- */
+// caution 是「踩雷 / 避雷」的提醒：用踩雷的红色（强调色在山野是绿、晴海是蓝，不能表达警示）
 const noteTone = {
   ink: 'border-ink-400 text-ink-600',
-  caution: 'border-brand-500 text-ink-700',
+  caution: 'border-red-500 text-ink-700',
   amber: 'border-amber-500 text-ink-700',
 }
 export function Note({
@@ -208,7 +200,7 @@ export function Note({
   return (
     <div className={cn('border-l py-1 pl-4 text-[13.5px] leading-relaxed', noteTone[tone], className)}>
       {label && (
-        <span className={cn('eyebrow mr-2', tone === 'caution' ? '!text-brand-600' : tone === 'amber' && '!text-amber-600')}>
+        <span className={cn('eyebrow mr-2', tone === 'caution' ? '!text-red-600' : tone === 'amber' && '!text-amber-600')}>
           {label}
         </span>
       )}
@@ -373,16 +365,11 @@ export function MoreButton({
 }) {
   return (
     <div className={cn('flex items-center gap-5 pt-16', className)}>
-      <span className="h-px flex-1 bg-ink-200" />
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={loading}
-        className="inline-flex h-10 items-center gap-2 rounded-full border border-ink-900/20 px-6 text-[13px] tracking-[0.08em] text-ink-800 transition-colors duration-300 hover:border-ink-900/60 hover:text-ink-900 disabled:opacity-50"
-      >
+      <span className="h-px flex-1 bg-line" />
+      <button type="button" onClick={onClick} disabled={loading} className={buttonClass({ variant: 'outline', className: 'px-6 tracking-[0.06em]' })}>
         {loading ? '加载中…' : children}
       </button>
-      <span className="h-px flex-1 bg-ink-200" />
+      <span className="h-px flex-1 bg-line" />
     </div>
   )
 }

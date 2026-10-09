@@ -151,7 +151,7 @@ function ReportItem({ r, onHandle }: { r: Report; onHandle: (s: 'resolved' | 're
       </div>
 
       <div className="min-w-0 xl:col-span-9">
-        <p className="font-display text-[1.375rem] leading-[1.4] break-words text-ink-900 md:text-[1.75rem]">{r.reason}</p>
+        <p className="font-display text-[length:var(--text-card)] leading-[1.45] break-words text-ink-900">{r.reason}</p>
 
         {/* 被举报内容：左侧细线引文 */}
         <div className="mt-5 flex items-start gap-4 border-l border-ink-300 py-1 pl-4">
@@ -242,7 +242,7 @@ export function ReportsPanel() {
         <div className="animate-fade-in border-y border-ink-200 py-14 md:py-20">
           <p className="text-display-md font-normal text-ink-900">{f.status === 'pending' ? '社区一切正常。' : '暂无举报记录。'}</p>
           <p className="caption mt-4">
-            {f.status === 'pending' ? '没有待处理的举报；有新举报时，导航里会出现一粒朱砂小点。' : '这里会列出处理过的举报与备注。'}
+            {f.status === 'pending' ? '没有待处理的举报；有新举报时，导航里会出现一粒小圆点。' : '这里会列出处理过的举报与备注。'}
           </p>
         </div>
       ) : (

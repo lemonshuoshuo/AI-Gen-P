@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { Bed, Copy, Crosshair, Loader2, PenLine, Plus, RefreshCw, Search, X } from 'lucide-react'
 import type { GeoSearchItem, Waypoint } from '@/api'
 import { dayTone, type PlanGroups } from '@/components/trip/plan'
+import { selectedClass } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { PlaceSearch, type PickSource } from './PlaceSearch'
 import { Stepper } from './Choice'
@@ -65,19 +66,23 @@ export function LodgingRow({
   return (
     <div
       id={`wp-${w.id}`}
-      className={cn(
-        // 手机上地图吸顶：滚到这一行时停在地图下面
-        'relative flex scroll-mt-[calc(3.75rem+38vh+0.75rem)] items-center gap-3 py-3 pr-2 pl-[2.75rem] transition-colors duration-300 md:scroll-mt-3 md:pr-4 md:pl-[3.25rem]',
-        selected ? 'bg-surface' : 'hover:bg-surface/60',
-        busy && 'opacity-60',
-        className,
+      // 选中：主题的列表行选中态（强调色底纹 + 左侧亮条或圆点 + 标题 600），与游玩点一致
+      className={selectedClass(
+        !!selected,
+        'row',
+        cn(
+          // 手机上地图吸顶：滚到这一行时停在地图下面
+          'flex scroll-mt-[calc(3.75rem+38vh+0.75rem)] items-center gap-3 py-3 pr-2 pl-[2.75rem] transition-colors duration-300 md:scroll-mt-3 md:pr-4 md:pl-[3.25rem]',
+          !selected && 'hover:bg-surface/60',
+          busy && 'opacity-60',
+          className,
+        ),
       )}
     >
-      <span aria-hidden className={cn('absolute inset-y-0 left-0 w-0.5 bg-brand-500 transition-opacity', selected ? 'opacity-100' : 'opacity-0')} />
       <BedMark night={night} />
       <button type="button" onClick={onSelect} className="min-w-0 flex-1 text-left" aria-pressed={selected}>
         <span className="eyebrow block !text-[10px] !leading-4">{caption}</span>
-        <span className="font-display block truncate text-[16px] leading-snug text-ink-900">{w.name || '住宿'}</span>
+        <span className="th-sel-title font-display block truncate text-[16px] leading-snug text-ink-900">{w.name || '住宿'}</span>
         {(w.district || w.address) && <span className="block truncate text-[11.5px] text-ink-500">{[w.district, w.address].filter(Boolean).join(' · ')}</span>}
       </button>
       {actions}
@@ -271,7 +276,12 @@ export function LodgingSlot({
               同前一晚<span className="max-w-[9em] truncate text-ink-500">· {prev.name}</span>
             </button>
           )}
-          <button type="button" className={cn(quiet, picking && 'border-brand-500 text-ink-900')} onClick={() => onPickOnMap(night)} aria-pressed={picking}>
+          <button
+            type="button"
+            className={picking ? selectedClass(true, 'chip', 'h-8 gap-1.5 px-3 text-[12px]') : quiet}
+            onClick={() => onPickOnMap(night)}
+            aria-pressed={picking}
+          >
             <Crosshair className="size-3.5" strokeWidth={1.5} />
             {picking ? '正在地图上选…' : '地图上选'}
           </button>

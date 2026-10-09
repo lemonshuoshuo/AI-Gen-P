@@ -53,7 +53,7 @@ function Epigraph({ className, compact }: { className?: string; compact?: boolea
         <p
           className={cn(
             "font-normal [font-feature-settings:'halt']",
-            compact ? 'font-display text-[2.25rem] leading-[1.18] text-ink-900' : 'text-display-lg',
+            compact ? 'font-display text-[length:var(--text-h2)] leading-[1.3] text-ink-900' : 'text-display-lg',
           )}
         >
           世界是一本书，
@@ -63,7 +63,7 @@ function Epigraph({ className, compact }: { className?: string; compact?: boolea
           只读了其中一页。
         </p>
       </blockquote>
-      <figcaption className={cn('flex items-center gap-4', compact ? 'mt-5' : 'mt-8')}>
+      <figcaption className={cn('flex items-center gap-4', compact ? 'mt-4' : 'mt-8')}>
         <span className="h-px w-10 bg-ink-400" />
         <span>
           <span className="block text-[13px] text-ink-900">圣奥古斯丁</span>
@@ -93,9 +93,9 @@ function Frontispiece({ siteName }: { siteName: string }) {
             key={h.title}
             className={cn('flex gap-4 py-5', i % 2 === 0 ? 'border-r border-ink-200 pr-5' : 'pl-6', i < 2 && 'border-b border-ink-200')}
           >
-            <span className="font-num text-[1.75rem] leading-none font-light text-ink-400">{String(i + 1).padStart(2, '0')}</span>
+            <span className="font-num text-[length:var(--text-h2)] leading-none text-ink-400">{String(i + 1).padStart(2, '0')}</span>
             <span className="min-w-0">
-              <span className="font-display block text-[1.15rem] leading-tight text-ink-900">{h.title}</span>
+              <span className="font-display block text-[length:var(--text-card)] leading-tight text-ink-900">{h.title}</span>
               <span className="caption mt-1 block">{h.desc}</span>
             </span>
           </li>
@@ -159,7 +159,7 @@ export default function LoginPage() {
 
       <main className="flex flex-1 flex-col px-4 pt-6 pb-8 sm:px-10 lg:overflow-y-auto lg:pt-8 lg:pb-6">
         <Logo className="lg:hidden" />
-        <Epigraph compact className="animate-slide-up mt-14 mb-4 sm:mx-auto sm:w-full sm:max-w-[26rem] lg:hidden" />
+        <Epigraph compact className="animate-slide-up mt-10 mb-2 sm:mx-auto sm:w-full sm:max-w-[26rem] lg:hidden" />
         <div className="animate-slide-up m-auto w-full max-w-[26rem] py-12 lg:py-6">
           <p className="eyebrow border-t border-ink-200 pt-3 !text-ink-800">{isRegister ? 'Join · 注册' : 'Sign in · 登录'}</p>
           <h1 className={cn('text-display-md font-normal', isRegister ? 'mt-7' : 'mt-10')}>{isRegister ? '开一本新的旅行手账' : '欢迎回来'}</h1>

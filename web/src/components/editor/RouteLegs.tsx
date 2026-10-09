@@ -8,7 +8,7 @@ import { cn } from '@/lib/cn'
 import { fmtMinutes } from '@/lib/format'
 import { formatDistance, haversine } from '@/lib/geo'
 import { bySeq } from '@/lib/trip'
-import { ChoiceChip } from './Choice'
+import { ChoiceChip, OptionGroup } from './Choice'
 
 /** 旅程偏好的出行方式（trip.travel_mode） */
 export const travelModes: { value: TravelMode; label: string; icon: LucideIcon; hint: string }[] = [
@@ -101,7 +101,7 @@ export function TravelModePicker({
   className?: string
 }) {
   return (
-    <div role="radiogroup" aria-label="出行方式" className={cn('flex flex-wrap gap-1.5', className)}>
+    <OptionGroup label="出行方式" className={cn('flex flex-wrap gap-1.5', className)}>
       {travelModes.map((m) => (
         <ChoiceChip
           key={m.value}
@@ -116,7 +116,7 @@ export function TravelModePicker({
           {m.label}
         </ChoiceChip>
       ))}
-    </div>
+    </OptionGroup>
   )
 }
 

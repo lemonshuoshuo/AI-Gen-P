@@ -140,7 +140,7 @@ export function RemoteNotice({
 }) {
   const text = by?.id === meId ? '你在其他页面或设备上保存了修改' : by ? `${who(by)} 刚刚保存了修改` : '有人刚刚保存了修改'
   return (
-    <div role="status" className="animate-fade-in flex items-center gap-3 rounded-md border border-brand-300 bg-brand-50 py-2 pr-2 pl-3.5 text-[13px] text-ink-900">
+    <div role="status" className="animate-fade-in flex items-center gap-3 rounded-card border border-brand-300 bg-brand-50 py-2 pr-2 pl-3.5 text-[13px] text-ink-900">
       {by ? <Avatar user={by} size={24} /> : <RefreshCw className="size-4 shrink-0 text-brand-600" strokeWidth={1.5} />}
       <p className="min-w-0 flex-1 leading-snug">
         {text}

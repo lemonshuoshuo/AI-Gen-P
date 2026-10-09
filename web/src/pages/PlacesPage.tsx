@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { api, type Category } from '@/api'
 import { EmptyNote, FilterLinks, LabelRow, MoreButton, Note, PageHead } from '@/components/editorial'
 import { PlaceRow } from '@/components/place/PlaceCard'
-import { LoadError } from '@/components/ui'
+import { ChoiceChip, LoadError, OptionGroup } from '@/components/ui'
 import { getCurrentPosition } from '@/lib/geo'
 import { categories, categoryList } from '@/lib/meta'
 import { flattenPages } from '@/lib/pages'
@@ -72,7 +72,7 @@ export default function PlacesPage() {
         dek="来自大家公开旅程的真实打卡：哪里值得去，哪里是坑，一看便知。"
       />
 
-      <div className="mt-14 grid gap-x-8 gap-y-12 md:mt-24 lg:grid-cols-12">
+      <div className="mt-12 grid gap-x-8 gap-y-12 md:mt-16 lg:grid-cols-12">
         {/* 左栏：搜索与筛选（宽屏吸顶） */}
         <aside className="min-w-0 lg:sticky lg:top-24 lg:col-span-4 lg:self-start">
           <form
@@ -89,7 +89,7 @@ export default function PlacesPage() {
               onChange={(e) => setKw(e.target.value)}
               placeholder="搜索店名、景点、城市"
               aria-label="搜索打卡地"
-              className="font-display h-14 min-w-0 flex-1 bg-transparent text-[1.35rem] text-ink-900 outline-none placeholder:text-ink-400 md:text-[1.5rem]"
+              className="font-display h-12 min-w-0 flex-1 bg-transparent text-[length:var(--text-card)] text-ink-900 outline-none placeholder:text-ink-400"
             />
             <button type="submit" className="h-10 shrink-0 text-[13px] tracking-[0.12em] text-ink-500 transition-colors hover:text-ink-900">
               搜索 →
@@ -99,7 +99,7 @@ export default function PlacesPage() {
           <div className="mt-10">
             <p className="eyebrow">Sort · 排序</p>
             <FilterLinks<Sort>
-              className="mt-2 -ml-2 text-[15px]"
+              className="mt-2 -ml-3 text-[14px]"
               value={sort}
               onChange={(v) => (v === 'nearby' ? locate() : set('sort', v))}
               options={[
@@ -121,32 +121,31 @@ export default function PlacesPage() {
 
           <div className="mt-8">
             <p className="eyebrow">Category · 分类</p>
-            {/* 与排序同一种写法：文字 + 当前项下划线，不用实心胶囊 */}
-            <FilterLinks<Category | ''>
-              className="mt-2 -ml-2 text-[15px]"
-              separator={false}
-              value={category as Category | ''}
-              onChange={(c) => set('category', c)}
-              options={(['', ...categoryList] as (Category | '')[]).map((c) => {
+            {/* 分类是带图标的筛选 chip：选中是主题的实心 chip + 勾（单选，方向键可切换） */}
+            <OptionGroup label="分类" className="mt-3 flex flex-wrap gap-1.5">
+              {(['', ...categoryList] as (Category | '')[]).map((c) => {
                 const Icon = c ? categories[c].icon : null
-                return {
-                  value: c,
-                  label: (
-                    <span className="inline-flex items-center gap-1.5">
-                      {Icon && <Icon className="size-3.5" strokeWidth={1.25} />}
-                      {c ? categories[c].label : '全部'}
-                    </span>
-                  ),
-                }
+                return (
+                  <ChoiceChip
+                    key={c || '_all'}
+                    role="radio"
+                    selected={category === c}
+                    onClick={() => set('category', c)}
+                    icon={Icon ? <Icon strokeWidth={1.5} aria-hidden /> : undefined}
+                    className="h-9 px-3.5"
+                  >
+                    {c ? categories[c].label : '全部'}
+                  </ChoiceChip>
+                )
               })}
-            />
+            </OptionGroup>
             {city && (
               <p className="mt-4 flex items-center gap-3">
                 <span className="eyebrow">City · 城市</span>
                 <button
                   type="button"
                   onClick={() => set('city', '')}
-                  className="inline-flex h-10 items-center gap-1.5 rounded-full border border-ink-900 px-4 text-[13px] text-ink-900 transition-colors duration-300 hover:border-ink-500 md:h-9"
+                  className="th-chip is-selected h-10 gap-1.5 px-4 md:h-9"
                   aria-label={`取消城市筛选：${city}`}
                 >
                   {city}
@@ -168,13 +167,13 @@ export default function PlacesPage() {
           <LabelRow
             label={`${sortTitle[sort]}${q ? ` · 「${q}」` : ''}`}
             count={places.length > 0 ? `${places.length}${total != null && total > places.length ? ` / ${total}` : ''}` : undefined}
-            className="border-ink-900/60"
+            className="border-ink-300"
           />
           {loading && (
             <div className="divide-y divide-ink-200" aria-busy="true" aria-label="加载中">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-5 py-7">
-                  <div className="h-10 w-12 animate-pulse rounded-sm bg-ink-100" />
+                <div key={i} className="flex items-center gap-5 py-6">
+                  <div className="h-7 w-9 animate-pulse rounded-sm bg-ink-100" />
                   <div className="flex-1 space-y-2.5">
                     <div className="h-5 w-2/5 animate-pulse rounded-sm bg-ink-100" />
                     <div className="h-3 w-3/5 animate-pulse rounded-sm bg-ink-100" />

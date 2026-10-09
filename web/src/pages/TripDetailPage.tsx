@@ -207,7 +207,7 @@ function CaptionPair({ top, bottom, onPhoto, className }: { top: ReactNode; bott
   )
 }
 
-/** 区块头（Exemplar 的样式）：一条细线，下面一行小字——左侧标签 + 灰色计数，右侧补充；再往下是大标题 */
+/** 区块头（Exemplar 的样式）：一条细线，下面一行小字——左侧标签 + 灰色计数，右侧补充；再往下是区块标题（text-display-md） */
 function SectionHead({
   eyebrow,
   count,
@@ -231,7 +231,7 @@ function SectionHead({
         {aside && <div className="caption shrink-0">{aside}</div>}
       </div>
       {title && (
-        <h2 id={id} className="text-display-lg mt-10 text-ink-900 md:mt-14">
+        <h2 id={id} className="text-display-md mt-8 text-ink-900 md:mt-10">
           {title}
         </h2>
       )}
@@ -239,7 +239,7 @@ function SectionHead({
   )
 }
 
-/** 大号统计：细字 Cormorant 数字 + 小号单位与标签，之间用竖细线分隔 */
+/** 大号统计：主题的大数字（font-num text-num）+ 小号单位与标签，之间用竖细线分隔 */
 function BigStat({
   label,
   value,
@@ -253,16 +253,16 @@ function BigStat({
   sub?: ReactNode
   className?: string
 }) {
-  // 「3,103 公里」这类长数字缩小一号，避免手机上单位被挤到下一行
+  // 「3,103 公里」这类长数字在手机上缩小一档，避免单位被挤到下一行
   const long = (typeof value === 'string' || typeof value === 'number') && String(value).length >= 5
   return (
-    <div className={cn('min-w-0 border-ink-200 py-6 pr-3 md:py-8 md:pr-6', className)}>
+    <div className={cn('min-w-0 border-ink-200 py-5 pr-3 md:py-7 md:pr-6', className)}>
       <p className="eyebrow">{label}</p>
-      <div className="mt-4 flex flex-wrap items-baseline gap-x-2 md:mt-5">
+      <div className="mt-3 flex flex-wrap items-baseline gap-x-2 md:mt-4">
         <span
           className={cn(
-            'font-num leading-[0.85] font-light tracking-[-0.01em] whitespace-nowrap text-ink-900',
-            long ? 'text-[2.25rem] sm:text-[2.75rem] lg:text-[3.25rem]' : 'text-[2.75rem] sm:text-[3.25rem] lg:text-[3.75rem]',
+            'font-num leading-none tracking-[-0.01em] whitespace-nowrap text-ink-900',
+            long ? 'text-[length:var(--text-h2)] sm:text-num' : 'text-num',
           )}
         >
           {value}
@@ -420,15 +420,14 @@ function Cover({ trip, onScroll }: { trip: TripDetail; onScroll: () => void }) {
       </section>
     )
 
-  // 没有照片：近黑 + 超大宋体地名 + 细线邮戳
+  // 没有照片：排版封面——强调色的题字地名（字号封顶在 hero 档）+ 细线邮戳
   const first = places[0]
   const last = places.length > 1 ? places[places.length - 1] : null
   const via = places.slice(1, -1)
-  // 按最长的地名定字号：两个字的城市在手机上也能撑满一行（约 165px），宽屏封顶
+  // 按最长的地名定字号：地名是封面上的题字（强调色），最大用首页 hero 的字号档（≤ 60px），手机上不超过屏宽的约 1/6
   const longest = Math.max(first?.length ?? 1, last?.length ?? 0)
   const gutter = 'var(--cover-gutter)'
-  // 地名是装饰：比以前小很多，手机上不超过屏宽的约 1/4
-  const nameSize = `min(${last ? '5.5rem' : '7rem'}, ${last ? '18vw' : '22vw'}, calc((100vw - ${gutter}) / ${longest} * 0.92))`
+  const nameSize = `min(var(--text-hero), 16vw, calc((100vw - ${gutter}) / ${longest} * 0.92))`
   const days = trip.days ? pad2(trip.days) : '—'
   const ring = `TripHub · ${dates || dayjs(trip.created_at).format('YYYY')} · ${phaseEyebrow[trip.phase]} · `
   return (
@@ -442,13 +441,13 @@ function Cover({ trip, onScroll }: { trip: TripDetail; onScroll: () => void }) {
           {first ? (
             <div
               aria-hidden
-              className="font-display animate-slide-up leading-[0.92] font-light tracking-[-0.02em] text-ink-900 [animation-fill-mode:backwards]"
+              className="font-display animate-slide-up leading-[1.05] tracking-[-0.01em] text-brand-700 [animation-fill-mode:backwards]"
               style={{ fontSize: nameSize }}
             >
               <p>{first}</p>
               {last && (
                 <>
-                  <div className="my-4 flex items-center gap-4 md:my-6 md:gap-6">
+                  <div className="my-3 flex items-center gap-4 md:my-4 md:gap-6">
                     <span className="h-px flex-1 bg-ink-300" />
                     {via.length > 0 && (
                       <span className="eyebrow max-w-[60%] shrink truncate !tracking-[0.2em]">via {via.join(' · ')}</span>
@@ -546,7 +545,7 @@ function Itinerary({
               <Reveal as="header" className="flex items-end gap-4 border-b border-ink-200 pb-4 md:gap-6 md:pb-5">
                 {day > 0 ? (
                   <>
-                    <span className="font-num text-[3rem] leading-[0.74] font-light tracking-[-0.02em] text-ink-900 md:text-[4rem]">{pad2(day)}</span>
+                    <span className="font-num text-[length:var(--text-h2)] leading-none text-ink-900">{pad2(day)}</span>
                     <div className="min-w-0 pb-0.5 text-[13px] leading-[1.45]">
                       <p className="truncate text-ink-900">
                         <span className={cn('mr-2 inline-block size-2 translate-y-[-1px] rounded-full', dayTone(day).bg)} aria-hidden />
@@ -566,7 +565,7 @@ function Itinerary({
                     </div>
                   </>
                 ) : (
-                  <span className="font-display text-[1.5rem] leading-none text-ink-700 md:text-[1.75rem]">
+                  <span className="font-display text-[length:var(--text-card)] leading-none text-ink-700">
                     {trip.phase === 'planning' ? '还没安排到某天' : '未分天'}
                   </span>
                 )}
@@ -935,7 +934,7 @@ function TripDetailView() {
                 </Link>
               ))}
             </div>
-            <p className="font-display mt-6 text-[22px] leading-[1.35] text-ink-900 md:text-[26px]">
+            <p className="font-display mt-5 text-[length:var(--text-card)] leading-[1.4] text-ink-900">
               {authors.map((u, i) => (
                 <span key={u.id}>
                   {i > 0 && <span className="mx-2 text-ink-400">&amp;</span>}
@@ -997,7 +996,7 @@ function TripDetailView() {
                     )}
                   </button>
                 )}
-                {trip.status === 'hidden' && <Tag className="border-brand-300 text-brand-600">已被管理员隐藏</Tag>}
+                {trip.status === 'hidden' && <Tag className="border-red-300 text-red-700">已被管理员隐藏</Tag>}
                 {trip.status === 'pending' && <Tag className="border-amber-300 text-amber-700">{tripStatuses.pending.label}</Tag>}
                 {trip.can_edit && trip.visibility !== 'public' && (
                   <button
@@ -1034,14 +1033,14 @@ function TripDetailView() {
           {/* 右：简介、路线一览、操作 */}
           <Reveal className="min-w-0 lg:col-span-7 lg:col-start-6" delay={80}>
             {trip.summary && (
-              <p className="font-display mb-10 text-[24px] leading-[1.55] text-ink-800 md:text-[32px] md:leading-[1.45]">
+              <p className="font-display mb-8 text-[1.1875rem] leading-[1.7] text-ink-800 md:text-[1.3125rem] md:leading-[1.65]">
                 {trip.summary}
               </p>
             )}
             {routeNames.length > 1 && (
               <div className="mb-10">
                 <p className="eyebrow">Route · 路线一览</p>
-                <p className="font-display mt-4 text-[19px] leading-[1.75] text-ink-600 md:text-[22px]">
+                <p className="font-display mt-3 text-[length:var(--text-card)] leading-[1.75] text-ink-600">
                   {routeNames.slice(0, ROUTE_MAX).map((n, i) => (
                     <span key={i}>
                       {i > 0 && <span className="mx-2 font-sans text-[0.7em] text-ink-400 md:mx-3">—</span>}
@@ -1233,7 +1232,7 @@ function TripDetailView() {
       <div className="mx-auto max-w-[90rem] lg:grid lg:grid-cols-12 lg:gap-x-8 lg:px-8">
         <div ref={mapBoxRef} className="scroll-mt-15 lg:col-span-5 lg:col-start-8 lg:row-start-1">
           <div className="lg:sticky lg:top-[5.25rem]">
-            <div className="relative overflow-hidden border-y border-ink-200 lg:rounded-sm lg:border-0 lg:ring-1 lg:ring-ink-200">
+            <div className="relative overflow-hidden border-y border-ink-200 lg:rounded-image lg:border-0 lg:ring-1 lg:ring-line">
               <BaseMap
                 className="h-[58svh] lg:h-[calc(100dvh-7rem)]"
                 kindSwitcher
@@ -1282,7 +1281,7 @@ function TripDetailView() {
                   )}
                   {segments.length > 0 && (
                     <span className="flex items-center gap-2">
-                      <span className="inline-block h-px w-5 bg-amber-500" />
+                      <span className="inline-block h-0.5 w-5 bg-[var(--route-track)]" />
                       GPS 轨迹
                     </span>
                   )}
@@ -1370,7 +1369,7 @@ function TripDetailView() {
                   <button
                     type="button"
                     onClick={() => openPhoto(p)}
-                    className={cn('group relative block w-full overflow-hidden bg-ink-100', layout.match(/aspect-\S+/)?.[0])}
+                    className={cn('group relative block w-full overflow-hidden rounded-image bg-ink-100', layout.match(/aspect-\S+/)?.[0])}
                     aria-label={more ? `还有 ${more} 张，查看全部` : p.caption || w?.name || '查看照片'}
                   >
                     <img
@@ -1380,7 +1379,7 @@ function TripDetailView() {
                       className="size-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03]"
                     />
                     {more > 0 && (
-                      <span className="font-num absolute inset-0 flex items-center justify-center bg-black/55 text-4xl font-light text-white">
+                      <span className="font-num text-num absolute inset-0 flex items-center justify-center bg-black/55 text-white">
                         +{more}
                       </span>
                     )}

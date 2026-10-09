@@ -1,13 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { LngLatBounds, Marker, type GeoJSONSource, type Map as MLMap } from 'maplibre-gl'
 import type { Feature, FeatureCollection, LineString } from 'geojson'
 import { Bike, Bus, Car, Footprints, type LucideIcon } from 'lucide-react'
 import type { LegMode, Waypoint } from '@/api/types'
 import { cn } from '@/lib/cn'
+import { cssColor } from '@/lib/color'
 import { haversine } from '@/lib/geo'
 import { categoryOf } from '@/lib/meta'
-import { useMap } from './BaseMap'
+import { onThemeChange } from '@/theme/runtime'
+import { BASE_KIND_EVENT, useMap } from './BaseMap'
+import { mapPalette, routeColors } from './style'
+
+// 旧的引入路径（ReplayPage 等）：颜色解析已移到 @/lib/color，地图以外也能用
+export { cssColor }
 
 type LngLat = [number, number]
 
@@ -47,7 +53,48 @@ export function removeLayers(map: MLMap, layers: string[], sources: string[] = [
   sources.forEach((s) => map.getSource(s) && map.removeSource(s))
 }
 
-/* ---------------- 路线：计划（黛青虚线）/ 实际（朱砂实线，夜间为金色）/ GPS 轨迹（赭黄） ---------------- */
+/* ---------------- 主题：WebGL 里的颜色要在主题变化后重新解析 ---------------- */
+
+/** 主题或深浅色变化时加一（'triphub:theme' 事件）：地图（WebGL）、画布上的颜色要按新主题重新解析 */
+export function useThemeVersion() {
+  const [v, setV] = useState(0)
+  useEffect(() => onThemeChange(() => setV((x) => x + 1)), [])
+  return v
+}
+
+/**
+ * 这张地图上的 WebGL 颜色要重新解析的时刻：换了主题 / 深浅色，或换了底图
+ * （夜色底图的容器是深色局部主题，令牌按容器读取）。放进画图层的 effect 依赖里
+ */
+export function useMapPaintKey(map: MLMap | null) {
+  const theme = useThemeVersion()
+  const [kind, setKind] = useState(0)
+  useEffect(() => {
+    if (!map) return
+    const el = map.getContainer()
+    const bump = () => setKind((x) => x + 1)
+    el.addEventListener(BASE_KIND_EVENT, bump)
+    return () => el.removeEventListener(BASE_KIND_EVENT, bump)
+  }, [map])
+  return `${theme}:${kind}`
+}
+
+/** 在地图容器上读设计令牌（夜色底图的容器是深色局部主题）→ WebGL 用的 rgba() */
+const mapColor = (map: MLMap, token: string, fallback?: string) => cssColor(token, fallback, map.getContainer())
+
+/* ---------------- 路线：实际（强调色实线，带纸色描边）/ 计划（计划色虚线）/ GPS 轨迹（主题的轨迹色） ---------------- */
+function routePaint(map: MLMap, dark?: boolean) {
+  // 夜色底图（3D 回放）：该主题夜色的路线色，任何模式下都一样
+  if (dark) return { ...routeColors('dark'), casing: mapPalette('dark').bg }
+  const r = routeColors()
+  return {
+    actual: mapColor(map, '--route-actual', r.actual),
+    planned: mapColor(map, '--route-planned', r.planned),
+    track: mapColor(map, '--route-track', r.track),
+    casing: mapColor(map, '--color-paper', mapPalette().bg),
+  }
+}
+
 export function RouteLines({
   planned,
   actual,
@@ -59,51 +106,54 @@ export function RouteLines({
   actual?: LngLat[]
   track?: LngLat[][]
   idPrefix?: string
+  /** 画在夜色底图上（用该主题的夜色路线色） */
   dark?: boolean
 }) {
   const map = useMap()
+  const paintKey = useMapPaintKey(map)
   useEffect(() => {
     if (!map) return
     const P = idPrefix
     upsertSource(map, `${P}-planned`, fc(planned && planned.length > 1 ? [lineFeature(planned)] : []))
-    upsertSource(map, `${P}-actual`, fc(actual && actual.length > 1 ? [lineFeature(actual)] : []), { lineMetrics: true })
+    upsertSource(map, `${P}-actual`, fc(actual && actual.length > 1 ? [lineFeature(actual)] : []))
     upsertSource(map, `${P}-track`, fc((track ?? []).filter((s) => s.length > 1).map((s) => lineFeature(s))))
     if (!map.getLayer(`${P}-planned`)) {
       map.addLayer({
         id: `${P}-planned`,
         type: 'line',
         source: `${P}-planned`,
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': dark ? '#88a8b0' : '#7aa1ab', 'line-width': 2, 'line-dasharray': [2, 2.2], 'line-opacity': 0.85 },
+        layout: { 'line-join': 'round' },
+        paint: { 'line-width': 2.5, 'line-dasharray': [1.2, 1.6], 'line-opacity': 0.9 },
       })
       map.addLayer({
         id: `${P}-track`,
         type: 'line',
         source: `${P}-track`,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#cfa35e', 'line-width': 2.5, 'line-opacity': 0.8 },
+        paint: { 'line-width': 2, 'line-opacity': 0.9 },
       })
       map.addLayer({
         id: `${P}-actual-casing`,
         type: 'line',
         source: `${P}-actual`,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': dark ? '#0b1112' : '#0b0b0a', 'line-width': 6.5, 'line-opacity': 0.85 },
+        paint: { 'line-width': 6.5, 'line-opacity': 0.8 },
       })
       map.addLayer({
         id: `${P}-actual`,
         type: 'line',
         source: `${P}-actual`,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: {
-          'line-width': 3.25,
-          'line-gradient': dark
-            ? ['interpolate', ['linear'], ['line-progress'], 0, '#c9a868', 1, '#e8cf94']
-            : ['interpolate', ['linear'], ['line-progress'], 0, '#c4583c', 1, '#e58a6d'],
-        },
+        paint: { 'line-width': 3.5 },
       })
     }
-  }, [map, planned, actual, track, idPrefix, dark])
+    // 颜色每次按当前主题重设（新建图层、换主题、换底图）
+    const c = routePaint(map, dark)
+    map.setPaintProperty(`${P}-planned`, 'line-color', c.planned)
+    map.setPaintProperty(`${P}-track`, 'line-color', c.track)
+    map.setPaintProperty(`${P}-actual-casing`, 'line-color', c.casing)
+    map.setPaintProperty(`${P}-actual`, 'line-color', c.actual)
+  }, [map, planned, actual, track, idPrefix, dark, paintKey])
 
   useEffect(() => {
     return () => {
@@ -129,58 +179,6 @@ export const LEG_MODE_ICONS: Record<LegMode, LucideIcon> = {
   driving: Car,
 }
 export const LEG_MODE_LABELS: Record<LegMode, string> = { walking: '步行', riding: '骑行', transit: '公交', driving: '驾车' }
-
-/** 主题变化（<html> 的 class / data-theme / data-mode / style，或系统深浅色）时加一：地图（WebGL）上的颜色要按新主题重新解析 */
-export function useThemeVersion() {
-  const [v, setV] = useState(0)
-  useEffect(() => {
-    const bump = () => setV((x) => x + 1)
-    const mo = new MutationObserver(bump)
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'data-mode', 'style'] })
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    mq.addEventListener('change', bump)
-    return () => {
-      mo.disconnect()
-      mq.removeEventListener('change', bump)
-    }
-  }, [])
-  return v
-}
-
-const colorCache = new Map<string, string>()
-let colorProbe: CanvasRenderingContext2D | null = null
-const PROBE_SENTINEL = '#010203'
-
-/**
- * 设计令牌（CSS 变量名，如 --color-sky-600）或任意 CSS 颜色 → WebGL 能用的 rgba()。
- * 用 1×1 画布读回像素：主题里写成 oklch() 等新格式的颜色也能用；解析不了时返回 fallback
- */
-export function cssColor(v: string, fallback = 'rgba(148, 142, 132, 1)'): string {
-  const raw = v.startsWith('--') ? getComputedStyle(document.documentElement).getPropertyValue(v).trim() : v
-  if (!raw) return fallback
-  const hit = colorCache.get(raw)
-  if (hit) return hit
-  let out = fallback
-  try {
-    colorProbe ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true })
-    const ctx = colorProbe
-    if (ctx) {
-      ctx.fillStyle = PROBE_SENTINEL
-      ctx.fillStyle = raw
-      // 无效的颜色不会改变 fillStyle
-      if (ctx.fillStyle !== PROBE_SENTINEL || raw.toLowerCase() === PROBE_SENTINEL) {
-        ctx.clearRect(0, 0, 1, 1)
-        ctx.fillRect(0, 0, 1, 1)
-        const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data
-        out = `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(3)})`
-      }
-    }
-  } catch {
-    /* 忽略：用 fallback */
-  }
-  colorCache.set(raw, out)
-  return out
-}
 
 /** 折线按长度的中点（放出行方式图标） */
 function midpoint(path: LngLat[]): LngLat {
@@ -231,7 +229,7 @@ function ModeBadge({ mode, color, dim }: { mode: LegMode; color: string; dim?: b
   return (
     <span
       title={LEG_MODE_LABELS[mode]}
-      className={cn('flex size-[22px] items-center justify-center rounded-full border bg-paper shadow-card', dim && 'opacity-40')}
+      className={cn('flex size-[22px] items-center justify-center rounded-full border bg-surface shadow-card', dim && 'opacity-40')}
       style={{ borderColor: c }}
     >
       <Icon className="size-3" strokeWidth={1.75} style={{ color: c }} />
@@ -272,21 +270,21 @@ function ModeIcons({ segments }: { segments: RouteSegment[] }) {
 }
 
 /**
- * 按路段画路线（GET /trips/:id/legs?geometry=1 的 polyline）：计划为虚线、估算的路段为点线，实际走过的为带暗色描边的实线；
- * 颜色取自设计令牌，主题切换时重新解析。icons：在路段中点显示出行方式
+ * 按路段画路线（GET /trips/:id/legs?geometry=1 的 polyline）：计划为虚线、估算的路段为点线，实际走过的为带纸色描边的实线；
+ * 颜色取自设计令牌，换主题、换底图时重新解析。icons：在路段中点显示出行方式
  */
 export function RouteSegments({ segments, idPrefix = 'seg', icons = true }: { segments: RouteSegment[]; idPrefix?: string; icons?: boolean }) {
   const map = useMap()
-  const theme = useThemeVersion()
+  const paintKey = useMapPaintKey(map)
   useEffect(() => {
     if (!map) return
     const P = idPrefix
     const feats = (pred: (s: RouteSegment) => boolean) =>
-      fc(segments.filter((s) => s.path.length > 1 && pred(s)).map((s) => lineFeature(s.path, { color: cssColor(s.color), dim: !!s.dim })))
+      fc(segments.filter((s) => s.path.length > 1 && pred(s)).map((s) => lineFeature(s.path, { color: mapColor(map, s.color), dim: !!s.dim })))
     upsertSource(map, `${P}-planned`, feats((s) => s.kind === 'planned' && !s.estimated))
     upsertSource(map, `${P}-planned-est`, feats((s) => s.kind === 'planned' && !!s.estimated))
     upsertSource(map, `${P}-actual`, feats((s) => s.kind === 'actual'))
-    const casing = cssColor('--color-paper', 'rgba(11, 11, 10, 1)')
+    const casing = mapColor(map, '--color-paper', mapPalette().bg)
     if (!map.getLayer(`${P}-planned`)) {
       map.addLayer({
         id: `${P}-planned-est`,
@@ -327,7 +325,7 @@ export function RouteSegments({ segments, idPrefix = 'seg', icons = true }: { se
         paint: { 'line-color': ['get', 'color'], 'line-width': 3.25, 'line-opacity': ['case', ['get', 'dim'], 0.4, 1] },
       })
     } else map.setPaintProperty(`${P}-actual-casing`, 'line-color', casing)
-  }, [map, segments, idPrefix, theme])
+  }, [map, segments, idPrefix, paintKey])
 
   useEffect(() => {
     return () => {
@@ -339,38 +337,67 @@ export function RouteSegments({ segments, idPrefix = 'seg', icons = true }: { se
   return icons ? <ModeIcons segments={segments} /> : null
 }
 
-/* ---------------- 打卡点标记 ---------------- */
-// 深色底图上反过来：已到达为象牙白实心，计划中为黑底虚线
-const INK = '#f2eee6'
-const PAPER = '#0b0b0a'
-const VERMILION = '#cf6041'
+/* ---------------- 打卡点标记 ----------------
+ * 样式在 maplibre.css 的 .th-pin：颜色是主题的 --marker-* 令牌，形状每个主题一套
+ * （手帐砖红邮戳、山野金色旗形胶囊、晴海白色浮标、暮色腮红圆点、夜航反色印章），切换主题时不用重建标记。
+ * 已到达为实心，计划中为纸色底 + 虚线计划色圈，跳过为淡灰；右下角小圆点是分类色，踩雷在右上角加红色记号；
+ * 选中：放大 + 外圈描边 + 浮起阴影。
+ */
+export type PinState = 'done' | 'todo' | 'skipped'
+
+export const pinState = (w: Pick<Waypoint, 'planned' | 'status'>): PinState =>
+  w.status === 'skipped' ? 'skipped' : w.planned && w.status === 'todo' ? 'todo' : 'done'
+
+/** 标记外层的类名（MarkerFace / markerHtml 共用）；tone：带那一天颜色的细环（配合 --pin-tone） */
+export function pinClass(state: PinState, o: { selected?: boolean; dim?: boolean; tone?: boolean } = {}) {
+  return ['th-pin', state !== 'done' && `is-${state}`, o.selected && 'is-sel', o.dim && 'is-dim', o.tone && 'has-tone'].filter(Boolean).join(' ')
+}
+
+const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c)
+
+/** 标记的 HTML（给 new Marker({ element }) 用；anchor: 'bottom' 时针尖正好在坐标上） */
+export function markerHtml(w: Pick<Waypoint, 'category' | 'planned' | 'status' | 'verdict'>, label: string, selected: boolean) {
+  const state = pinState(w)
+  const cat = state === 'skipped' ? '' : `<span class="th-pin-cat" style="background:${categoryOf(w.category).css}"></span>`
+  const avoid = w.verdict === 'avoid' ? '<span class="th-pin-avoid" aria-hidden="true">✕</span>' : ''
+  return `<div class="${pinClass(state, { selected })}"><div class="th-pin-face">${escapeHtml(label)}${cat}${avoid}</div><div class="th-pin-tail"></div></div>`
+}
 
 /**
- * 印章式标记：已到达为墨色实心，计划中为虚线空心，跳过为淡灰；右下角小圆点是分类色，
- * 踩雷在右上角加朱砂记号。数字用 Cormorant。
+ * 同一套标记的 React 版本（放进 createPortal 渲染的标记元素里）。
+ * tone：那一天的颜色（CSS 变量名或颜色），画成外圈细环；dim：不是当前查看的那一天
  */
-export function markerHtml(w: Pick<Waypoint, 'category' | 'planned' | 'status' | 'verdict'>, label: string, selected: boolean) {
-  const cat = categoryOf(w.category).color
-  const todo = w.planned && w.status === 'todo'
-  const skipped = w.status === 'skipped'
-  const size = selected ? 32 : 26
-  const bg = skipped ? '#2a2926' : todo ? PAPER : selected ? VERMILION : INK
-  const fg = skipped ? '#6b665e' : todo ? (selected ? VERMILION : INK) : PAPER
-  const border = skipped ? '1.5px solid #4f4c46' : todo ? `1.5px dashed ${selected ? VERMILION : INK}` : `1.5px solid ${PAPER}`
-  // anchor: 'bottom' 已经把元素底边（针尖）放在坐标上，内层不能再上移，否则标记会浮在路线顶点上方
-  return `
-    <div style="position:relative;display:flex;flex-direction:column;align-items:center">
-      <div style="
-        position:relative;min-width:${size}px;height:${size}px;padding:0 6px;border-radius:999px;
-        display:flex;align-items:center;justify-content:center;
-        font:500 ${selected ? 15 : 13}px/1 'Cormorant Garamond Variable',Georgia,serif;font-variant-numeric:lining-nums;
-        color:${fg};background:${bg};border:${border};
-        box-shadow:0 1px 2px rgba(0,0,0,.4),0 6px 14px -4px rgba(0,0,0,.6);transition:all .15s">${label}
-        ${skipped ? '' : `<span style="position:absolute;right:-2px;bottom:-2px;width:8px;height:8px;border-radius:999px;background:${cat};box-shadow:0 0 0 1.5px ${PAPER}"></span>`}
+export function MarkerFace({
+  w,
+  label,
+  selected,
+  dim,
+  tone,
+  title,
+}: {
+  w: Pick<Waypoint, 'category' | 'planned' | 'status' | 'verdict'>
+  label: ReactNode
+  selected?: boolean
+  dim?: boolean
+  tone?: string
+  title?: string
+}) {
+  const state = pinState(w)
+  const style = tone ? ({ '--pin-tone': tone.startsWith('--') ? `var(${tone})` : tone } as CSSProperties) : undefined
+  return (
+    <div className={pinClass(state, { selected, dim, tone: !!tone })} style={style} title={title}>
+      <div className="th-pin-face">
+        {label}
+        {state !== 'skipped' && <span aria-hidden className="th-pin-cat" style={{ background: categoryOf(w.category).css }} />}
+        {w.verdict === 'avoid' && (
+          <span aria-hidden className="th-pin-avoid">
+            ✕
+          </span>
+        )}
       </div>
-      ${w.verdict === 'avoid' ? `<div style="position:absolute;top:-5px;right:-6px;width:14px;height:14px;border-radius:999px;background:${VERMILION};color:${PAPER};font:600 9px/14px system-ui,sans-serif;text-align:center;box-shadow:0 0 0 1.5px ${PAPER}">✕</div>` : ''}
-      <div style="width:1.5px;height:7px;background:${skipped ? '#4f4c46' : INK};opacity:.7"></div>
-    </div>`
+      <div className="th-pin-tail" />
+    </div>
+  )
 }
 
 interface MarkerEntry {
@@ -436,7 +463,7 @@ export function WaypointMarkers({
   return null
 }
 
-/* ---------------- 当前位置 ---------------- */
+/* ---------------- 当前位置：主题的「当前」色圆点 + 脉冲（maplibre.css 的 .th-user-dot） ---------------- */
 export function UserDot({ position, accuracy }: { position: LngLat | null; accuracy?: number }) {
   const map = useMap()
   const marker = useRef<Marker | null>(null)
@@ -444,10 +471,7 @@ export function UserDot({ position, accuracy }: { position: LngLat | null; accur
     if (!map || !position) return
     if (!marker.current) {
       const el = document.createElement('div')
-      el.innerHTML = `<div style="position:relative;width:18px;height:18px">
-        <span class="animate-pulse-ring" style="position:absolute;inset:0;border-radius:999px;background:rgba(63,105,117,.4)"></span>
-        <span style="position:absolute;inset:2px;border-radius:999px;background:#7aa1ab;border:3px solid #0b0b0a;box-shadow:0 0 0 1px rgba(242,238,230,.5),0 1px 6px rgba(0,0,0,.5)"></span>
-      </div>`
+      el.innerHTML = '<div class="th-user-dot"><span class="th-user-dot-pulse animate-pulse-ring"></span><span class="th-user-dot-core"></span></div>'
       el.title = accuracy ? `精度约 ${Math.round(accuracy)} 米` : '当前位置'
       marker.current = new Marker({ element: el }).setLngLat(position).addTo(map)
     } else marker.current.setLngLat(position)

@@ -95,8 +95,16 @@ function Stats({ s }: { s: SpaceDetail }) {
         >
           <dt className="text-xs tracking-[0.06em] text-ink-500">{it.label}</dt>
           <dd className="mt-3 flex items-baseline gap-1">
-            <span className="font-num text-num whitespace-nowrap text-ink-900">{it.value}</span>
-            <span className="text-xs text-ink-500">{it.unit}</span>
+            <span
+              className={cn(
+                'font-num text-num whitespace-nowrap text-ink-900',
+                // 手机上一格约 100px：位数多的里程（如 3,287）小一档，单位不会被挤到下一行
+                String(it.value).length > 4 && 'max-sm:text-[length:var(--text-h2)]',
+              )}
+            >
+              {it.value}
+            </span>
+            <span className="text-xs whitespace-nowrap text-ink-500">{it.unit}</span>
           </dd>
         </div>
       ))}

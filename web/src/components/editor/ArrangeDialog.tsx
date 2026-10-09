@@ -11,7 +11,7 @@ import { Button, Modal } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { dayjs, fmtMinutes } from '@/lib/format'
 import { formatDistance } from '@/lib/geo'
-import { ChoiceChip, Stepper } from './Choice'
+import { ChoiceChip, OptionGroup, Stepper } from './Choice'
 import { TravelModePicker } from './RouteLegs'
 import { IndeterminateLine } from './Indeterminate'
 import { usePlanEditorCtx } from './usePlanEditor'
@@ -115,8 +115,8 @@ export function ArrangeDialog({
       onClose={() => !applying && onClose()}
       wide
       title={
-        <span className="inline-flex items-center gap-2 text-[22px]">
-          <Sparkles className="size-5 text-brand-500" strokeWidth={1.5} />
+        <span className="inline-flex items-center gap-2">
+          <Sparkles className="size-5 text-brand-600" strokeWidth={1.5} />
           一键排好路线
         </span>
       }
@@ -141,14 +141,14 @@ export function ArrangeDialog({
         <div className="space-y-3">
           <div>
             <p className="mb-2 text-xs tracking-[0.06em] text-ink-500">排哪些地点</p>
-            <div role="radiogroup" aria-label="排哪些地点" className="flex flex-wrap gap-1.5">
+            <OptionGroup label="排哪些地点" className="flex flex-wrap gap-1.5">
               <ChoiceChip selected={scope === 'pool'} onClick={() => setScope('pool')} disabled={!pool.length} size="sm">
                 只排「想去」的 {pool.length} 个
               </ChoiceChip>
               <ChoiceChip selected={scope === 'all'} onClick={() => setScope('all')} size="sm">
                 重新排全部没去过的
               </ChoiceChip>
-            </div>
+            </OptionGroup>
             <p className="mt-1.5 text-[11.5px] leading-relaxed text-ink-400">
               {scope === 'pool' ? '已经安排到某天的地点保持不动，新地点插到各天最顺路的位置' : '按位置重新分组，每天从前一晚的住宿出发、回到当晚的住宿'}
             </p>
@@ -167,7 +167,7 @@ export function ArrangeDialog({
         </div>
 
         {needSave && (
-          <div className="flex flex-wrap items-center gap-3 rounded-md border border-brand-300 bg-brand-50 px-3.5 py-3 text-[13px] text-ink-900">
+          <div className="flex flex-wrap items-center gap-3 rounded-card border border-brand-300 bg-brand-50 px-3.5 py-3 text-[13px] text-ink-900">
             <CloudUpload className="size-4 shrink-0 text-brand-600" strokeWidth={1.5} />
             <p className="min-w-0 flex-1 leading-relaxed">
               一键排路线按已保存的计划计算。你刚才改了地点或天数，先保存这些修改再看方案。
@@ -195,10 +195,10 @@ export function ArrangeDialog({
             )}
           </div>
           {q.isFetching ? <IndeterminateLine className="mt-3" label="正在计算方案" /> : <div className="mt-3 h-[2px]" />}
-          {q.isError && <p className="mt-3 text-sm text-brand-600">{errorMessage(q.error)}</p>}
+          {q.isError && <p className="mt-3 text-sm text-red-600">{errorMessage(q.error)}</p>}
           {preview && r && (
             <div className={cn('mt-3 grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]', q.isFetching && 'opacity-60')}>
-              <div className="-mx-6 overflow-hidden border-y border-ink-200 md:mx-0 md:rounded-sm md:border-0 md:ring-1 md:ring-ink-200">
+              <div className="-mx-6 overflow-hidden border-y border-ink-200 md:mx-0 md:rounded-image md:border-0 md:ring-1 md:ring-line">
                 <BaseMap className="h-56 md:h-[22rem]" navigation={false}>
                   <RouteSegments segments={segments} idPrefix="arrange" icons={false} />
                   <PlanMarkers items={markers} />

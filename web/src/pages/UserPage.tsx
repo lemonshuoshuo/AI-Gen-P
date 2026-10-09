@@ -121,15 +121,15 @@ export default function UserPage() {
     <div className="[font-variant-numeric:lining-nums]">
       <header className="mx-auto max-w-[90rem] px-4 pt-10 md:px-8 md:pt-16">
         <LabelRow label="Traveller · 旅人档案" count={`No. ${String(user.id).padStart(4, '0')}`} />
-        <div className="animate-slide-up mt-12 grid gap-x-8 gap-y-8 md:mt-20 lg:grid-cols-12 lg:items-end">
+        <div className="animate-slide-up mt-10 grid gap-x-8 gap-y-8 md:mt-14 lg:grid-cols-12 lg:items-end">
           <div className="min-w-0 lg:col-span-8">
             {/* 头像外的细线圈画在头像框之内：外缘正好落在栏线上 */}
-            <span className="mb-8 inline-flex rounded-full border border-ink-200 p-1.5 lg:hidden">
+            <span className="mb-6 inline-flex rounded-full border border-ink-200 p-1.5 lg:hidden">
               <Avatar user={user} size={64} className="!bg-ink-100 !text-ink-900" />
             </span>
-            <h1 className="text-display-xl font-normal break-words">{user.nickname || user.username}</h1>
+            <h1 className="text-display-lg font-normal break-words">{user.nickname || user.username}</h1>
             {/* 说明文字对：等级（亮）+ 账号与加入时间（灰） */}
-            <p className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-900 md:mt-8">
+            <p className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-900 md:mt-5">
               <span>
                 Lv.<span className="font-num text-[14px]">{user.level}</span>
               </span>
@@ -153,7 +153,7 @@ export default function UserPage() {
           </div>
           <div className="flex flex-col items-start gap-6 lg:col-span-4 lg:items-end">
             <span className="hidden rounded-full border border-ink-200 p-2 lg:inline-flex">
-              <Avatar user={user} size={112} className="!bg-ink-100 !text-ink-900" />
+              <Avatar user={user} size={96} className="!bg-ink-100 !text-ink-900" />
             </span>
             <div className="flex items-center gap-2">
               {user.is_me ? (
@@ -183,8 +183,8 @@ export default function UserPage() {
         </div>
 
         {user.bio && (
-          <div className="mt-14 max-w-3xl md:mt-20">
-            <p className="font-display text-[1.45rem] leading-[1.6] text-ink-700 md:text-[2rem] md:leading-[1.5]">
+          <div className="mt-10 max-w-3xl md:mt-14">
+            <p className="font-display text-[1.1875rem] leading-[1.7] text-ink-700 md:text-[1.3125rem] md:leading-[1.65]">
               <span aria-hidden className="font-num mr-1 text-ink-400">
                 &ldquo;
               </span>
@@ -197,26 +197,26 @@ export default function UserPage() {
           </div>
         )}
 
-        {/* 统计：大号细字 Cormorant 数字，之间用竖细线分隔 */}
-        <dl className={cn('grid grid-cols-2 border-y border-ink-200 md:grid-cols-4', user.bio ? 'mt-14 md:mt-20' : 'mt-12 md:mt-16')}>
+        {/* 统计：主题的大数字（font-num text-num），之间用竖细线分隔 */}
+        <dl className={cn('grid grid-cols-2 border-y border-ink-200 md:grid-cols-4', user.bio ? 'mt-10 md:mt-14' : 'mt-10 md:mt-12')}>
           {stats.map((x, i) => {
             const inner = (
               <>
                 <dt className="eyebrow">
                   {x.en} · {x.zh}
                 </dt>
-                <dd className="font-num mt-4 text-[3rem] leading-none font-light text-ink-900 transition-colors duration-300 md:text-[4.5rem]">{x.n}</dd>
+                <dd className="font-num text-num mt-3 text-ink-900 transition-colors duration-300">{x.n}</dd>
               </>
             )
             const cls = cn(
-              'block py-6 text-left md:py-8',
+              'block py-5 text-left md:py-6',
               i % 2 === 1 && 'border-l border-ink-200 pl-5',
               i >= 2 && 'border-t border-ink-200 md:border-t-0',
               i === 2 && 'md:border-l md:pl-6',
               i > 0 && 'md:pl-6',
             )
             return x.open ? (
-              <button key={x.en} type="button" onClick={() => setList(x.open)} className={cn(cls, 'group hover:[&_dd]:text-ink-600')}>
+              <button key={x.en} type="button" onClick={() => setList(x.open)} className={cn(cls, 'group hover:[&_dd]:text-brand-700')}>
                 {inner}
               </button>
             ) : (
@@ -228,7 +228,7 @@ export default function UserPage() {
         </dl>
       </header>
 
-      <section className="mx-auto max-w-[90rem] px-4 pt-24 pb-24 md:px-8 md:pt-36 md:pb-32" aria-labelledby="user-tab-title">
+      <section className="mx-auto max-w-[90rem] px-4 pt-20 pb-24 md:px-8 md:pt-28 md:pb-32" aria-labelledby="user-tab-title">
         <LabelRow
           label={tab === 'trips' ? 'Journeys · 旅程' : 'Footprints · 足迹'}
           count={tab === 'trips' && trips.data ? `${trips.data.pages[0].total} 段` : undefined}
@@ -240,7 +240,7 @@ export default function UserPage() {
                 if (t === 'footprints') void loadFootprintsView() // 与足迹数据同时下载
                 setTab(t)
               }}
-              className="-mr-2"
+              className="-mr-3"
               options={[
                 { value: 'trips', label: tripsLabel },
                 { value: 'footprints', label: '足迹地图' },
@@ -251,7 +251,7 @@ export default function UserPage() {
         <h2 id="user-tab-title" className="text-display-md mt-8 font-normal md:mt-12">
           {tab === 'trips' ? tripsLabel : '足迹地图'}
         </h2>
-        <div className="mt-10 md:mt-16">
+        <div className="mt-8 md:mt-12">
           {tab === 'trips' &&
             (trips.isLoading ? (
               <TripGridSkeleton n={4} />

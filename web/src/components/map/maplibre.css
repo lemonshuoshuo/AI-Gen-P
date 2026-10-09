@@ -1,64 +1,104 @@
 /* 地图样式只在用到地图的页面加载（不放进首屏全局 CSS）。
-   必须放在 base 层：否则 .maplibregl-map{position:relative} 会盖过 BaseMap 容器上的 absolute inset-0，地图高度塌成 0 */
+   必须放在 base 层：否则 .maplibregl-map{position:relative} 会盖过 BaseMap 容器上的 absolute inset-0，地图高度塌成 0。
+   下面的规则不在任何层里，天然盖过 base 层里的 MapLibre 默认样式，不需要 !important。
+   颜色全部来自主题令牌：浅色主题是纸色玻璃 + 细线，深色主题（以及夜色底图，BaseMap 给它加了深色的局部主题）是深色玻璃。 */
 @import 'maplibre-gl/dist/maplibre-gl.css' layer(base);
 
-/* 地图控件（所有底图都是深色）：近黑玻璃 + 极细亮线，图标反白 */
+/* ---------------- 控件：缩放 / 指南针（胶囊）、版权 ---------------- */
+.maplibregl-map {
+  font-family: var(--font-sans);
+}
 .maplibregl-ctrl-group {
-  border-radius: 999px !important;
+  border-radius: 999px;
   overflow: hidden;
-  background: rgb(11 11 10 / 0.66) !important;
-  box-shadow: 0 0 0 1px rgb(242 238 230 / 0.22) !important;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: var(--glass-bg);
+  box-shadow:
+    0 0 0 1px var(--color-line),
+    var(--th-shadow-card);
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
 }
 .maplibregl-ctrl-group button {
-  width: 34px !important;
-  height: 34px !important;
+  width: 34px;
+  height: 34px;
 }
 .maplibregl-ctrl-group button + button {
-  border-top-color: rgb(242 238 230 / 0.1) !important;
+  border-top: 1px solid var(--color-line);
 }
 .maplibregl-ctrl-group button:not(:disabled):hover {
-  background-color: rgb(242 238 230 / 0.06) !important;
+  background-color: color-mix(in oklab, var(--color-ink-900) 7%, transparent);
 }
 .maplibregl-ctrl-group button .maplibregl-ctrl-icon,
 .maplibregl-ctrl-attrib-button {
-  filter: invert(1);
-  opacity: 0.72;
+  opacity: 0.78;
 }
-.maplibregl-ctrl-group button:hover .maplibregl-ctrl-icon {
-  opacity: 0.95;
+.maplibregl-ctrl-group button:not(:disabled):hover .maplibregl-ctrl-icon {
+  opacity: 1;
 }
-.maplibregl-ctrl button:focus-visible {
-  outline: 1px solid var(--color-ink-900);
+/* MapLibre 的图标是深灰色的 SVG：深色模式（含夜色底图）里反相；hue-rotate 让指南针的红色北针仍是红色 */
+[data-mode='dark'] .maplibregl-ctrl-group button .maplibregl-ctrl-icon,
+[data-mode='dark'] .maplibregl-ctrl-attrib-button,
+.th-map-dark .maplibregl-ctrl-group button .maplibregl-ctrl-icon,
+.th-map-dark .maplibregl-ctrl-attrib-button {
+  filter: invert(1) hue-rotate(180deg);
+}
+/* 键盘焦点：主题的焦点色，画在按钮里（胶囊 overflow:hidden，外侧的描边会被裁掉） */
+.maplibregl-ctrl-group button:focus,
+.maplibregl-ctrl-attrib-button:focus {
+  box-shadow: none;
+}
+.maplibregl-ctrl-group button:focus-visible,
+.maplibregl-ctrl-attrib-button:focus-visible {
+  border-radius: 999px;
+  outline: 2px solid var(--focus-color);
   outline-offset: -3px;
 }
 @media (pointer: coarse) {
   /* 手指点按：控件放大到 40px */
   .maplibregl-ctrl-group button {
-    width: 40px !important;
-    height: 40px !important;
+    width: 40px;
+    height: 40px;
   }
-}
-.maplibregl-ctrl-attrib {
-  font-size: 10px;
-  letter-spacing: 0.02em;
 }
 .maplibregl-ctrl-attrib,
 .maplibregl-ctrl-attrib.maplibregl-compact {
-  background: rgb(11 11 10 / 0.55);
-  color: rgb(242 238 230 / 0.55);
-  box-shadow: 0 0 0 1px rgb(242 238 230 / 0.08);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  background: var(--glass-bg);
+  color: var(--color-ink-500);
+  box-shadow: 0 0 0 1px var(--color-line);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 .maplibregl-ctrl-attrib a {
-  color: rgb(242 238 230 / 0.62);
+  color: var(--color-ink-600);
 }
+.maplibregl-ctrl-attrib-button {
+  background-color: transparent;
+}
+
+/* 夜色照片式的场景（足迹地图缩到全国时）：页面加了 th-map-dark 但没有深色局部主题，控件改用深色玻璃 */
+.th-map-dark:not([data-mode='dark']) .maplibregl-ctrl-group,
+.th-map-dark:not([data-mode='dark']) .maplibregl-ctrl-attrib {
+  background: var(--glass-dark-bg);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.14);
+}
+.th-map-dark:not([data-mode='dark']) .maplibregl-ctrl-group button + button {
+  border-top-color: rgb(255 255 255 / 0.12);
+}
+.th-map-dark:not([data-mode='dark']) .maplibregl-ctrl-attrib,
+.th-map-dark:not([data-mode='dark']) .maplibregl-ctrl-attrib a {
+  color: rgb(255 255 255 / 0.72);
+}
+
+/* ---------------- 弹出框 ---------------- */
 .maplibregl-popup-content {
-  border-radius: var(--radius-lg) !important;
-  padding: 10px 12px !important;
-  background: var(--color-surface-2) !important;
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+  background: var(--color-surface-2);
   color: var(--color-ink-900);
-  box-shadow: var(--shadow-float) !important;
+  box-shadow: var(--shadow-float);
 }
 .maplibregl-popup-anchor-top .maplibregl-popup-tip,
 .maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
@@ -80,20 +120,216 @@
   color: var(--color-ink-500);
 }
 
-/* 夜色地图（3D 回放、足迹地球、点亮中国）：底色偏黛青，控件与标准底图一致 */
-.th-map-dark .maplibregl-ctrl-group {
-  background: rgb(11 17 18 / 0.62) !important;
-}
-.th-map-dark .maplibregl-ctrl-attrib,
-.th-map-dark .maplibregl-ctrl-attrib.maplibregl-compact {
-  background: rgb(11 17 18 / 0.55);
+/* 协作手势提示（「双指拖动地图」）：任何模式下都是夜色遮罩 + 白字（地图上的遮罩，同照片遮罩） */
+.maplibregl-cooperative-gesture-screen {
+  background: color-mix(in oklab, var(--color-night) 70%, transparent);
+  color: rgb(255 255 255 / 0.94);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  letter-spacing: 0.04em;
 }
 
-/* 协作手势提示（双指拖动）：深色半透明 + 小号无衬线 */
-.maplibregl-cooperative-gesture-screen {
-  background: rgb(11 11 10 / 0.55) !important;
-  color: var(--color-ink-900) !important;
-  font-family: var(--font-sans);
-  font-size: 13px !important;
-  letter-spacing: 0.04em;
+/* ---------------- 打卡点标记（layers.tsx 的 markerHtml / MarkerFace） ----------------
+ * 颜色来自 themes.css 的 --marker-*，形状每个主题一套（见 docs/DESIGN.md「地图与 3D」）：
+ * 手帐：砖红圆「邮戳」+ 纸色圈；山野：金色旗形胶囊（挂在旗杆右侧），DM Mono 数字；晴海：白色浮标 + 海蓝圈；
+ * 暮色：腮红小圆点 + 斜体数字；夜航：反色印章。计划中都是纸色底 + 虚线计划色圈，跳过为淡灰。
+ * 选中：放大 1.2 倍 + 外圈描边（--marker-sel-halo）+ 浮起阴影；晴海、夜航选中时再换成强调色实心。
+ * 这些变量写在每个带 data-theme 的元素上：夜色底图的深色局部里按深色令牌求值 */
+:where(:root),
+[data-theme] {
+  --pin-size: 26px;
+  --pin-font-size: 13px;
+  --pin-weight: 500;
+  --pin-font-style: normal;
+  --pin-ring-w: 2px;
+  --pin-planned-w: 1.5px;
+  --pin-radius: 999px;
+  /* 标记面在三列网格里的位置：默认横跨三列、居中在针尖上方；山野只占右列 = 旗子挂在旗杆右侧 */
+  --pin-face-col: 1 / -1;
+  --pin-origin: 50% 100%;
+  --pin-tail-h: 7px;
+  --pin-shadow: 0 1px 2px rgb(0 0 0 / 0.2), 0 5px 12px -5px rgb(0 0 0 / 0.45);
+  --pin-shadow-sel: 0 2px 4px rgb(0 0 0 / 0.22), 0 12px 24px -8px rgb(0 0 0 / 0.55);
+  --marker-sel-bg: var(--marker-bg);
+  --marker-sel-fg: var(--marker-fg);
+  --marker-sel-ring: var(--marker-ring);
+  --marker-sel-halo: var(--color-ink-900);
+}
+[data-theme='camp'] {
+  --pin-size: 24px;
+  --pin-font-size: 12px;
+  --pin-planned-w: 2px;
+  --pin-radius: 3px 999px 999px 3px;
+  --pin-face-col: 3;
+  --pin-origin: 0 100%;
+  --pin-tail-h: 9px;
+  --marker-sel-halo: var(--color-brand-600);
+}
+[data-theme='coast'] {
+  --pin-size: 24px;
+  --pin-font-size: 11px;
+  --pin-weight: 700;
+  --pin-ring-w: 2.5px;
+  --marker-sel-bg: var(--color-brand-600);
+  --marker-sel-fg: var(--color-on-brand);
+  --marker-sel-ring: var(--color-surface);
+  --marker-sel-halo: var(--color-brand-600);
+}
+[data-theme='dusk'] {
+  --pin-size: 22px;
+  --pin-font-style: italic;
+}
+[data-theme='voyage'] {
+  --pin-ring-w: 1.5px;
+  --marker-sel-bg: var(--color-brand-600);
+  --marker-sel-fg: var(--color-on-brand);
+}
+
+/* 三列网格「1fr 针 1fr」：两侧列一样宽，针（th-pin-tail）永远在正中，anchor: 'bottom' 时针尖正好在坐标上；
+   山野的旗子只占右列，整个标记的盒子仍然左右对称（外层叠加的角标、点击区域都跟着旗子走） */
+.th-pin {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  justify-items: center;
+  transition: opacity 0.3s;
+}
+.th-pin-face {
+  grid-row: 1;
+  grid-column: var(--pin-face-col);
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  min-width: var(--pin-size);
+  height: var(--pin-size);
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border: var(--pin-ring-w) solid var(--marker-ring);
+  border-radius: var(--pin-radius);
+  background: var(--marker-bg);
+  color: var(--marker-fg);
+  font-family: var(--marker-font);
+  font-size: var(--pin-font-size);
+  font-style: var(--pin-font-style);
+  font-weight: var(--pin-weight);
+  line-height: 1;
+  font-variant-numeric: lining-nums tabular-nums;
+  white-space: nowrap;
+  box-shadow: var(--pin-shadow);
+  /* 选中放大时以针尖（山野是旗杆）为轴 */
+  transform-origin: var(--pin-origin);
+  transition:
+    scale 0.15s,
+    box-shadow 0.15s,
+    background-color 0.2s,
+    color 0.2s;
+}
+.th-pin-tail {
+  grid-row: 2;
+  grid-column: 2;
+  width: 1.5px;
+  height: var(--pin-tail-h);
+  background: var(--color-ink-900);
+  opacity: 0.7;
+}
+/* 右下角：分类色小圆点；右上角：踩雷记号 */
+.th-pin-cat {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1.5px var(--color-paper);
+}
+.th-pin-avoid {
+  position: absolute;
+  top: -7px;
+  right: -8px;
+  display: flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--color-red-600);
+  color: var(--color-paper);
+  font: normal 700 8.5px/1 var(--font-sans);
+  box-shadow: 0 0 0 1.5px var(--color-paper);
+}
+/* 计划中（还没去）：纸色底 + 虚线计划色圈 */
+.th-pin.is-todo .th-pin-face {
+  border: var(--pin-planned-w) dashed var(--marker-planned-ring);
+  background: var(--marker-planned-bg);
+  color: var(--marker-planned-fg);
+}
+/* 跳过：淡灰，不带分类点 */
+.th-pin.is-skipped .th-pin-face {
+  border: 1.5px solid var(--color-ink-300);
+  background: var(--color-ink-200);
+  color: var(--color-ink-500);
+  box-shadow: none;
+}
+.th-pin.is-skipped .th-pin-tail {
+  background: var(--color-ink-300);
+}
+/* 那一天的颜色：外圈再加一道细环 */
+.th-pin.has-tone:not(.is-skipped):not(.is-sel) .th-pin-face {
+  box-shadow:
+    0 0 0 1.5px var(--pin-tone, transparent),
+    var(--pin-shadow);
+}
+.th-pin.is-dim {
+  opacity: 0.38;
+}
+/* 选中：放大 + 外圈描边 + 浮起阴影（未选中的标记不变淡：选中靠自己的样子一眼看出） */
+.th-pin.is-sel .th-pin-face {
+  scale: 1.2;
+  border-color: var(--marker-sel-ring);
+  background: var(--marker-sel-bg);
+  color: var(--marker-sel-fg);
+  box-shadow:
+    0 0 0 2px var(--marker-sel-halo),
+    var(--pin-shadow-sel);
+}
+.th-pin.is-sel.is-todo .th-pin-face {
+  border-color: var(--marker-planned-ring);
+  background: var(--marker-planned-bg);
+  color: var(--marker-planned-fg);
+}
+.th-pin.is-sel .th-pin-tail {
+  opacity: 1;
+}
+
+/* ---------------- 当前位置（layers.tsx 的 UserDot） ---------------- */
+.th-user-dot {
+  position: relative;
+  width: 18px;
+  height: 18px;
+}
+.th-user-dot-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--marker-current) 45%, transparent);
+}
+.th-user-dot-core {
+  position: absolute;
+  inset: 1px;
+  border-radius: 999px;
+  border: 3px solid var(--color-surface);
+  background: var(--marker-current);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-ink-900) 22%, transparent),
+    0 1px 6px rgb(0 0 0 / 0.35);
+}
+@media (prefers-reduced-motion: reduce) {
+  .th-user-dot-pulse {
+    animation: none;
+    opacity: 0.5;
+  }
+  .th-pin-face {
+    transition: none;
+  }
 }

@@ -250,12 +250,12 @@ export function PlaceSearch({
                               <span className="font-display truncate text-[16px] text-ink-900">{p.name}</span>
                               <CategoryChip category={p.category} className="shrink-0 whitespace-nowrap" />
                               {avoid && (
-                                <span className="shrink-0 rounded-full border border-brand-300 px-1.5 text-[11px] whitespace-nowrap text-brand-700">
+                                <span className="shrink-0 rounded-full bg-red-100 px-1.5 text-[11px] font-medium whitespace-nowrap text-red-700">
                                   ✕ {p.avoid_count} 人踩雷
                                 </span>
                               )}
                             </div>
-                            <div className={cn('mt-0.5 text-xs', avoid ? 'text-brand-600' : 'text-ink-500')}>
+                            <div className={cn('mt-0.5 text-xs', avoid ? 'text-red-600' : 'text-ink-500')}>
                               <span className="font-num">{p.checkin_count}</span> 人打卡
                               {rate != null && (
                                 <>
@@ -330,7 +330,7 @@ export function PlaceSearch({
                         {/* 社区统计放在第二行：手机上名称不会被挤得太短 */}
                         <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
                           {it.place && <PlaceStatsBadge stats={it.place} className="!py-0 shrink-0 text-[11px]" />}
-                          <span className={cn('truncate text-xs', avoid ? 'text-brand-600' : 'text-ink-400')}>
+                          <span className={cn('truncate text-xs', avoid ? 'text-red-600' : 'text-ink-400')}>
                             {[it.city, it.district, it.address].filter(Boolean).join(' · ')}
                           </span>
                         </div>

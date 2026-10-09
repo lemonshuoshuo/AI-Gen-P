@@ -1,68 +1,44 @@
-import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
-import { Check, Loader2, Minus, Plus } from 'lucide-react'
+import { forwardRef, type ReactNode } from 'react'
+import { Minus, Plus } from 'lucide-react'
+import { ChoiceChip as ThemeChoiceChip, OptionCard, type ChoiceChipProps as ThemeChoiceChipProps } from '@/components/ui'
 import { cn } from '@/lib/cn'
 
-/**
- * 可选项的统一「已选中」样式：强调色边框 + 实心对勾 + 淡淡的底色，一眼就能看出选的是哪个
- * （只有颜色或下划线的区别在深色底上太难分辨）
+/*
+ * 编辑器里的选项直接用公共组件的选中语言（docs/DESIGN.md「选中态」）：选中 = 强调色描边 / 实心 + 勾选徽章 + 强调色标题，
+ * 形状和颜色随主题（手帐虚线纸片 + 歪着的方形邮戳勾、山野金色勾、夜航细线条目…），不再单独维护一套 brand-500 样式。
+ * 自己排版的元素用 selectedClass() + CheckBadge；多个大选项放进 OptionGroup（方向键切换）。
  */
-export const selectedCls = 'border-brand-500 bg-brand-100 text-ink-900'
-export const unselectedCls = 'border-ink-200 text-ink-600 hover:border-ink-400 hover:text-ink-900'
+export { CheckBadge, OptionCard, OptionGroup, selectedClass } from '@/components/ui'
 
-/** 实心对勾：选中标记 */
-export function CheckDot({ className }: { className?: string }) {
-  return (
-    <span aria-hidden className={cn('flex size-4 shrink-0 items-center justify-center rounded-full bg-brand-500 text-paper', className)}>
-      <Check className="size-2.5" strokeWidth={3} />
-    </span>
-  )
+export interface ChoiceChipProps extends Omit<ThemeChoiceChipProps, 'role'> {
+  /** radio（缺省，放在 role=radiogroup 里）/ tab（页签，aria-selected）/ button（开关，aria-pressed）/ checkbox（多选） */
+  role?: 'radio' | 'tab' | 'button' | 'checkbox'
 }
 
-export interface ChoiceChipProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'role'> {
-  selected: boolean
-  icon?: ReactNode
-  size?: 'sm' | 'md'
-  loading?: boolean
-  /** radio（缺省）或 tab：决定读屏用 aria-checked 还是 aria-selected */
-  role?: 'radio' | 'tab' | 'button'
-  /** 选中时不把图标换成对勾（如带颜色标记的天数页签） */
-  keepIcon?: boolean
-}
-
-/** 胶囊选项：未选中是细线，选中是强调色边框 + 对勾 + 底色 */
+/**
+ * 胶囊选项：公共组件的 ChoiceChip（未选中是细线胶囊，选中是实心强调色 + 勾），编辑器里默认单选（role="radio"）。
+ * 保持编辑器原来的触控高度：sm 32px、md 36px。选中的实心底上，chip 里自带颜色的小字（天数、日期）改用底色上的字色，不会看不清
+ */
 export const ChoiceChip = forwardRef<HTMLButtonElement, ChoiceChipProps>(function ChoiceChip(
-  { selected, icon, size = 'md', loading, role = 'radio', keepIcon, className, children, disabled, type = 'button', ...rest },
+  { role = 'radio', size = 'md', selected, className, ...rest },
   ref,
 ) {
-  const a11y =
-    role === 'radio' ? { role, 'aria-checked': selected } : role === 'tab' ? { role, 'aria-selected': selected } : { 'aria-pressed': selected }
   return (
-    <button
+    <ThemeChoiceChip
       ref={ref}
-      type={type}
-      disabled={disabled}
-      {...a11y}
-      className={cn(
-        'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border whitespace-nowrap transition-colors duration-200 select-none disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' ? 'h-8 px-3 text-[12.5px]' : 'h-9 px-3.5 text-[13px]',
-        selected ? cn(selectedCls, 'font-medium') : unselectedCls,
-        className,
-      )}
+      role={role}
+      size={size}
+      selected={selected}
+      className={cn('leading-tight select-none', size === 'sm' ? 'h-8 px-3' : 'h-9 px-3.5', selected && '[&_span]:text-inherit', className)}
       {...rest}
-    >
-      {loading ? (
-        <Loader2 className="size-3.5 animate-spin" strokeWidth={1.75} />
-      ) : selected && !keepIcon ? (
-        <CheckDot className="-ml-1" />
-      ) : (
-        icon
-      )}
-      {children}
-    </button>
+    />
   )
 })
 
-/** 大号单选卡片：左侧圆形单选标记（选中为实心对勾），整张卡片强调色边框 + 底色 */
+/**
+ * 大号单选卡片：公共组件 OptionCard（主题的描边、底纹、右上角勾选徽章、强调色标题）。
+ * desc → 说明文字；aside → 放在说明下面。多张卡片请放进 OptionGroup（或 role="radiogroup" 的容器）
+ */
 export function ChoiceCard({
   selected,
   onClick,
@@ -79,33 +55,9 @@ export function ChoiceCard({
   className?: string
 }) {
   return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      onClick={onClick}
-      className={cn(
-        'group relative flex w-full items-start gap-3.5 rounded-lg border px-4 py-4 text-left transition-colors duration-200 md:gap-4 md:px-5 md:py-5',
-        selected ? selectedCls : 'border-ink-200 hover:border-ink-400',
-        className,
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors duration-200',
-          selected ? 'border-brand-500 bg-brand-500 text-paper' : 'border-ink-300 group-hover:border-ink-500',
-        )}
-      >
-        {selected && <Check className="size-3" strokeWidth={3} />}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className={cn('block text-[16px] leading-snug md:text-[17px]', selected ? 'font-medium text-ink-900' : 'text-ink-800')}>{title}</span>
-        {desc && <span className="mt-1 block text-[13px] leading-relaxed text-ink-500">{desc}</span>}
-      </span>
+    <OptionCard selected={selected} onClick={onClick} title={title} description={desc} className={className}>
       {aside}
-      {selected && <span className="sr-only">（已选择）</span>}
-    </button>
+    </OptionCard>
   )
 }
 
@@ -133,7 +85,8 @@ export function Stepper({
   const btn =
     'flex size-8 items-center justify-center rounded-full text-ink-600 transition-colors hover:bg-ink-900/[0.06] hover:text-ink-900 disabled:opacity-35 disabled:hover:bg-transparent'
   return (
-    <div className={cn('inline-flex h-9 items-center rounded-full border border-ink-200 px-0.5', className)} role="group" aria-label={label}>
+    // 与输入框同一套底色和描边（山野是无描边的实心底）
+    <div className={cn('inline-flex h-9 items-center rounded-full border border-[color:var(--field-border)] bg-[var(--field-bg)] px-0.5', className)} role="group" aria-label={label}>
       <button type="button" className={btn} disabled={disabled || value <= min} onClick={() => onChange(value - 1)} aria-label={`${label}减一`}>
         <Minus className="size-3.5" strokeWidth={1.75} />
       </button>

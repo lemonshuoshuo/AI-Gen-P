@@ -7,6 +7,7 @@ import { useSite } from '@/hooks/useSite'
 import { loadAtlas } from '@/lib/atlas'
 import { cn } from '@/lib/cn'
 import { CHINA_CENTER, getCurrentPosition } from '@/lib/geo'
+import { useThemeScope } from '@/theme/runtime'
 
 /**
  * 平面地图的可视范围：只做国内，限制在中国及周边，不再缩小到世界地图
@@ -80,9 +81,15 @@ async function addAtlasFallback(map: MLMap, kind: () => BaseKind) {
   }
 }
 
-/** 地图上的细线小胶囊（底图切换、定位、全程等）：近黑玻璃 + 细亮线；手机上高 40px 方便手指点 */
+/** 地图上的细线小胶囊（底图切换、定位、全程等）：主题的玻璃 + 细线（浅色是纸色、深色 / 夜色底图上是深色）；手机上高 40px 方便手指点 */
 export const mapChipClass =
-  'glass flex h-10 items-center justify-center gap-1.5 rounded-full border border-white/25 px-3.5 text-xs font-medium tracking-[0.04em] text-ink-800 transition-colors duration-300 hover:border-white/50 hover:text-ink-900 disabled:opacity-45 sm:h-9'
+  'glass flex h-10 items-center justify-center gap-1.5 rounded-full border border-line px-3.5 text-xs font-medium tracking-[0.04em] text-ink-800 shadow-card transition-colors duration-300 hover:border-ink-300 hover:text-ink-900 disabled:opacity-45 sm:h-9'
+
+/**
+ * 底图换了之后在地图容器（map.getContainer()）上派发：夜色底图的容器是深色局部主题，
+ * 画在 WebGL 里的颜色（路线、连线）要按容器里的令牌重新解析（layers.tsx 的 useMapPaintKey）
+ */
+export const BASE_KIND_EVENT = 'th-basekind'
 
 export function BaseMap({
   className,
@@ -116,6 +123,8 @@ export function BaseMap({
   onReadyRef.current = onReady
   const toneRef = useRef(rasterTone)
   toneRef.current = rasterTone
+  // 夜色底图（3D 夜景、「夜间」底图）在浅色模式下也是深色：容器里用深色令牌，标记、控件、胶囊、路线跟着变成深色版本
+  const darkScope = useThemeScope('dark')
 
   useEffect(() => {
     // 等站点配置（瓦片地址）加载完再创建地图
@@ -172,6 +181,7 @@ export function BaseMap({
     const tone = toneRef.current
     if (tone && baseKind !== 'satellite' && map.getLayer('th-normal'))
       for (const [k, v] of Object.entries(tone)) map.setPaintProperty('th-normal', k as 'raster-saturation', v)
+    map.getContainer().dispatchEvent(new CustomEvent(BASE_KIND_EVENT, { detail: baseKind }))
   }, [map, baseKind])
 
   useEffect(() => setKind(kind), [kind])
@@ -202,6 +212,7 @@ export function BaseMap({
 
   return (
     <div
+      {...(baseKind === 'dark' ? darkScope : undefined)}
       className={cn(
         !/\b(absolute|fixed)\b/.test(className ?? '') && 'relative',
         // 独立的层叠上下文：地图内部（deck.gl 画布、标记、控件）的 z-index 不会盖住页面上的卡片和浮层

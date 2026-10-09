@@ -13,11 +13,12 @@ import {
   type WaypointInput,
 } from '@/api'
 import { useMap } from '@/components/map/BaseMap'
-import { fc, lineFeature, removeLayers, upsertSource } from '@/components/map/layers'
+import { fc, lineFeature, removeLayers, upsertSource, useMapPaintKey } from '@/components/map/layers'
 import { PlaceStatsBadge } from '@/components/trip/WaypointItem'
 import { Button, CategoryChip, confirmDialog } from '@/components/ui'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { cn } from '@/lib/cn'
+import { cssColor } from '@/lib/color'
 import { formatDistance } from '@/lib/geo'
 import { isAdmin, useAuth } from '@/stores/auth'
 import { IndeterminateLine } from './Indeterminate'
@@ -29,11 +30,13 @@ type LngLat = [number, number]
 let unsupported = false
 export const geoPickUnsupported = () => unsupported
 
-// 朱砂十字准星：外圈脉冲、内圈细线、四个刻度和中心点
-const V = '#cf6041'
-const PIN_HTML = `<div style="position:relative;width:36px;height:36px;pointer-events:none">
+// 强调色十字准星：外圈脉冲、内圈细线、四个刻度和中心点（颜色是主题令牌，换主题自动跟着变；
+// 纸色描边让它在深色底图、卫星图上也看得清）
+const V = 'var(--color-brand-600)'
+const HALO = 'drop-shadow(0 0 1.5px var(--color-paper))'
+const PIN_HTML = `<div style="position:relative;width:36px;height:36px;pointer-events:none;filter:${HALO}">
   <span class="animate-pulse-ring" style="position:absolute;inset:6px;border-radius:999px;border:1.5px solid ${V}"></span>
-  <span style="position:absolute;inset:10px;border-radius:999px;border:1.5px solid ${V};background:rgba(207,96,65,.12)"></span>
+  <span style="position:absolute;inset:10px;border-radius:999px;border:1.5px solid ${V};background:color-mix(in oklab, ${V} 14%, transparent)"></span>
   <span style="position:absolute;left:17.5px;top:0;width:1px;height:8px;background:${V}"></span>
   <span style="position:absolute;left:17.5px;bottom:0;width:1px;height:8px;background:${V}"></span>
   <span style="position:absolute;top:17.5px;left:0;width:8px;height:1px;background:${V}"></span>
@@ -41,7 +44,8 @@ const PIN_HTML = `<div style="position:relative;width:36px;height:36px;pointer-e
   <span style="position:absolute;left:15.5px;top:15.5px;width:5px;height:5px;border-radius:999px;background:${V}"></span>
 </div>`
 
-const HOVER_HTML = `<div style="width:14px;height:14px;border-radius:999px;background:#f2eee6;border:2.5px solid #0b0b0a;box-shadow:0 1px 5px rgba(0,0,0,.5);pointer-events:none"></div>`
+// 悬停的候选位置：纸色圆点 + 主文字色描边
+const HOVER_HTML = `<div style="width:14px;height:14px;border-radius:999px;background:var(--color-surface);border:2.5px solid var(--color-ink-900);box-shadow:0 1px 5px rgb(0 0 0 / .35);pointer-events:none"></div>`
 
 const PANEL_W = 344
 
@@ -150,19 +154,22 @@ export function MapPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lng, lat])
 
-  // 悬停 / 聚焦某个候选时，在地图上标出它的位置并用虚线连到点击处
+  // 悬停 / 聚焦某个候选时，在地图上标出它的位置并用虚线连到点击处（虚线是主文字色，换主题 / 底图时重新解析）
+  const paintKey = useMapPaintKey(map)
   useEffect(() => {
     if (!map) return
     const target: LngLat | null = hover && hover.kind !== 'address' ? [hover.lng, hover.lat] : null
     upsertSource(map, 'th-pick-link', fc(target ? [lineFeature([[lng, lat], target])] : []))
+    const linkColor = cssColor('--color-ink-900', undefined, map.getContainer())
     if (!map.getLayer('th-pick-link'))
       map.addLayer({
         id: 'th-pick-link',
         type: 'line',
         source: 'th-pick-link',
         layout: { 'line-cap': 'round' },
-        paint: { 'line-color': '#f2eee6', 'line-width': 1.25, 'line-dasharray': [1.5, 2], 'line-opacity': 0.65 },
+        paint: { 'line-color': linkColor, 'line-width': 1.5, 'line-dasharray': [1.5, 2], 'line-opacity': 0.75 },
       })
+    else map.setPaintProperty('th-pick-link', 'line-color', linkColor)
     if (target) {
       if (!hoverPin.current) {
         const el = document.createElement('div')
@@ -171,7 +178,7 @@ export function MapPicker({
       }
       hoverPin.current.setLngLat(target).addTo(map)
     } else hoverPin.current?.remove()
-  }, [map, hover, lng, lat])
+  }, [map, hover, lng, lat, paintKey])
 
   const r = q.data
   const cands = r ? [...r.candidates].sort((a, b) => kindOrder[a.kind] - kindOrder[b.kind]) : []

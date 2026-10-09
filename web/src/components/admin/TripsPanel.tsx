@@ -28,7 +28,7 @@ import { DataTable, type Column } from './DataTable'
 function Thumb({ trip }: { trip: TripCard }) {
   const label = (trip.cities[0] || trip.title).trim().slice(0, 1)
   return (
-    <div className="flex h-20 w-16 shrink-0 items-center justify-center overflow-hidden rounded-[2px]">
+    <div className="flex h-20 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-brand-50">
       {trip.cover_url ? (
         <img
           src={trip.cover_thumb_url || trip.cover_url}
@@ -37,9 +37,9 @@ function Thumb({ trip }: { trip: TripCard }) {
           className="size-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]"
         />
       ) : label ? (
-        <span className="font-display text-[2rem] leading-none text-ink-500 transition-colors duration-300 group-hover:text-ink-700">{label}</span>
+        <span className="font-display text-[1.375rem] leading-none text-brand-700 transition-colors duration-300 group-hover:text-brand-800">{label}</span>
       ) : (
-        <Route className="size-6 text-ink-500" strokeWidth={1} />
+        <Route className="size-6 text-brand-600" strokeWidth={1} />
       )}
     </div>
   )
@@ -140,7 +140,7 @@ export function TripsPanel() {
         <Link to={`/trips/${t.id}`} className="group flex min-w-0 items-center gap-4 lg:gap-5">
           <Thumb trip={t} />
           <div className="min-w-0">
-            <div className="font-display line-clamp-1 text-[19px] leading-snug text-ink-900 underline decoration-transparent underline-offset-4 transition-colors duration-300 group-hover:decoration-ink-500 lg:text-[20px]">
+            <div className="font-display line-clamp-1 text-[length:var(--text-card)] leading-snug text-ink-900 underline decoration-transparent underline-offset-4 transition-colors duration-300 group-hover:decoration-ink-500">
               {t.title}
             </div>
             <div className="caption mt-1 truncate">

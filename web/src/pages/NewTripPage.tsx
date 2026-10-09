@@ -15,7 +15,7 @@ import {
   type Waypoint,
   type WaypointInput,
 } from '@/api'
-import { ChoiceCard, ChoiceChip, Stepper } from '@/components/editor/Choice'
+import { ChoiceChip, Stepper } from '@/components/editor/Choice'
 import { ConfirmPlaceDialog, type ConfirmedPlace } from '@/components/editor/ConfirmPlaceDialog'
 import { IndeterminateLine } from '@/components/editor/Indeterminate'
 import { BaseMap } from '@/components/map/BaseMap'
@@ -24,7 +24,7 @@ import { PlanMarkers, type PlanMarkerItem } from '@/components/trip/PlanMarkers'
 import { dayTone } from '@/components/trip/plan'
 import { useSpaces } from '@/components/space'
 import { SpacePicker } from '@/components/space/SpacePicker'
-import { Button, CategoryChip, Field, Input, Textarea } from '@/components/ui'
+import { Button, CategoryChip, Field, Input, OptionCard, OptionGroup, Textarea } from '@/components/ui'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useSite } from '@/hooks/useSite'
 import { invalidateTripLists } from '@/lib/cache'
@@ -35,10 +35,10 @@ import { isAdmin, useAuth } from '@/stores/auth'
 type Mode = 'plan' | 'ai' | 'photos'
 type LngLat = [number, number]
 
-const modes: { value: Mode; title: string; desc: string }[] = [
-  { value: 'plan', title: '自己规划路线', desc: '按天安排想去的地方，一键排好顺序，出发时按图打卡' },
-  { value: 'ai', title: 'AI 帮我规划', desc: '说说目的地和喜好，AI 写出每天的行程和住宿' },
-  { value: 'photos', title: '已经玩回来了', desc: '上传照片，按拍摄地点和时间还原足迹' },
+const modes: { value: Mode; title: string; desc: string; en: string }[] = [
+  { value: 'plan', title: '自己规划路线', desc: '按天安排想去的地方，一键排好顺序，出发时按图打卡', en: 'Plan · 规划' },
+  { value: 'ai', title: 'AI 帮我规划', desc: '说说目的地和喜好，AI 写出每天的行程和住宿', en: 'AI · 智能' },
+  { value: 'photos', title: '已经玩回来了', desc: '上传照片，按拍摄地点和时间还原足迹', en: 'Photos · 照片' },
 ]
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
@@ -121,7 +121,7 @@ function PlanProgress({ run, onCancel }: { run: Run; onCancel: () => void }) {
                   <span
                     className={cn(
                       'font-num flex size-4 items-center justify-center rounded-full text-[10px] leading-none',
-                      on ? 'bg-brand-500 text-paper' : done ? 'bg-ink-900 text-paper' : 'border border-ink-300',
+                      on ? 'bg-brand-fill text-on-brand' : done ? 'bg-ink-900 text-paper' : 'border border-ink-300',
                     )}
                   >
                     {done ? <Check className="size-2.5" strokeWidth={2} /> : i + 1}
@@ -143,14 +143,14 @@ function PlanProgress({ run, onCancel }: { run: Run; onCancel: () => void }) {
           {!run.legacy && (
             <div className="pr-6">
               <p className="eyebrow">Characters · 已写字数</p>
-              <div className="font-num mt-3 text-[2.25rem] leading-[0.9] font-light text-ink-900 tabular-nums md:text-[2.75rem]">
+              <div className="font-num text-num mt-3 text-ink-900 tabular-nums">
                 {run.chars.toLocaleString()}
               </div>
             </div>
           )}
           <div className={cn(!run.legacy && 'pl-6')}>
             <p className="eyebrow">Elapsed · 已用时</p>
-            <div className="font-num mt-3 text-[2.25rem] leading-[0.9] font-light text-ink-900 tabular-nums md:text-[2.75rem]">
+            <div className="font-num text-num mt-3 text-ink-900 tabular-nums">
               {elapsed}
               <span className="ml-1.5 font-sans text-xs text-ink-500">秒</span>
             </div>
@@ -239,7 +239,7 @@ function PreferencesField({
         className="min-h-24 text-[15px] leading-[1.8]"
       />
       <p className="mt-1 text-xs text-ink-400">越具体越好：同行人、节奏、预算、爱吃什么、想拍照还是躺平</p>
-      {err && <p className="mt-2 text-xs leading-relaxed text-brand-600">没能生成建议：{err}</p>}
+      {err && <p className="mt-2 text-xs leading-relaxed text-red-600">没能生成建议：{err}</p>}
       {res && (
         <div className="animate-fade-in mt-4 space-y-3 rounded-lg border border-ink-200 p-4">
           {res.suggestions.length > 0 && (
@@ -321,7 +321,7 @@ function DraftMap({ items, days }: { items: DraftItem[]; days: number[] }) {
   }, [items, days])
   if (!pts.length) return null
   return (
-    <div className="-mx-4 overflow-hidden border-y border-ink-200 md:mx-0 md:rounded-sm md:border-0 md:ring-1 md:ring-ink-200">
+    <div className="-mx-4 overflow-hidden border-y border-line md:mx-0 md:rounded-image md:border-0 md:ring-1 md:ring-line">
       <BaseMap className="h-72 md:h-[24rem]" navigation={false}>
         <RouteSegments segments={segments} idPrefix="ai" icons={false} />
         <PlanMarkers items={markers} />
@@ -520,8 +520,8 @@ function AIPlanner({
             </Button>
           )}
           {error && !busy && (
-            <div role="alert" className="flex gap-3 border-l border-brand-500 py-1 pl-4 text-sm leading-relaxed text-ink-700">
-              <TriangleAlert className="mt-0.5 size-4 shrink-0 text-brand-600" strokeWidth={1.5} />
+            <div role="alert" className="flex gap-3 border-l border-red-500 py-1 pl-4 text-sm leading-relaxed text-ink-700">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0 text-red-600" strokeWidth={1.5} />
               <span className="min-w-0 flex-1">
                 <span className="text-ink-900">没能生成行程：</span>
                 {error}
@@ -552,14 +552,14 @@ function AIPlanner({
                 <dl className="mt-6 flex divide-x divide-ink-200 border-y border-ink-200">
                   <div className="py-4 pr-6">
                     <dt className="eyebrow">Stops · 地点</dt>
-                    <dd className="font-num mt-3 text-[2.25rem] leading-[0.9] font-light text-ink-900">
+                    <dd className="font-num text-num mt-3 text-ink-900">
                       {stops.length}
                       <span className="ml-1.5 font-sans text-xs text-ink-500">个</span>
                     </dd>
                   </div>
                   <div className="px-6 py-4">
                     <dt className="eyebrow">Days · 天数</dt>
-                    <dd className="font-num mt-3 text-[2.25rem] leading-[0.9] font-light text-ink-900">
+                    <dd className="font-num text-num mt-3 text-ink-900">
                       {days.length}
                       <span className="ml-1.5 font-sans text-xs text-ink-500">天</span>
                     </dd>
@@ -567,7 +567,7 @@ function AIPlanner({
                   {nights.length > 0 && (
                     <div className="py-4 pl-6">
                       <dt className="eyebrow">Nights · 住宿</dt>
-                      <dd className="font-num mt-3 text-[2.25rem] leading-[0.9] font-light text-ink-900">
+                      <dd className="font-num text-num mt-3 text-ink-900">
                         {nights.length}
                         <span className="ml-1.5 font-sans text-xs text-ink-500">晚</span>
                       </dd>
@@ -589,7 +589,7 @@ function AIPlanner({
                   return (
                     <div key={d}>
                       <div className="flex items-end gap-4 border-b border-ink-200 pb-3">
-                        <span className="font-num text-[2.5rem] leading-[0.8] font-light text-ink-900 md:text-[3rem]">{pad2(d)}</span>
+                        <span className="font-num text-[length:var(--text-h2)] leading-none text-ink-900">{pad2(d)}</span>
                         <div className="min-w-0 pb-0.5 text-[13px] leading-[1.45]">
                           <p className="text-ink-900">
                             <span className={cn('mr-2 inline-block size-2 translate-y-[-1px] rounded-full', dayTone(d).bg)} aria-hidden />
@@ -648,7 +648,7 @@ function AIPlanner({
                                     )
                                   )}
                                 </div>
-                                <p className={cn('font-display mt-1.5 text-[18px] leading-[1.3] md:text-[20px]', ok ? 'text-ink-900' : 'text-ink-700')}>
+                                <p className={cn('font-display mt-1.5 text-[length:var(--text-card)] leading-[1.3]', ok ? 'text-ink-900' : 'text-ink-700')}>
                                   {i.confirmed?.name || i.name}
                                 </p>
                                 {(i.confirmed?.address || i.address) && <p className="caption mt-1">{i.confirmed?.address || i.address}</p>}
@@ -819,7 +819,7 @@ export default function NewTripPage() {
 
 
   const lead = (
-    <p className="font-display text-[17px] leading-[1.6] text-ink-700 md:text-[19px]">
+    <p className="font-display text-[length:var(--text-card)] leading-[1.65] text-ink-700">
       {mode === 'plan' && '先起个名字、定下玩几天，再把想去的地方排进每一天。'}
       {mode === 'ai' && '说说去哪儿、玩几天和你的偏好，AI 会写出一份逐日的草稿，包括每晚住哪儿。'}
       {mode === 'photos' && '把旅途中的照片交给我们，按拍摄地点和时间还原足迹。'}
@@ -839,30 +839,32 @@ export default function NewTripPage() {
         </p>
       </header>
 
-      {/* 三种方式：卡片式单选，选中的是强调色边框 + 实心对勾 + 底色 */}
+      {/* 三种方式：主题的大选项卡片（OptionCard）单选，方向键可切换；
+          选中 = 强调色描边 + 浅色底纹 + 右上角实心勾 + 强调色序号与标题，各主题形状不同（docs/DESIGN.md「选中态」） */}
       <section className="mt-10 md:mt-14">
-        <LabelRow eyebrow="Begin · 开始方式" aside="选一种" />
-        <div role="radiogroup" aria-label="创建方式" className={cn('mt-4 grid gap-3', available.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2')}>
-          {available.map((m) => (
-            <ChoiceCard
+        <LabelRow eyebrow="Begin · 开始方式" aside={`${available.length} 种方式 · 选一种`} />
+        <OptionGroup label="创建方式" className={cn('mt-4 grid gap-3', available.length === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2')}>
+          {available.map((m, i) => (
+            <OptionCard
               key={m.value}
               selected={mode === m.value}
-              title={
-                <span className="inline-flex items-center gap-2">
-                  {m.value === 'ai' && <Sparkles className="size-4 text-brand-500" strokeWidth={1.5} />}
-                  {m.title}
-                </span>
-              }
-              desc={m.desc}
-              onClick={() => {
+              index={i + 1}
+              icon={m.value === 'ai' ? <Sparkles className="size-4 text-brand-600" strokeWidth={1.5} aria-hidden /> : undefined}
+              eyebrow={m.en}
+              title={m.title}
+              description={m.desc}
+              // 选中项才进 Tab 顺序：Tab 进入单选组落在当前方式上，组内用方向键切换
+              tabIndex={mode === m.value ? 0 : -1}
+              onClick={(e) => {
                 setMode(m.value)
-                // 只在明确选了方式之后把光标放进名称框，且不滚动页面；手机上不弹键盘
-                if (m.value !== 'ai' && window.matchMedia('(pointer: fine)').matches)
+                // 只在用鼠标明确选了方式之后把光标放进名称框，且不滚动页面；手机上不弹键盘。
+                // 键盘（方向键 / 空格）切换时 detail 为 0：焦点留在单选组里，才能继续用方向键
+                if (e.detail > 0 && m.value !== 'ai' && window.matchMedia('(pointer: fine)').matches)
                   requestAnimationFrame(() => titleRef.current?.focus({ preventScroll: true }))
               }}
             />
           ))}
-        </div>
+        </OptionGroup>
         {/* 面向管理员的配置提示：普通用户看不到，站点配置加载完之前也不显示 */}
         {site && !site.ai_enabled && isAdmin(user) && (
           <p className="mt-4 text-xs text-ink-500">提示：管理员在服务器配置 AI 模型后，可以使用「AI 帮我规划」和「智能推荐下一站」。</p>
@@ -891,25 +893,25 @@ export default function NewTripPage() {
                 <div className="space-y-4">
                   <div>
                     <span className="mb-2 block text-xs font-medium tracking-[0.06em] text-ink-500">怎么安排时间</span>
-                    <div role="radiogroup" aria-label="怎么安排时间" className="flex flex-wrap gap-1.5">
+                    <OptionGroup label="怎么安排时间" className="flex flex-wrap gap-1.5">
                       <ChoiceChip selected={by === 'days'} onClick={() => setBy('days')}>
                         按天数（还没定日期）
                       </ChoiceChip>
                       <ChoiceChip selected={by === 'dates'} onClick={() => setBy('dates')}>
                         按日期
                       </ChoiceChip>
-                    </div>
+                    </OptionGroup>
                   </div>
                   {by === 'days' ? (
                     <div className="flex flex-wrap items-center gap-3">
                       <Stepper value={f.days} min={1} max={30} onChange={(d) => setF({ ...f, days: d })} unit="天" label="玩几天" className="h-11" />
-                      <div className="flex flex-wrap gap-1.5">
+                      <OptionGroup label="常用天数" className="flex flex-wrap gap-1.5">
                         {[1, 2, 3, 5, 7].map((d) => (
                           <ChoiceChip key={d} size="sm" selected={f.days === d} onClick={() => setF({ ...f, days: d })}>
                             {d} 天
                           </ChoiceChip>
                         ))}
-                      </div>
+                      </OptionGroup>
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 gap-x-4">

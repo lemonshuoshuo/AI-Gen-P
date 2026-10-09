@@ -1,22 +1,34 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { Play } from 'lucide-react'
+import type { Map as MLMap } from 'maplibre-gl'
 import type { Footprints } from '@/api/types'
 import { BaseMap, useMap } from '@/components/map/BaseMap'
 import { removeLayers, upsertSource } from '@/components/map/layers'
-import { buttonClass } from '@/components/ui'
+import { buttonClass, selectedClass } from '@/components/ui'
 import { cn } from '@/lib/cn'
+import { useThemeScope } from '@/theme'
 import { FootprintMap, mapGestureOptions } from './FootprintMap'
-import { litPalettes, type LitTheme } from './LitProvinces'
+import { useLitPalette, type LitPalette, type LitTheme } from './palette'
 
 type Mode = 'map' | 'globe' | 'list'
+
+/** 地球上的颜色：夜色里的路线、光点（主题令牌，见 ./palette） */
+const globePaint = (pal: LitPalette): Record<string, Record<string, unknown>> => ({
+  'globe-paths': { 'line-color': pal.routeNight },
+  'globe-glow': { 'circle-color': pal.column },
+  'globe-points': { 'circle-color': pal.column, 'circle-stroke-color': pal.line },
+})
 
 /** 地球模式：原生图层（支持球面投影），缓慢自转 */
 function GlobeLayers({ data, theme }: { data: Footprints; theme: LitTheme }) {
   const map = useMap()
+  const pal = useLitPalette(theme)
+  const palRef = useRef(pal)
+  palRef.current = pal
   useEffect(() => {
     if (!map) return
-    const pal = litPalettes[theme]
+    const paint = globePaint(palRef.current)
     upsertSource(map, 'globe-paths', {
       type: 'FeatureCollection',
       features: data.trips
@@ -33,19 +45,19 @@ function GlobeLayers({ data, theme }: { data: Footprints; theme: LitTheme }) {
         type: 'line',
         source: 'globe-paths',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': pal.routeNight, 'line-width': 1.6, 'line-opacity': 0.85 },
+        paint: { ...paint['globe-paths'], 'line-width': 1.6, 'line-opacity': 0.85 },
       })
       map.addLayer({
         id: 'globe-glow',
         type: 'circle',
         source: 'globe-points',
-        paint: { 'circle-radius': 10, 'circle-color': pal.column, 'circle-opacity': 0.16, 'circle-blur': 1 },
+        paint: { ...paint['globe-glow'], 'circle-radius': 10, 'circle-opacity': 0.16, 'circle-blur': 1 },
       })
       map.addLayer({
         id: 'globe-points',
         type: 'circle',
         source: 'globe-points',
-        paint: { 'circle-radius': 2.6, 'circle-color': pal.column, 'circle-stroke-color': pal.line, 'circle-stroke-width': 1 },
+        paint: { ...paint['globe-points'], 'circle-radius': 2.6, 'circle-stroke-width': 1 },
       })
     }
     let raf = 0
@@ -69,11 +81,18 @@ function GlobeLayers({ data, theme }: { data: Footprints; theme: LitTheme }) {
       map.off('wheel', stop)
       removeLayers(map, ['globe-points', 'globe-glow', 'globe-paths'], ['globe-points', 'globe-paths'])
     }
-  }, [map, data, theme])
+  }, [map, data])
+  // 换主题 / 深浅色：只重设颜色，不打断自转
+  useEffect(() => {
+    if (!map) return
+    const set = map.setPaintProperty as (l: string, k: string, v: unknown) => MLMap
+    for (const [id, paint] of Object.entries(globePaint(pal)))
+      if (map.getLayer(id)) for (const [k, v] of Object.entries(paint)) set.call(map, id, k, v)
+  }, [map, pal])
   return null
 }
 
-/** 城市清单：像字体样张那样一行一个省——左侧细小的序号和计数，右侧大号宋体省名，下面一行城市 */
+/** 城市清单：一行一个省——左侧细小的序号和城市数，中间省名（区块标题的字号）与城市，右侧这个省的足迹数 */
 function CityList({ data }: { data: Footprints }) {
   const byProvince = useMemo(() => {
     const m = new Map<string, Footprints['cities']>()
@@ -90,7 +109,7 @@ function CityList({ data }: { data: Footprints }) {
         <div
           key={prov}
           style={{ animationDelay: `${Math.min(i, 8) * 60}ms`, animationFillMode: 'backwards' }}
-          className="animate-slide-up grid grid-cols-[1fr_auto] gap-x-6 gap-y-3 border-t border-ink-200 pt-3 pb-7 md:grid-cols-12 md:gap-x-8 md:pb-9"
+          className="animate-slide-up grid grid-cols-[1fr_auto] gap-x-6 gap-y-3 border-t border-ink-200 pt-3 pb-6 md:grid-cols-12 md:gap-x-8 md:pb-8"
         >
           <p className="col-span-2 flex items-baseline gap-3 text-xs text-ink-500 md:col-span-3 md:flex-col md:gap-1">
             <span className="font-num text-[13px] text-ink-900">{String(i + 1).padStart(2, '0')}</span>
@@ -99,8 +118,8 @@ function CityList({ data }: { data: Footprints }) {
             </span>
           </p>
           <div className="min-w-0 md:col-span-6">
-            <p className="font-display text-[2.5rem] leading-none text-ink-900 md:text-[3.75rem]">{prov.replace(/(省|市|自治区|壮族自治区|回族自治区|维吾尔自治区|特别行政区)$/, '') || prov}</p>
-            <p className="mt-4 flex flex-wrap gap-x-5 gap-y-1.5 text-[13px] text-ink-700">
+            <p className="text-display-md text-ink-900">{prov.replace(/(省|市|自治区|壮族自治区|回族自治区|维吾尔自治区|特别行政区)$/, '') || prov}</p>
+            <p className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-[13px] text-ink-700">
               {cities.map((c) => (
                 <span key={c.code} className="inline-flex items-baseline gap-1.5">
                   {c.name}
@@ -109,10 +128,10 @@ function CityList({ data }: { data: Footprints }) {
               ))}
             </p>
           </div>
-          {/* 右侧：这个省的足迹数，大号细字 */}
+          {/* 右侧：这个省的足迹数（与省名同一档字号） */}
           <p className="flex flex-col items-end text-right md:col-span-3">
-            <span className="font-num text-[2.75rem] leading-[0.85] font-light text-ink-900 md:text-6xl">{count}</span>
-            <span className="caption mt-2 !text-xs">处足迹</span>
+            <span className="font-num text-[length:var(--text-h2)] leading-none text-ink-900">{count}</span>
+            <span className="caption mt-1.5 !text-xs">处足迹</span>
           </p>
         </div>
       ))}
@@ -145,6 +164,8 @@ export function FootprintsView({
 }) {
   const [mode, setMode] = useState<Mode>('map')
   const love = theme === 'love'
+  // 地球是夜景：任何模式下都用当前主题的深色令牌（说明文字、控件跟着变深）
+  const night = useThemeScope('dark')
   // 标签随视图变化
   const labels: Record<Mode, ReactNode> = { map: label, globe: 'Globe · 足迹地球', list: 'Index · 城市清单' }
   return (
@@ -158,27 +179,18 @@ export function FootprintsView({
           </span>
         </p>
         <div className="flex items-center gap-x-4 gap-y-2 max-sm:w-full max-sm:justify-between">
-          {/* -mx-2.5：按钮留出 40px 的点按区域，文字仍与栅格边缘对齐 */}
-          <div role="group" aria-label="足迹视图" className="-mx-2.5 flex items-center text-[13px]">
-            {modes.map((o, i) => (
-              <Fragment key={o.value}>
-                {i > 0 && (
-                  <span aria-hidden className="text-ink-300">
-                    /
-                  </span>
-                )}
-                <button
-                  type="button"
-                  aria-pressed={mode === o.value}
-                  onClick={() => setMode(o.value)}
-                  className={cn(
-                    'inline-flex h-10 items-center px-2.5 tracking-wide whitespace-nowrap transition-colors duration-300 md:h-9',
-                    mode === o.value ? 'text-ink-900 underline decoration-1 underline-offset-[7px]' : 'text-ink-400 hover:text-ink-900',
-                  )}
-                >
-                  {o.label}
-                </button>
-              </Fragment>
+          {/* 文字筛选用主题的 Tab 语言：选中项 600 字重 + 强调色下划线（山野、暮色是实心胶囊）；手机上 -ml-3 让文字与栅格边缘对齐 */}
+          <div role="group" aria-label="足迹视图" className="flex items-center gap-1 max-sm:-ml-3">
+            {modes.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                aria-pressed={mode === o.value}
+                onClick={() => setMode(o.value)}
+                className={selectedClass(mode === o.value, 'filter', 'inline-flex h-10 items-center px-3 text-[13.5px] whitespace-nowrap md:h-9')}
+              >
+                {o.label}
+              </button>
             ))}
           </div>
           {replayTo && data.trips.length > 0 && (
@@ -193,16 +205,16 @@ export function FootprintsView({
       <div className={cn(bleed && mode !== 'list' && '-mx-4 md:-mx-8')}>
         {mode === 'map' && <FootprintMap data={data} theme={theme} className={height} />}
         {mode === 'globe' && (
-          <div className={cn('bg-night animate-fade-in relative overflow-hidden', height)}>
+          <div {...night} className={cn('bg-night animate-fade-in relative overflow-hidden', height)}>
             <BaseMap className="absolute inset-0" kind="dark" globe center={[110, 30]} zoom={1.6} options={mapGestureOptions}>
               <GlobeLayers data={data} theme={theme} />
             </BaseMap>
-            <div className="pointer-events-none absolute bottom-0 left-0 z-10 h-40 w-[min(100%,28rem)] bg-[radial-gradient(ellipse_at_bottom_left,rgb(0_0_0/0.6),transparent_70%)]" />
+            <div className="pointer-events-none absolute bottom-0 left-0 z-10 h-40 w-[min(100%,28rem)] bg-[radial-gradient(ellipse_at_bottom_left,color-mix(in_oklab,var(--color-night)_80%,transparent),transparent_70%)]" />
             <div className="pointer-events-none absolute bottom-4 left-4 z-10 md:bottom-6 md:left-8">
-              <p className="eyebrow !text-white/50">Globe · 地球</p>
-              <p className="mt-1.5 text-[13px] text-white/70">
-                <span className="font-num text-xl font-light text-white">{data.stats.trips}</span> 段旅程
-                <span className="font-num ml-3 text-xl font-light text-white">{data.stats.waypoints}</span> 处足迹
+              <p className="eyebrow">Globe · 地球</p>
+              <p className="mt-1.5 text-[13px] text-ink-700">
+                <span className="font-num text-xl text-ink-900">{data.stats.trips}</span> 段旅程
+                <span className="font-num ml-3 text-xl text-ink-900">{data.stats.waypoints}</span> 处足迹
               </p>
             </div>
           </div>

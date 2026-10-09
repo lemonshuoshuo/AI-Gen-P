@@ -17,14 +17,18 @@ export function kmShort(km: number) {
 type CoverTrip = Pick<Trip, 'id' | 'cover_url' | 'cover_thumb_url' | 'title' | 'cities'> &
   Partial<Pick<Trip, 'days' | 'distance_km' | 'start_date' | 'created_at'>>
 
-// 排版封面里的一层胶片颗粒：让近黑的封面像一块印版，而不是一个描边的空盒子
-const PLATE_GRAIN = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 0.97 0 0 0 0 0.92 0 0 0 0.07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`
-
 /** 视觉字宽：中文按 1 个字，西文字母按半个多字 */
 const visualLength = (s: string) => [...s].reduce((a, c) => a + (/[\u2e80-\uffff]/.test(c) ? 1 : 0.55), 0)
 
 /**
- * 没有照片时的封面：近黑底 + 超大宋体地名 + 细线邮戳。
+ * 封面字号：按容器宽度（cqw）并设上限——横排不超过约 18cqw、竖排约 22cqw，且都不超过 3.25 / 3.5rem，
+ * 地名只是封面上的题字，不能压过卡片下方的旅程标题
+ */
+const coverFont = (cqw: number, maxRem = 3.25) => `min(${cqw}cqw, ${maxRem}rem)`
+
+/**
+ * 没有照片时的封面：主题强调色的淡底纹（brand-50）上，强调色的题字地名 + 细线邮戳，
+ * 纸纹随主题（手帐、暮色深色、夜航有颗粒，山野、晴海没有）；深色模式下底纹和字色自动翻转。
  * 按 id 在横排（左下）与竖排（右侧，像书脊）之间交替，一整排封面不至于千篇一律。
  * landscape：横幅比例（3:2 等）只用横排。
  * 窄封面（< 15rem，手机两列）：横排时不放邮戳（会和左上角的状态标签撞在一起），竖排时邮戳去掉环形小字
@@ -45,29 +49,30 @@ function TypeCover({ trip, className, landscape }: { trip: CoverTrip; className?
         : { value: date ? dayjs(date).format('MM') : '—', unit: date ? dayjs(date).format('YYYY') : 'TRIP' }
   const ring = ['TripHub', km > 0 && days > 0 && `${kmShort(km)} km`, date && dayjs(date).format('YYYY.MM.DD')].filter(Boolean).join(' · ')
   const n = lead?.length ?? 0
-  // 字号按容器宽度（cqw）：两个字的地名约占三分之二宽
-  const size = vertical ? Math.min(30, 96 / Math.max(n, 1)) : n <= 2 ? 31 : n === 3 ? 25 : n === 4 ? 19 : n <= 6 ? 13.5 : 10
+  // 字号按容器宽度（cqw）并封顶：横排两个字的地名约占三分之一宽，竖排不超过 22cqw
+  const size = vertical ? Math.min(22, 80 / Math.max(n, 1)) : n <= 2 ? 18 : n === 3 ? 16 : n === 4 ? 14 : n <= 6 ? 11 : 9
   // 没有城市时用标题当主字：短标题和地名一样大，长标题两行
   const tl = visualLength(trip.title)
-  const titleSize = tl <= 2 ? 31 : tl <= 3 ? 25 : tl <= 4 ? 19 : tl <= 7 ? 15 : 12.5
+  const titleSize = tl <= 2 ? 18 : tl <= 3 ? 16 : tl <= 4 ? 14 : tl <= 7 ? 11 : 9.5
   const tail = rest.length ? `${rest.join(' · ')}${cities.length > 4 ? ' 等' : ''}` : date ? dayjs(date).format('YYYY.MM') : ''
   const tailRow = tail && (
-    <div className="mt-[4cqw] flex items-center gap-[2.5cqw]">
-      <span className="h-px w-[9cqw] shrink-0 bg-current opacity-40" />
-      <span className="min-w-0 truncate text-[max(10px,3.2cqw)] tracking-[0.16em] text-ink-500">{tail}</span>
+    <div className="mt-[min(3.5cqw,1rem)] flex items-center gap-[min(2.5cqw,0.75rem)]">
+      <span className="h-px w-[min(9cqw,2.5rem)] shrink-0 bg-current opacity-40" />
+      <span className="min-w-0 truncate text-[clamp(10px,3.1cqw,13px)] tracking-[0.16em] text-ink-500">{tail}</span>
     </div>
   )
   return (
     <div
       role="img"
       aria-label={trip.title}
-      className={cn('@container relative size-full overflow-hidden bg-surface text-ink-900 select-none [font-variant-numeric:lining-nums]', className)}
+      className={cn('@container relative size-full overflow-hidden bg-brand-50 text-brand-700 select-none [font-variant-numeric:lining-nums]', className)}
     >
-      <span aria-hidden className="pointer-events-none absolute inset-0" style={{ backgroundImage: PLATE_GRAIN }} />
+      {/* 纸纹：主题的颗粒（没有纸纹的主题透明度为 0） */}
+      <span aria-hidden className="pointer-events-none absolute inset-0 bg-[image:var(--grain-image)] opacity-[var(--grain-opacity,0)]" />
       <span
         aria-hidden
         className={cn(
-          'absolute w-[30cqw] -rotate-[8deg] text-ink-500',
+          'absolute w-[min(28cqw,7.5rem)] -rotate-[8deg] text-brand-600 opacity-55',
           vertical ? 'bottom-[9cqw] left-[7cqw]' : 'top-[6cqw] right-[6cqw] @max-[15rem]:hidden',
         )}
       >
@@ -76,19 +81,23 @@ function TypeCover({ trip, className, landscape }: { trip: CoverTrip; className?
       {lead ? (
         vertical ? (
           <div className="absolute top-[max(7cqw,3.25rem)] right-[8cqw] flex h-[calc(100%-14cqw)] flex-row-reverse items-start gap-[3cqw]">
-            <span className="font-display leading-none tracking-[0.06em] [writing-mode:vertical-rl]" style={{ fontSize: `${size}cqw` }}>
-              {lead}
+            {/* 竖排的地名逐字堆叠（每字 1em），不依赖字体的竖排字距：没有竖排度量的中文字体（部分 Linux / 旧系统）会把字叠在一起 */}
+            <span className="font-display flex flex-col items-center leading-[1.08]" style={{ fontSize: coverFont(size, 3.5) }}>
+              {[...lead].map((c, i) => (
+                <span key={i}>{c}</span>
+              ))}
             </span>
             {tail && (
-              <span className="mt-[1cqw] flex items-center gap-[2cqw] text-[max(10px,3.1cqw)] tracking-[0.3em] text-ink-500 [writing-mode:vertical-rl]">
-                <span className="h-[10cqw] w-px bg-current opacity-60" />
+              // 小字按侧排（sideways）旋转，用横排字距，同样不受竖排度量影响
+              <span className="mt-[1cqw] flex items-center gap-[min(2cqw,0.5rem)] text-[clamp(10px,3.1cqw,13px)] tracking-[0.3em] text-ink-500 [text-orientation:sideways] [writing-mode:vertical-rl]">
+                <span className="h-[min(10cqw,2.5rem)] w-px bg-current opacity-60" />
                 {tail}
               </span>
             )}
           </div>
         ) : (
           <div className="absolute inset-x-[7.5cqw] bottom-[7.5cqw]">
-            <div className="font-display leading-[0.95] tracking-[0.02em]" style={{ fontSize: `${size}cqw` }}>
+            <div className="font-display leading-[1.05] tracking-[0.02em]" style={{ fontSize: coverFont(size) }}>
               {lead}
             </div>
             {tailRow}
@@ -97,8 +106,8 @@ function TypeCover({ trip, className, landscape }: { trip: CoverTrip; className?
       ) : (
         <div className="absolute inset-x-[7.5cqw] bottom-[7.5cqw]">
           <div
-            className={cn('font-display tracking-[0.01em] break-words', tl > 4 ? 'line-clamp-2 leading-[1.05]' : 'leading-[0.95]')}
-            style={{ fontSize: `${titleSize}cqw` }}
+            className={cn('font-display tracking-[0.01em] break-words', tl > 4 ? 'line-clamp-2 leading-[1.15]' : 'leading-[1.05]')}
+            style={{ fontSize: coverFont(titleSize) }}
           >
             {trip.title}
           </div>
@@ -109,7 +118,7 @@ function TypeCover({ trip, className, landscape }: { trip: CoverTrip; className?
   )
 }
 
-/** 默认用缩略图（列表卡片）；full 用原图（横幅）。没有照片时是排版封面（近黑 + 宋体地名 + 细线邮戳） */
+/** 默认用缩略图（列表卡片）；full 用原图（横幅）。没有照片时是排版封面（强调色淡底纹 + 题字地名 + 细线邮戳） */
 export function TripCover({
   trip,
   className,
@@ -181,14 +190,15 @@ export function TripCard({
   ].filter(Boolean)
   return (
     <Link to={`/trips/${trip.id}`} className={cn('group block min-w-0 focus-visible:outline-offset-4', className)}>
-      <div className={cn('@container relative overflow-hidden bg-surface', coverClassName)}>
+      {/* 封面圆角随主题（rounded-image：夜航几乎直角、晴海 24px） */}
+      <div className={cn('@container relative overflow-hidden rounded-image bg-surface', coverClassName)}>
         <div className="size-full transition-transform duration-700 ease-out group-hover:scale-[1.03]">
           <TripCover trip={trip} landscape={landscape} />
         </div>
         <div className="absolute top-3 left-3 flex max-w-[80%] flex-wrap gap-1.5">
           {/* 审核中 / 已隐藏的旅程只有成员和管理员能看到（如「我的旅程」） */}
           {trip.status === 'pending' && <CoverTag mark={dot('bg-amber-500')}>{tripStatuses.pending.label}</CoverTag>}
-          {trip.status === 'hidden' && <CoverTag mark={dot('bg-brand-500')}>{tripStatuses.hidden.label}</CoverTag>}
+          {trip.status === 'hidden' && <CoverTag mark={dot('bg-red-500')}>{tripStatuses.hidden.label}</CoverTag>}
           {trip.featured && <CoverTag mark={dot('bg-white/80')}>精选</CoverTag>}
           {trip.phase !== 'finished' && (
             <CoverTag mark={dot(trip.phase === 'ongoing' ? 'bg-brand-500' : 'border border-white/70 bg-transparent')}>{phase.label}</CoverTag>
@@ -208,7 +218,7 @@ export function TripCard({
       </div>
 
       <div className="@container pt-4">
-        <h3 className="line-clamp-2 text-[1.15rem] leading-[1.28] font-normal text-ink-900 [font-variant-numeric:lining-nums] @[14rem]:text-[1.3rem] @[20rem]:text-[1.45rem]">
+        <h3 className="line-clamp-2 text-[length:var(--text-card)] leading-[1.3] font-normal text-ink-900 [font-variant-numeric:lining-nums]">
           {trip.title}
         </h3>
         {/* 说明文字对：地点（亮）+ 作者 / 天数 / 里程（灰） */}
@@ -293,7 +303,7 @@ export function TripGridSkeleton({ n = 8, layout = 'grid' }: { n?: number; layou
       <div className={gridCls[layout]}>
         {Array.from({ length: n }).map((_, i) => (
           <div key={i}>
-            <div className="aspect-[4/5] animate-pulse bg-surface" />
+            <div className="aspect-[4/5] animate-pulse rounded-image bg-surface-2" />
             <div className="space-y-2.5 pt-4">
               <div className="h-5 w-4/5 animate-pulse rounded-sm bg-ink-100" />
               <div className="h-2.5 w-2/5 animate-pulse rounded-sm bg-ink-100" />

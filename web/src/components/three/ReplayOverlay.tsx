@@ -15,9 +15,13 @@ import type { PlacedStop } from './replay'
 
 type LngLat = [number, number]
 
-/* ---------------- 强调色：夜色里是金色，「我们」的足迹是玫瑰色（类名要原样写出来，Tailwind 才会生成） ---------------- */
+/* ---------------- 强调色（类名要原样写出来，Tailwind 才会生成） ----------------
+ * route：自己的旅程用主题的路线色——回放在强制深色的作用域里，取的是深色模式的值：
+ *   手帐砖橙、山野松绿、晴海海蓝、暮色腮红、夜航金色（与旅程地图上的实际路线同色）；
+ * love：「我们」的足迹是胭脂色。实心底上的字是纸色（深色模式的纸色是深色，对比度 ≥ 6:1）
+ */
 export interface Accent {
-  /** CSS 变量名（deck.gl 图层按当前主题解析） */
+  /** CSS 变量名（deck.gl 图层在回放容器上解析，随主题变化） */
   v: string
   bg: string
   text: string
@@ -26,8 +30,15 @@ export interface Accent {
   ring: string
   border: string
 }
-export const ACCENTS: Record<'gold' | 'love', Accent> = {
-  gold: { v: '--color-gold', bg: 'bg-gold', text: 'text-gold', on: 'text-on-gold', ring: 'ring-gold', border: 'border-gold' },
+export const ACCENTS: Record<'route' | 'love', Accent> = {
+  route: {
+    v: '--route-actual',
+    bg: 'bg-[var(--route-actual)]',
+    text: 'text-[var(--route-actual)]',
+    on: 'text-paper',
+    ring: 'ring-[var(--route-actual)]',
+    border: 'border-[var(--route-actual)]',
+  },
   love: { v: '--color-pink-600', bg: 'bg-pink-600', text: 'text-pink-600', on: 'text-paper', ring: 'ring-pink-600', border: 'border-pink-600' },
 }
 
@@ -263,6 +274,8 @@ export const TravellerMarker = memo(function TravellerMarker({
 /* ---------------- 每一站：游玩点是序号印章，住宿是床；当前一站是强调色，还没到的是虚线空心 ---------------- */
 export type PinState = 'upcoming' | 'reached' | 'current'
 
+const PIN_SHADOW = '0 6px 14px -6px color-mix(in oklab, var(--color-night) 85%, transparent)'
+
 export const StopPin = memo(function StopPin({ stop, state, accent }: { stop: PlacedStop; state: PinState; accent: Accent }) {
   const lodging = stop.kind === 'lodging'
   const tone = stop.day != null && stop.day > 0 ? dayTone(stop.day).v : undefined
@@ -285,8 +298,8 @@ export const StopPin = memo(function StopPin({ stop, state, accent }: { stop: Pl
         style={{
           boxShadow:
             state === 'reached' && tone
-              ? `0 0 0 2px var(--color-night), 0 0 0 3.5px var(${tone}), 0 6px 14px -6px rgb(0 0 0 / 0.7)`
-              : '0 6px 14px -6px rgb(0 0 0 / 0.7)',
+              ? `0 0 0 2px var(--color-night), 0 0 0 3.5px var(${tone}), ${PIN_SHADOW}`
+              : PIN_SHADOW,
         }}
       >
         {current && <span className={cn('animate-pulse-ring absolute inset-0 -z-10 rounded-[inherit] opacity-50', accent.bg)} />}

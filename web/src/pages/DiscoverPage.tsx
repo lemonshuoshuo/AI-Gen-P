@@ -6,7 +6,7 @@ import { api, type Phase, type TripCard as Trip } from '@/api'
 import { EmptyNote, FilterLinks, LabelRow, MoreButton, Reveal, SectionHead, TextLink, cityShort, pad2 } from '@/components/editorial'
 import { RouteSketch } from '@/components/editorial/RouteSketch'
 import { PlaceRow } from '@/components/place/PlaceCard'
-import { TripGrid, TripGridSkeleton, kmShort } from '@/components/trip/TripCard'
+import { TripCover, TripGrid, TripGridSkeleton, kmShort } from '@/components/trip/TripCard'
 import { LoadError, buttonClass } from '@/components/ui'
 import { useSite } from '@/hooks/useSite'
 import { cn } from '@/lib/cn'
@@ -187,7 +187,7 @@ function Opening({ cover, pending }: { cover: CoverData | undefined; pending: bo
   const headline = (
     <h1
       className={cn(
-        "text-display-xl animate-slide-up font-normal [font-feature-settings:'halt'] max-sm:text-[2.95rem] max-sm:leading-[1.08] lg:text-[clamp(5.5rem,8.6vw,8.25rem)]",
+        "text-display-xl animate-slide-up font-normal [font-feature-settings:'halt']",
         photo ? 'text-white [text-shadow:0_1px_40px_rgb(0_0_0/0.25)]' : 'text-ink-900',
       )}
     >
@@ -253,7 +253,7 @@ function Opening({ cover, pending }: { cover: CoverData | undefined; pending: bo
           <>
             <div className="flex flex-1 flex-col justify-center py-16">
               {headline}
-              <p className="font-display mt-6 text-[1.35rem] text-white/80 italic md:mt-8 md:text-[1.9rem]">Plan the route. Light up the map.</p>
+              <p className="font-display mt-5 text-[1.25rem] text-white/80 italic md:mt-6 md:text-[1.5rem]">Plan the route. Light up the map.</p>
             </div>
             <div className="grid gap-8 pb-8 md:grid-cols-12 md:items-end md:pb-10">
               {/* 照片说明：两行式（亮 + 灰），整行链接到这段旅程 */}
@@ -276,7 +276,7 @@ function Opening({ cover, pending }: { cover: CoverData | undefined; pending: bo
             {headline}
             <div className={cn('grid items-end gap-12 transition-opacity duration-700 md:grid-cols-12 md:gap-8', pending ? 'opacity-0' : 'animate-fade-in')}>
               <div className="md:col-span-5 lg:col-span-4">
-                <p className="font-display text-[1.35rem] text-ink-700 italic md:text-[1.6rem]">Plan the route. Light up the map.</p>
+                <p className="font-display text-[1.25rem] text-ink-700 italic md:text-[1.4rem]">Plan the route. Light up the map.</p>
                 <p className="mt-4 max-w-sm text-[14.5px] leading-[1.85] text-ink-500">
                   每个打卡点都有真实的体验记录，推荐与避雷一目了然；看中别人的路线，一键引用，旅途中再为你推荐下一站。
                 </p>
@@ -313,10 +313,12 @@ function Opening({ cover, pending }: { cover: CoverData | undefined; pending: bo
   )
 }
 
-/** 本期封面：超大宋体地名 + 标题、导语与细字大数字 */
+/**
+ * 本期封面：左边是封面（有照片用照片，没有时是排版封面——题字地名有字号上限），
+ * 右边是标题、导语与大数字（font-num text-num）
+ */
 function CoverStory({ trip: t, featured }: { trip: Trip; featured: boolean }) {
   const cities = (t.cities ?? []).map(cityShort)
-  const lead = cities[0] || t.title
   const summary =
     t.summary ||
     [
@@ -332,9 +334,6 @@ function CoverStory({ trip: t, featured }: { trip: Trip; featured: boolean }) {
     { v: t.distance_km > 0 ? kmShort(t.distance_km) : '—', u: 'km', l: 'Distance' },
     { v: t.waypoint_count, u: '处', l: 'Stops' },
   ]
-  // 地名越长字越小，始终一行
-  const n = [...lead].length
-  const leadSize = n <= 2 ? 'text-[7.5rem] md:text-[clamp(10rem,21vw,19rem)]' : n <= 4 ? 'text-[5.25rem] md:text-[clamp(7rem,13vw,12rem)]' : 'text-[3.25rem] md:text-[clamp(4.5rem,8vw,8rem)]'
   return (
     <Reveal as="section" className="mx-auto max-w-[90rem] px-4 pt-24 md:px-8 md:pt-36" aria-labelledby="cover-title">
       <LabelRow
@@ -347,20 +346,22 @@ function CoverStory({ trip: t, featured }: { trip: Trip; featured: boolean }) {
           </Link>
         }
       />
-      <Link to={`/trips/${t.id}`} className="group grid gap-x-8 gap-y-10 pt-8 md:pt-12 lg:grid-cols-12">
+      <Link to={`/trips/${t.id}`} className="group grid gap-x-8 gap-y-8 pt-8 md:pt-10 lg:grid-cols-12">
         <div className="min-w-0 lg:col-span-7">
-          <p aria-hidden className={cn('font-display leading-[0.86] tracking-[-0.01em] whitespace-nowrap text-ink-900', leadSize)}>
-            {lead}
-          </p>
+          <div className="@container relative aspect-[3/2] overflow-hidden rounded-image bg-surface">
+            <div className="size-full transition-transform duration-700 ease-out group-hover:scale-[1.02]">
+              <TripCover trip={t} full landscape />
+            </div>
+          </div>
           {cities.length > 1 && (
-            <p className="mt-6 flex items-center gap-4 text-[13px] tracking-[0.2em] text-ink-500">
+            <p className="mt-4 flex items-center gap-4 text-[13px] tracking-[0.2em] text-ink-500">
               <span className="h-px w-12 bg-ink-400" />
-              {cities.slice(1, 5).join(' · ')}
+              {cities.slice(0, 5).join(' · ')}
               {cities.length > 5 && ' 等'}
             </p>
           )}
         </div>
-        <div className="flex min-w-0 flex-col lg:col-span-5 lg:pt-4">
+        <div className="flex min-w-0 flex-col lg:col-span-5 lg:pt-2">
           <h2
             id="cover-title"
             className="text-display-md font-normal text-balance [font-feature-settings:'halt'] [font-variant-numeric:lining-nums] transition-colors duration-300 group-hover:text-ink-700"
@@ -372,12 +373,12 @@ function CoverStory({ trip: t, featured }: { trip: Trip; featured: boolean }) {
             <span className="block text-[13px] text-ink-900">{t.author.nickname || t.author.username}</span>
             <span className="caption font-num block">{t.start_date ? dateRange(t.start_date, t.end_date) : dayjs(t.created_at).format('YYYY.MM.DD')}</span>
           </p>
-          <dl className="mt-10 grid grid-cols-3 border-t border-ink-200 pt-5">
+          <dl className="mt-8 grid grid-cols-3 border-t border-ink-200 pt-5">
             {stats.map((s, i) => (
               <div key={s.l} className={cn('min-w-0', i > 0 && 'border-l border-ink-200 pl-4 md:pl-6')}>
                 <dt className="eyebrow">{s.l}</dt>
                 <dd className="mt-3 flex items-baseline gap-1.5">
-                  <span className="font-num text-[2.75rem] leading-none font-light text-ink-900 md:text-[3.75rem]">{s.v}</span>
+                  <span className="font-num text-num text-ink-900">{s.v}</span>
                   <span className="text-xs text-ink-500">{s.u}</span>
                 </dd>
               </div>
@@ -389,7 +390,7 @@ function CoverStory({ trip: t, featured }: { trip: Trip; featured: boolean }) {
   )
 }
 
-/** 热门打卡地 / 避雷榜：编号的细线排版列表，两栏并排 */
+/** 热门打卡地 / 避雷榜：两张主题卡片里的编号列表，两栏并排 */
 function PlaceLists() {
   const hot = useQuery({ queryKey: ['places', 'hot-side'], queryFn: () => api.places.list({ sort: 'hot', page_size: 5 }) })
   const avoid = useQuery({ queryKey: ['places', 'avoid-side'], queryFn: () => api.places.list({ sort: 'avoid', page_size: 5 }) })
@@ -407,7 +408,7 @@ function PlaceLists() {
             </Link>
           }
         />
-        <ol className="mt-6 divide-y divide-ink-200 border-y border-ink-200 md:mt-10">
+        <ol className="th-card mt-6 divide-y divide-line px-5 md:mt-8 md:px-6">
           {items.items.map((p, i) => (
             <li key={p.id}>
               <PlaceRow place={p} rank={i + 1} variant={variant} />
@@ -428,33 +429,27 @@ function PlaceLists() {
   )
 }
 
-/** 栏目索引：四栏细线，细字大序号 + 宋体标题 */
+/** 栏目索引：四张主题卡片（th-card：手帐虚线纸片、山野 / 晴海实心卡、夜航细线），序号 + 标题 + 一句说明 */
 function Index() {
   return (
     <Reveal as="section" className="mx-auto max-w-[90rem] px-4 pt-28 md:px-8 md:pt-40" aria-label="栏目">
       <LabelRow label="Index · 本期栏目" count={pad2(sections.length)} />
-      <nav className="mt-6 grid border-b border-ink-200 sm:grid-cols-2 md:mt-10 lg:grid-cols-4">
+      <nav className="mt-6 grid gap-3 sm:grid-cols-2 md:mt-10 lg:grid-cols-4 lg:gap-4">
         {sections.map((x, i) => (
           <Link
             key={x.t}
             to={x.to}
-            className={cn(
-              'group flex flex-col justify-between gap-6 border-t border-ink-200 py-6 transition-colors duration-300 sm:min-h-52 sm:gap-10 sm:px-6 md:min-h-64 lg:border-t-0',
-              i % 2 === 1 && 'sm:border-l',
-              i > 0 && 'lg:border-l',
-              i === 0 && 'sm:pl-0',
-              i === 2 && 'sm:pl-0 lg:pl-6',
-            )}
+            className="th-card group flex min-h-40 flex-col justify-between gap-8 p-5 transition-[border-color,box-shadow] duration-300 hover:border-ink-300 hover:shadow-float md:min-h-48 md:p-6"
           >
             <span className="flex items-start justify-between">
-              <span className="font-num text-[3.5rem] leading-none font-light text-ink-400 transition-colors duration-300 group-hover:text-ink-900 md:text-[4.5rem]">
+              <span className="font-num text-[length:var(--text-h2)] leading-none text-ink-400 transition-colors duration-300 group-hover:text-brand-600">
                 {pad2(i + 1)}
               </span>
-              <ArrowUpRight className="mt-1 size-4 text-ink-300 transition-colors duration-300 group-hover:text-ink-900" strokeWidth={1.25} />
+              <ArrowUpRight className="size-4 text-ink-400 transition-colors duration-300 group-hover:text-ink-900" strokeWidth={1.5} />
             </span>
             <span>
-              <span className="font-display block text-[1.6rem] leading-tight text-ink-900 md:text-[1.85rem]">{x.t}</span>
-              <span className="caption mt-2 block max-w-[16rem]">{x.d}</span>
+              <span className="font-display block text-[length:var(--text-card)] leading-tight text-ink-900">{x.t}</span>
+              <span className="caption mt-1.5 block max-w-[16rem]">{x.d}</span>
             </span>
           </Link>
         ))}
@@ -491,13 +486,13 @@ export default function DiscoverPage() {
         <LabelRow
           label="The Journal · 旅程"
           count={total != null ? `${total} 篇` : undefined}
-          extra={<FilterLinks<Phase | ''> label="类型" value={phase} onChange={setPhase} options={phaseOptions} className="-mr-2" />}
+          extra={<FilterLinks<Phase | ''> label="类型" value={phase} onChange={setPhase} options={phaseOptions} className="-mr-3" />}
         />
         <div className="mt-8 flex flex-wrap items-end justify-between gap-x-8 gap-y-4 md:mt-12">
-          <h2 id="journal-title" className="text-display-lg font-normal">
+          <h2 id="journal-title" className="text-display-md font-normal">
             大家的旅程
           </h2>
-          <FilterLinks<Tab> label="排序" value={tab} onChange={setTab} options={tabOptions} className="text-[15px] md:-mr-2" />
+          <FilterLinks<Tab> label="排序" value={tab} onChange={setTab} options={tabOptions} className="text-[14px] md:-mr-3" />
         </div>
         <div className="mt-10 md:mt-16">
           {tab === 'following' && !user ? (

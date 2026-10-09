@@ -267,7 +267,7 @@ export function UsersPanel() {
     {
       key: 'trips',
       header: '旅程',
-      cell: (u) => <span className="font-num text-[1.375rem] leading-none font-light text-ink-900">{u.trip_count}</span>,
+      cell: (u) => <span className="font-num text-[1.125rem] leading-none text-ink-900">{u.trip_count}</span>,
       meta: (u) => (
         <>
           <span className="font-num text-[14px] text-ink-700">{u.trip_count}</span> 段旅程

@@ -13,7 +13,9 @@ import { cn } from '@/lib/cn'
 import { fmtDate } from '@/lib/format'
 import { CHINA_CENTER } from '@/lib/geo'
 import { categoryOf } from '@/lib/meta'
-import { LitPrefectures, LitProvinces, dayWindow, ensureSlot, litPalettes, stageOf, zoomShift, type LitPalette, type LitTheme, type Stage } from './LitProvinces'
+import { useTheme, useThemeScope } from '@/theme'
+import { LitPrefectures, LitProvinces, dayWindow, ensureSlot, stageOf, zoomShift, type Stage } from './LitProvinces'
+import { CATEGORY_TOKENS, categoryToken, litVars, useLitPalette, withAlpha, type LitPalette, type LitTheme } from './palette'
 
 type LngLat = [number, number]
 const P = 'fp'
@@ -97,6 +99,29 @@ function curve(a: LngLat, b: LngLat, n = 32): LngLat[] {
 }
 
 /* ---------------- 路线、弧线、足迹点（原生图层，缩放时由插值过渡） ---------------- */
+const setPaint = (map: MLMap, layer: string, k: string, v: unknown) =>
+  (map.setPaintProperty as (l: string, k: string, v: unknown) => void).call(map, layer, k, v)
+
+/**
+ * 路线、弧线、足迹点的颜色（主题令牌，见 ./palette）：夜色里是主题的路线色，城市级是当前模式底图上的路线色 + 纸色描边、
+ * 分类色的点。主题变化时只重设这些颜色，不重建图层（照片标记下面那些点的 pinned 状态保留）
+ */
+function overlayPaint(pal: LitPalette, shift: number): Record<string, Record<string, unknown>> {
+  const [D0, D1] = dayWindow(shift)
+  const cat = ['match', ['get', 'cat'], ...Object.entries(pal.categories).flat(), pal.categories.other]
+  return {
+    [`${P}-arcs`]: { 'line-color': pal.line },
+    [`${P}-trips-casing`]: { 'line-color': pal.casing },
+    [`${P}-trips`]: { 'line-color': ['interpolate', ['linear'], Z, D0, pal.routeNight, D1, pal.routeDay] },
+    [`${P}-pts-glow`]: { 'circle-color': pal.column },
+    [`${P}-pts`]: {
+      'circle-color': ['interpolate', ['linear'], Z, D0, pal.column, D1, cat],
+      'circle-stroke-color': ['interpolate', ['linear'], Z, D0, withAlpha(pal.night, 0.5), D1, pal.casing],
+    },
+    [`${P}-pts-hit`]: { 'circle-color': pal.column },
+  }
+}
+
 function FootprintOverlay({
   data,
   pal,
@@ -115,14 +140,15 @@ function FootprintOverlay({
   const map = useMap()
   const cb = useRef({ onStage, onPick, onFocus })
   cb.current = { onStage, onPick, onFocus }
+  const palRef = useRef(pal)
+  palRef.current = pal
 
   useEffect(() => {
     if (!map) return
     const z = (v: number) => v + shift
     const [D0, D1] = dayWindow(shift)
+    const paint = overlayPaint(palRef.current, shift)
     ensureSlot(map, SLOT)
-    // 光源偏暖、从西南方向打来，立体省份的顶面更亮、侧面更深
-    map.setLight({ anchor: 'map', position: [1.3, 200, 38], color: '#fff4e2', intensity: 0.42 })
     const trips = [...data.trips].filter((t) => t.path.length).sort((a, b) => (a.start_date ?? '').localeCompare(b.start_date ?? ''))
     const arcs: Feature<LineString>[] = []
     for (let i = 1; i < trips.length; i++) {
@@ -150,7 +176,7 @@ function FootprintOverlay({
             ({
               type: 'Feature',
               id: i,
-              properties: { i, color: categoryOf(p.category).color, photo: p.photo_thumb_url ? 1 : 0 },
+              properties: { i, cat: p.category in CATEGORY_TOKENS ? p.category : 'other', photo: p.photo_thumb_url ? 1 : 0 },
               geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
             }) as Feature<Point>,
         ),
@@ -167,20 +193,20 @@ function FootprintOverlay({
       source: `${P}-arcs`,
       layout: { 'line-cap': 'round' },
       paint: {
-        'line-color': pal.line,
+        ...paint[`${P}-arcs`],
         'line-width': 1.2,
         'line-dasharray': [1.5, 2.5],
         'line-opacity': ['interpolate', ['linear'], Z, z(3), 0.7, z(5.2), 0.55, z(6.2), 0],
       },
     })
-    // 旅程路线：省级为细金线，城市级为纸色描边 + 朱砂实线
+    // 旅程路线：省级为主题路线色的细线，城市级为纸色描边 + 路线色实线
     add({
       id: `${P}-trips-casing`,
       type: 'line',
       source: `${P}-trips`,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': '#0b0b0a',
+        ...paint[`${P}-trips-casing`],
         'line-width': ['interpolate', ['linear'], Z, D0, 1, 12, 7],
         'line-opacity': ['interpolate', ['linear'], Z, D0, 0, D1, 0.9],
       },
@@ -191,18 +217,18 @@ function FootprintOverlay({
       source: `${P}-trips`,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': ['interpolate', ['linear'], Z, D0, pal.routeNight, D1, pal.routeDay] as ExpressionSpecification,
+        ...paint[`${P}-trips`],
         'line-width': ['interpolate', ['linear'], Z, 5, 0.8, 8, 1.4, 10, 2.6, 14, 3.4],
         'line-opacity': ['interpolate', ['linear'], Z, z(5.2), 0, z(6.2), 0.6, D0, 0.75, D1, 0.95],
       },
     })
-    // 足迹点：夜色下为金色小光点，纸色下为带纸色描边的分类色圆点（城市级时大部分被照片 / 印章标记盖住）
+    // 足迹点：夜色下为路线色的小光点，城市级为带纸色描边的分类色圆点（大部分被照片 / 印章标记盖住）
     add({
       id: `${P}-pts-glow`,
       type: 'circle',
       source: `${P}-pts`,
       paint: {
-        'circle-color': pal.column,
+        ...paint[`${P}-pts-glow`],
         'circle-radius': ['interpolate', ['linear'], Z, 6, 5, 8.5, 9],
         'circle-blur': 1,
         'circle-opacity': ['interpolate', ['linear'], Z, z(5.4), 0, z(6.4), 0.35, D0, 0.3, D1, 0],
@@ -213,9 +239,8 @@ function FootprintOverlay({
       type: 'circle',
       source: `${P}-pts`,
       paint: {
-        'circle-color': ['interpolate', ['linear'], Z, D0, pal.column, D1, ['get', 'color']] as ExpressionSpecification,
+        ...paint[`${P}-pts`],
         'circle-radius': ['interpolate', ['linear'], Z, 6, 1.6, 8.5, 3, 13, 4.5],
-        'circle-stroke-color': ['interpolate', ['linear'], Z, D0, 'rgba(12,19,20,0.5)', D1, '#0b0b0a'] as ExpressionSpecification,
         'circle-stroke-width': ['interpolate', ['linear'], Z, z(6), 0, z(8.5), 1.5],
         // 已经画成 DOM 标记的点（feature-state pinned）不再重复显示圆点
         'circle-opacity': ['interpolate', ['linear'], Z, z(5.4), 0, z(6.3), ['case', pinned, 0, 0.95]],
@@ -228,8 +253,8 @@ function FootprintOverlay({
       type: 'circle',
       source: `${P}-pts`,
       minzoom: z(6),
-      paint: { 'circle-radius': 14, 'circle-color': '#000', 'circle-opacity': 0 },
-    })
+      paint: { ...paint[`${P}-pts-hit`], 'circle-radius': 14, 'circle-opacity': 0 },
+    } as Parameters<MLMap['addLayer']>[0])
     return () => {
       removeLayers(map, [`${P}-pts-hit`, `${P}-pts`, `${P}-pts-glow`, `${P}-trips`, `${P}-trips-casing`, `${P}-arcs`], [
         `${P}-pts`,
@@ -237,7 +262,15 @@ function FootprintOverlay({
         `${P}-arcs`,
       ])
     }
-  }, [map, data, pal, shift])
+  }, [map, data, shift])
+
+  // 主题变化：只重设颜色（光源偏暖、从西南方向打来，立体省份的顶面更亮、侧面更深；颜色是主题的象牙白）
+  useEffect(() => {
+    if (!map) return
+    for (const [id, paint] of Object.entries(overlayPaint(pal, shift)))
+      if (map.getLayer(id)) for (const [k, v] of Object.entries(paint)) setPaint(map, id, k, v)
+    map.setLight({ anchor: 'map', position: [1.3, 200, 38], color: pal.light, intensity: 0.42 })
+  }, [map, pal, shift])
 
   // 缩放档位、自动俯仰、点击
   useEffect(() => {
@@ -370,28 +403,32 @@ function declutter(map: MLMap, order: number[], pos: (i: number) => LngLat, size
   return out
 }
 
-const PAPER = '#0b0b0a'
-const INK = '#f2eee6'
+/*
+ * DOM 标记的颜色、字体都写成主题的 CSS 变量：随地图外框上的主题作用域解析（城市级是当前模式，夜色里是深色），
+ * 换主题时浏览器自动重算，不用重建标记
+ */
+const INK_A = (k: number) => `color-mix(in oklab,var(--color-ink-900) ${k}%,transparent)`
+const SHADOW = '0 10px 22px -8px color-mix(in oklab,var(--color-night) 70%,transparent)'
 
 function badgeHtml(n: number) {
   return n > 0
-    ? `<span style="position:absolute;top:-7px;right:-9px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:${INK};color:${PAPER};font:500 11px/18px 'Cormorant Garamond Variable',Georgia,serif;font-variant-numeric:lining-nums;text-align:center;box-shadow:0 0 0 1.5px ${PAPER}">+${n}</span>`
+    ? `<span style="position:absolute;top:-7px;right:-9px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--color-ink-900);color:var(--color-paper);font-family:var(--font-num);font-size:11px;line-height:18px;font-weight:500;font-variant-numeric:lining-nums;text-align:center;box-shadow:0 0 0 1.5px var(--color-paper)">+${n}</span>`
     : ''
 }
 
-/** 相框式照片标记：近黑细边框 + 下方小尖角，选中时边框为强调色 */
+/** 相框式照片标记：纸色细边框（像一张相纸）+ 下方细针，选中时边框为强调色 */
 function photoPinHtml(url: string, selected: boolean, n: number, accent: string) {
-  const frame = selected ? accent : PAPER
+  const frame = selected ? accent : 'var(--color-surface)'
   const s = selected ? 56 : 46
   return `
     <div style="position:relative;display:flex;flex-direction:column;align-items:center">
       <div style="position:relative;width:${s}px;height:${Math.round(s * 1.2)}px;padding:2px;background:${frame};border-radius:3px;
-        box-shadow:0 0 0 1px rgba(242,238,230,${selected ? 0 : 0.22}),0 10px 22px -8px rgba(0,0,0,.8);transition:all .2s">
+        box-shadow:0 0 0 1px ${INK_A(selected ? 0 : 18)},${SHADOW};transition:all .2s">
         <img src="${url}" alt="" loading="lazy" decoding="async" draggable="false"
-          style="display:block;width:100%;height:100%;object-fit:cover;border-radius:1.5px;background:#1b1a18"/>
+          style="display:block;width:100%;height:100%;object-fit:cover;border-radius:1.5px;background:var(--color-surface-2)"/>
         ${badgeHtml(n)}
       </div>
-      <div style="width:1px;height:8px;background:${selected ? accent : 'rgba(242,238,230,.55)'}"></div>
+      <div style="width:1px;height:8px;background:${selected ? accent : INK_A(55)}"></div>
     </div>`
 }
 
@@ -509,7 +546,7 @@ function FootprintPins({
   return null
 }
 
-/** 省级视图：去过的城市名 + 打卡数（DOM 标签，互不重叠） */
+/** 省级视图（夜色）：去过的城市名 + 打卡数（DOM 标签，互不重叠）；color 是打卡数的颜色（CSS 变量） */
 function CityLabels({ cities, color }: { cities: Footprints['cities']; color: string }) {
   const map = useMap()
   useEffect(() => {
@@ -536,7 +573,7 @@ function CityLabels({ cities, color }: { cities: Footprints['cities']; color: st
         const el = document.createElement('div')
         el.style.pointerEvents = 'none'
         const name = c.name.length > 2 ? c.name.replace(/(市|地区)$/, '') : c.name
-        el.innerHTML = `<div style="margin-top:6px;white-space:nowrap;font:400 12px/1 'Noto Serif SC','Songti SC',serif;letter-spacing:.06em;color:${INK};text-shadow:0 1px 3px rgba(11,17,18,.9),0 0 8px rgba(11,17,18,.7)">${name}<span style="margin-left:4px;font:500 11px/1 'Cormorant Garamond Variable',Georgia,serif;font-variant-numeric:lining-nums;color:${color}">${c.count}</span></div>`
+        el.innerHTML = `<div style="margin-top:6px;white-space:nowrap;font-family:var(--font-display);font-size:12px;line-height:1;letter-spacing:.06em;color:var(--color-ink-900);text-shadow:0 1px 3px color-mix(in oklab,var(--color-night) 90%,transparent),0 0 8px color-mix(in oklab,var(--color-night) 70%,transparent)">${name}<span style="margin-left:4px;font-family:var(--font-num);font-size:11px;font-weight:500;font-variant-numeric:lining-nums;color:${color}">${c.count}</span></div>`
         all.set(c.code, new Marker({ element: el, anchor: 'top' }).setLngLat([c.lng, c.lat]).addTo(map))
       }
     }
@@ -554,14 +591,15 @@ function CityLabels({ cities, color }: { cities: Footprints['cities']; color: st
 function PointCard({ p, label, onClose }: { p: FootprintPoint; label: string; onClose: () => void }) {
   const cat = categoryOf(p.category)
   return (
-    // 手机上卡片压在地图控件上：用不透明底色（地图控件同时隐藏，见 FootprintMap），桌面仍是玻璃
-    <div className="glass animate-slide-up absolute inset-x-3 bottom-3 z-20 overflow-hidden rounded-sm border border-white/10 text-ink-900 max-sm:bg-surface max-sm:backdrop-blur-none sm:right-auto sm:bottom-6 sm:left-6 sm:w-[24rem]">
+    // 手机上卡片压在地图控件上：用不透明底色（地图控件同时隐藏，见 FootprintMap），桌面仍是玻璃。
+    // 颜色随地图外框上的主题作用域（夜色里是深色玻璃，城市级跟随当前模式）
+    <div className="glass animate-slide-up absolute inset-x-3 bottom-3 z-20 overflow-hidden rounded-card border border-line text-ink-900 shadow-float max-sm:bg-surface max-sm:backdrop-blur-none sm:right-auto sm:bottom-6 sm:left-6 sm:w-[24rem]">
       <div className="flex gap-4 p-3 pr-12">
         {p.photo_thumb_url ? (
-          <img src={p.photo_thumb_url} alt="" className="h-[5.5rem] w-[4.4rem] shrink-0 rounded-sm object-cover" loading="lazy" />
+          <img src={p.photo_thumb_url} alt="" className="h-[5.5rem] w-[4.4rem] shrink-0 rounded-image object-cover" loading="lazy" />
         ) : (
-          <div className="flex h-[5.5rem] w-[4.4rem] shrink-0 items-center justify-center rounded-sm border border-white/10">
-            <cat.icon className="size-5" style={{ color: cat.color }} strokeWidth={1.4} />
+          <div className="flex h-[5.5rem] w-[4.4rem] shrink-0 items-center justify-center rounded-image border border-line">
+            <cat.icon className="size-5" style={{ color: `var(${categoryToken(p.category)})` }} strokeWidth={1.4} />
           </div>
         )}
         <div className="flex min-w-0 flex-1 flex-col py-0.5">
@@ -569,7 +607,7 @@ function PointCard({ p, label, onClose }: { p: FootprintPoint; label: string; on
             <span className="font-num">No. {label.padStart(2, '0')}</span>
             {p.city && ` · ${p.city}`}
           </p>
-          <h3 className="font-display mt-1.5 truncate text-[1.375rem] leading-tight font-normal">{p.name}</h3>
+          <h3 className="font-display mt-1.5 truncate text-[length:var(--text-card)] leading-tight font-normal">{p.name}</h3>
           <p className="caption mt-auto truncate">
             {p.trip_title}
             {p.date && <span className="font-num"> · {fmtDate(p.date)}</span>}
@@ -587,7 +625,7 @@ function PointCard({ p, label, onClose }: { p: FootprintPoint; label: string; on
       </button>
       <Link
         to={`/trips/${p.trip_id}`}
-        className="flex min-h-11 items-center justify-between border-t border-white/10 px-3 text-[13px] tracking-wide text-ink-700 transition-colors hover:text-ink-900"
+        className="flex min-h-11 items-center justify-between border-t border-line px-3 text-[13px] tracking-wide text-ink-700 transition-colors hover:text-ink-900"
       >
         查看这段旅程
         <ArrowRight className="size-4" strokeWidth={1.4} />
@@ -606,7 +644,9 @@ export function FootprintMap({
   theme?: LitTheme
   className?: string
 }) {
-  const pal = litPalettes[theme]
+  // WebGL 图层的颜色：主题令牌解析成 rgba()，换主题 / 深浅色时重新读取；DOM 标记直接用 CSS 变量
+  const pal = useLitPalette(theme)
+  const vars = litVars(theme)
   const [stage, setStage] = useState<Stage>('country')
   const [picked, setPicked] = useState<number | null>(null)
   const mapRef = useRef<MLMap | null>(null)
@@ -629,6 +669,10 @@ export function FootprintMap({
     })
   }, [data.points])
   const night = stage !== 'city'
+  // 地图外框的主题作用域：夜色（全国 / 省级）里是深色令牌，城市级跟随当前模式（浅色模式是纸色地图）。
+  // 胶囊、说明文字、足迹卡片、DOM 标记都在里面，颜色随之切换
+  const { mode } = useTheme()
+  const scope = useThemeScope(night ? 'dark' : mode)
   // 足迹数据刷新后序号可能对应到别的点：关掉卡片
   useEffect(() => setPicked(null), [data.points])
 
@@ -645,7 +689,7 @@ export function FootprintMap({
     fly({ ...v, zoom, pitch: PITCH[stageOf(zoom, sh)] })
   }
 
-  // 地图上的控件：与其他地图一致的玻璃底 + 细线胶囊
+  // 地图上的控件：与其他地图一致的玻璃底 + 细线胶囊（在外框的主题作用域里：夜色里是深色玻璃）
   const chip = mapChipClass
   const photos = useMemo(() => data.points.filter((p) => p.photo_thumb_url).length, [data.points])
   const sel = picked != null ? data.points[picked] : null
@@ -654,7 +698,8 @@ export function FootprintMap({
     <div
       ref={boxRef}
       data-fp-map
-      className={cn('relative overflow-hidden transition-colors duration-700', night ? 'bg-night' : 'bg-[#121210]', className)}
+      {...scope}
+      className={cn('relative overflow-hidden transition-colors duration-700', night ? 'bg-night' : 'bg-[var(--map-bg)]', className)}
     >
       {shift != null && (
         <BaseMap
@@ -675,8 +720,8 @@ export function FootprintMap({
           <LitProvinces counts={counts} theme={theme} cities={data.cities} idPrefix={P} beforeId={SLOT} shift={shift} />
           <LitPrefectures cities={data.cities} theme={theme} idPrefix={P} beforeId={SLOT} shift={shift} />
           <FootprintOverlay data={data} pal={pal} shift={shift} onStage={setStage} onPick={setPicked} onFocus={focus} />
-          {stage === 'region' && <CityLabels cities={data.cities} color={pal.line} />}
-          {stage === 'city' && <FootprintPins points={data.points} labels={labels} selected={picked} onPick={setPicked} accent={pal.accent} />}
+          {stage === 'region' && <CityLabels cities={data.cities} color={vars.column} />}
+          {stage === 'city' && <FootprintPins points={data.points} labels={labels} selected={picked} onPick={setPicked} accent={vars.accent} />}
         </BaseMap>
       )}
 
@@ -691,19 +736,19 @@ export function FootprintMap({
         </button>
       </div>
 
-      {/* 左下角的说明文字：极淡的暗角托底，保证在亮色的立体省份上也看得清 */}
-      <div className="pointer-events-none absolute bottom-0 left-0 z-[5] h-44 w-[min(100%,30rem)] bg-[radial-gradient(ellipse_at_bottom_left,rgb(0_0_0/0.62),transparent_70%)]" />
+      {/* 左下角的说明文字：纸色（夜色里是深色）的暗角托底，保证在亮色的立体省份、浅色底图上都看得清 */}
+      <div className="pointer-events-none absolute bottom-0 left-0 z-[5] h-44 w-[min(100%,30rem)] bg-[radial-gradient(ellipse_at_bottom_left,color-mix(in_oklab,var(--color-paper)_80%,transparent),transparent_70%)]" />
       {sel ? (
         <PointCard p={sel} label={labels[picked!]} onClose={() => setPicked(null)} />
       ) : (
         <div key={stage} className="animate-fade-in pointer-events-none absolute bottom-4 left-4 z-10 md:bottom-6 md:left-8">
-          <p className="eyebrow !text-white/50">{stage === 'country' ? 'China · 全国' : stage === 'region' ? 'Region · 省域' : 'Street · 街巷'}</p>
-          <p className="mt-1.5 text-[13px] text-white/70">
-            <span className="font-num text-xl font-light text-white">{data.stats.provinces}</span> 省
-            <span className="font-num ml-3 text-xl font-light text-white">{data.stats.cities}</span> 城
+          <p className="eyebrow">{stage === 'country' ? 'China · 全国' : stage === 'region' ? 'Region · 省域' : 'Street · 街巷'}</p>
+          <p className="mt-1.5 text-[13px] text-ink-700">
+            <span className="font-num text-xl text-ink-900">{data.stats.provinces}</span> 省
+            <span className="font-num ml-3 text-xl text-ink-900">{data.stats.cities}</span> 城
             {stage === 'city' && photos > 0 && (
               <>
-                <span className="font-num ml-3 text-xl font-light text-white">{photos}</span> 张照片
+                <span className="font-num ml-3 text-xl text-ink-900">{photos}</span> 张照片
               </>
             )}
           </p>

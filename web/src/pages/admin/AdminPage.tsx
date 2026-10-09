@@ -9,6 +9,7 @@ import { ReportsPanel } from '@/components/admin/ReportsPanel'
 import { SettingsPanel } from '@/components/admin/SettingsPanel'
 import { TripsPanel } from '@/components/admin/TripsPanel'
 import { UsersPanel } from '@/components/admin/UsersPanel'
+import { selectedClass } from '@/components/ui'
 import { cn } from '@/lib/cn'
 
 const sections: { path: string; label: string }[] = [
@@ -71,43 +72,47 @@ export default function AdminPage() {
     if (bar && el) bar.scrollLeft = el.offsetLeft - (bar.clientWidth - el.offsetWidth) / 2
     syncEdges()
   }, [pathname])
-  const fade = `linear-gradient(to right, ${edges.left ? 'transparent, #000 28px' : '#000, #000'}, ${edges.right ? '#000 calc(100% - 40px), transparent' : '#000, #000'})`
+  // 遮罩只用透明度：black = 不透明（显示），transparent = 隐去
+  const fade = `linear-gradient(to right, ${edges.left ? 'transparent, black 28px' : 'black, black'}, ${edges.right ? 'black calc(100% - 40px), transparent' : 'black, black'})`
 
   return (
     <div className="mx-auto max-w-[90rem] px-4 pt-10 pb-24 [font-variant-numeric:lining-nums] md:px-8 md:pt-20 md:pb-32">
       <div className="md:grid md:grid-cols-[12rem_minmax(0,1fr)] md:gap-12 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-20">
-        {/* 桌面端侧边导航：安静的目录，细线分隔；当前项象牙白 + 左侧一道细线 */}
+        {/* 桌面端侧边导航：安静的目录，细线分隔；当前项是主题的列表行选中态（底纹 + 左侧亮条或圆点 + 600 字重） */}
         <nav className="hidden md:block" aria-label="管理后台导航">
           <div className="sticky top-24">
             <div className="flex min-h-12 items-center border-t border-ink-200 pt-3 pb-1">
               <p className="eyebrow !text-ink-800">Console</p>
             </div>
-            <p className="font-display mt-8 text-[2rem] leading-tight text-ink-900 md:mt-12">管理后台</p>
-            <ul className="mt-10 border-t border-ink-200">
+            <p className="font-display mt-6 text-[length:var(--text-h2)] leading-tight text-ink-900 md:mt-8">管理后台</p>
+            <ul className="mt-8 border-t border-ink-200">
               {sections.map((s, i) => (
                 <li key={s.path} className="border-b border-ink-200">
                   <NavLink
                     to={toOf(s.path)}
                     end={!s.path}
                     className={({ isActive }) =>
-                      cn(
-                        'group relative flex h-12 items-center gap-4 pr-1 pl-4 text-[14px] tracking-wide transition-colors duration-300',
-                        isActive ? 'text-ink-900' : 'text-ink-500 hover:text-ink-900',
+                      selectedClass(
+                        isActive,
+                        'row',
+                        cn(
+                          'group flex h-12 items-center gap-4 pr-1 pl-4 text-[14px] tracking-wide transition-colors duration-300',
+                          isActive ? 'text-ink-900' : 'text-ink-700 hover:bg-ink-900/[0.04] hover:text-ink-900',
+                        ),
                       )
                     }
                   >
                     {({ isActive }) => (
                       <>
-                        {isActive && <span className="absolute inset-y-3.5 left-0 w-px bg-ink-900" aria-hidden />}
                         <span
                           className={cn(
                             'font-num w-5 text-[13px] transition-colors duration-300',
-                            isActive ? 'text-ink-900' : 'text-ink-400 group-hover:text-ink-700',
+                            isActive ? 'text-brand-600' : 'text-ink-400 group-hover:text-ink-700',
                           )}
                         >
                           {String(i + 1).padStart(2, '0')}
                         </span>
-                        <span>{s.label}</span>
+                        <span className="th-sel-title">{s.label}</span>
                         {badgeOf(s.path) > 0 && (
                           <span className="ml-auto">
                             <Count n={badgeOf(s.path)} label={badgeLabel(s.path)} />
@@ -127,10 +132,11 @@ export default function AdminPage() {
           <div className="flex min-h-12 items-center border-t border-ink-200 pt-3 pb-1">
             <p className="eyebrow !text-ink-800">Console · 管理后台</p>
           </div>
+          {/* 主题的 Tab（th-tabs / th-tab）：下划线主题是 2px 强调色下划线 + 600 字重，山野 / 暮色是胶囊 */}
           <nav
             ref={tabsRef}
             onScroll={syncEdges}
-            className="scrollbar-none relative -mx-4 mt-1 mb-12 flex snap-x scroll-px-4 gap-7 overflow-x-auto border-b border-ink-200 px-4"
+            className="th-tabs relative mt-2 mb-10 snap-x scroll-px-4"
             style={{ maskImage: fade, WebkitMaskImage: fade }}
             aria-label="管理后台导航"
           >
@@ -139,21 +145,15 @@ export default function AdminPage() {
                 key={s.path}
                 to={toOf(s.path)}
                 end={!s.path}
-                className={({ isActive }) =>
-                  cn(
-                    'relative inline-flex h-12 shrink-0 snap-start items-center gap-2 text-[14px] whitespace-nowrap transition-colors duration-300',
-                    isActive ? 'text-ink-900' : 'text-ink-400 hover:text-ink-700',
-                  )
-                }
+                className="th-tab inline-flex snap-start items-center gap-2"
               >
                 {({ isActive }) => (
                   <>
-                    <span className={cn('font-num text-[12px]', isActive ? 'text-ink-500' : 'text-ink-300')} aria-hidden>
+                    <span className={cn('font-num text-[12px] font-normal', isActive ? 'opacity-70' : 'text-ink-400')} aria-hidden>
                       {String(i + 1).padStart(2, '0')}
                     </span>
                     {s.label}
                     {badgeOf(s.path) > 0 && <Count n={badgeOf(s.path)} label={badgeLabel(s.path)} />}
-                    {isActive && <span className="absolute right-0 -bottom-px left-0 h-px bg-ink-900" aria-hidden />}
                   </>
                 )}
               </NavLink>

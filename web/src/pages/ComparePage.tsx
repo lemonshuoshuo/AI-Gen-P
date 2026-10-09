@@ -35,7 +35,7 @@ function LabelRow({ eyebrow, count, aside, className }: { eyebrow: string; count
   )
 }
 
-/** 地点清单：宋体标题 + 细线列表（空清单不单独成块，由外层收成一行） */
+/** 地点清单：一张主题卡片（th-card），标签行 + 卡片标题 + 细线列表（空清单不单独成块，由外层收成一行） */
 function WpList({
   eyebrow,
   title,
@@ -52,17 +52,20 @@ function WpList({
   className?: string
 }) {
   return (
-    <section className={cn('min-w-0', className)}>
-      <LabelRow eyebrow={eyebrow} count={list.length} />
-      <h3 className="mt-6 flex items-baseline gap-3 text-[24px] leading-snug text-ink-900 md:text-[28px]">
-        <span className={cn('font-sans text-base', tone)}>{mark}</span>
+    <section className={cn('th-card min-w-0 p-5 md:p-6', className)}>
+      <p className="flex items-baseline justify-between gap-3">
+        <span className="eyebrow">{eyebrow}</span>
+        <span className="font-num text-[14px] text-ink-500">{list.length}</span>
+      </p>
+      <h3 className="mt-3 flex items-baseline gap-2.5 text-[length:var(--text-card)] leading-snug text-ink-900">
+        <span className={cn('font-sans text-[15px] font-semibold', tone)}>{mark}</span>
         {title}
       </h3>
-      <ul className="mt-5 divide-y divide-ink-200 border-t border-ink-200">
+      <ul className="mt-4 divide-y divide-line border-t border-line">
         {list.map((w) => (
-          <li key={w.id} className="flex items-center gap-3 py-3">
-            <span className="size-1.5 shrink-0 rounded-full" style={{ background: categoryOf(w.category).color }} />
-            <span className="font-display min-w-0 flex-1 truncate text-[17px] text-ink-800">{w.name}</span>
+          <li key={w.id} className="flex items-center gap-3 py-2.5">
+            <span className="size-1.5 shrink-0 rounded-full" style={{ background: categoryOf(w.category).css }} />
+            <span className="font-display min-w-0 flex-1 truncate text-[15.5px] text-ink-800">{w.name}</span>
             {w.day > 0 && <span className="eyebrow shrink-0 !text-[10px]">Day {pad2(w.day)}</span>}
           </li>
         ))}
@@ -71,13 +74,13 @@ function WpList({
   )
 }
 
-/** 大号统计：细字 Cormorant 数字 + 小号单位与标签 */
+/** 大号统计：主题的大数字（font-num text-num）+ 小号单位与标签 */
 function BigNum({ label, value, unit, note, extra, className }: { label: string; value: ReactNode; unit?: string; note?: ReactNode; extra?: ReactNode; className?: string }) {
   return (
-    <div className={cn('min-w-0 py-8 md:py-10', className)}>
+    <div className={cn('min-w-0 py-6 md:py-8', className)}>
       <p className="eyebrow">{label}</p>
-      <div className="mt-5 flex flex-wrap items-baseline gap-x-2 md:mt-7">
-        <span className="font-num text-[2.5rem] leading-[0.85] font-light tracking-[-0.01em] whitespace-nowrap text-ink-900 sm:text-[3rem] lg:text-[3.5rem]">
+      <div className="mt-3 flex flex-wrap items-baseline gap-x-2 md:mt-4">
+        <span className="font-num text-num tracking-[-0.01em] whitespace-nowrap text-ink-900">
           {value}
         </span>
         {unit && <span className="text-xs text-ink-500">{unit}</span>}
@@ -203,15 +206,15 @@ export default function ComparePage() {
         </div>
       </div>
 
-      <header className="mt-12 md:mt-20">
+      <header className="mt-10 md:mt-14">
         <p className="eyebrow animate-fade-in">Plan vs Actual · 计划与实际</p>
-        <h1 className="text-display-lg animate-slide-up mt-6 max-w-[20ch] text-balance text-ink-900">
+        <h1 className="text-display-lg animate-slide-up mt-4 max-w-[20ch] text-balance text-ink-900">
           <CjkWords text={trip.title} />
         </h1>
       </header>
 
       {nextSteps && (
-        <div className="mt-12 flex flex-wrap items-center gap-x-6 gap-y-4 border-y border-ink-200 py-5 md:mt-16">
+        <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-4 border-y border-ink-200 py-5 md:mt-12">
           <p className="flex min-w-0 flex-1 basis-full items-baseline gap-4 text-[14px] text-ink-600 lg:basis-auto">
             <span className="eyebrow !text-ink-900">Afterwards</span>
             旅程结束啦，趁记忆还新鲜：
@@ -235,36 +238,27 @@ export default function ComparePage() {
         </div>
       )}
 
-      {/* 完成度：超大百分比 + 一条细进度线 */}
-      <section className="mt-20 md:mt-32">
+      {/* 完成度：大数字百分比（font-num text-num）+ 一条进度条 */}
+      <section className="mt-16 md:mt-24">
         <LabelRow
           eyebrow="Completion · 计划完成度"
           count={`${plannedVisited.length} / ${cmp.planned.count}`}
           aside={cmp.extra.length > 0 ? `另有 ${cmp.extra.length} 个计划外` : undefined}
         />
-        <div className="mt-8 grid gap-y-12 md:mt-12 lg:grid-cols-12 lg:gap-x-8">
+        <div className="mt-6 grid gap-y-10 md:mt-8 lg:grid-cols-12 lg:gap-x-8">
           <div className="min-w-0 lg:col-span-7">
-            <p
-              className="font-num animate-slide-up leading-[0.78] font-light tracking-[-0.04em] text-ink-900"
-              style={{ fontSize: 'clamp(4.5rem, 14vw, 9rem)' }}
-              aria-label={`完成 ${pct}%`}
-            >
+            <p className="font-num text-num animate-slide-up flex items-baseline text-ink-900" aria-label={`完成 ${pct}%`}>
               {pct}
-              <span className="ml-1 align-top text-[0.18em] tracking-normal text-ink-500">%</span>
+              <span className="ml-1 text-[length:var(--text-h2)] text-ink-500">%</span>
             </p>
-            <div className="mt-10 md:mt-14">
-              <div className="relative h-px bg-ink-200">
+            <div className="mt-6 md:mt-8">
+              <div className="relative h-1.5 rounded-full bg-ink-200">
                 <div
-                  className="absolute inset-y-0 left-0 bg-brand-500 transition-[width] duration-[1400ms] ease-out-expo"
+                  className="absolute inset-y-0 left-0 rounded-full bg-brand-600 transition-[width] duration-[1400ms] ease-out-expo"
                   style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
                 />
-                <span
-                  aria-hidden
-                  className="absolute top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-500"
-                  style={{ left: `${Math.min(100, Math.max(0, pct))}%` }}
-                />
               </div>
-              <div className="font-num mt-3 flex justify-between text-[13px] text-ink-500">
+              <div className="font-num mt-2.5 flex justify-between text-[13px] text-ink-500">
                 <span>0</span>
                 <span>50</span>
                 <span>100</span>
@@ -272,15 +266,15 @@ export default function ComparePage() {
             </div>
           </div>
           <div className="min-w-0 lg:col-span-4 lg:col-start-9 lg:self-end">
-            <p className="font-display text-[20px] leading-[1.5] text-ink-800 md:text-[24px]">{verdict}</p>
-            <dl className="mt-10 divide-y divide-ink-200 border-y border-ink-200">
+            <p className="font-display text-[length:var(--text-h2)] leading-[1.4] text-ink-800">{verdict}</p>
+            <dl className="mt-8 divide-y divide-ink-200 border-y border-ink-200">
               {counts.map((c) => (
-                <div key={c.label} className="flex items-baseline justify-between gap-4 py-4">
+                <div key={c.label} className="flex items-baseline justify-between gap-4 py-3">
                   <dt className="flex items-center gap-2.5 text-[13px] text-ink-500">
                     <span className={cn('size-1.5 rounded-full', c.dot ?? 'bg-ink-900')} aria-hidden />
                     {c.label}
                   </dt>
-                  <dd className="font-num text-[2rem] leading-none font-light text-ink-900">{c.value}</dd>
+                  <dd className="font-num text-[length:var(--text-h2)] leading-none text-ink-900">{c.value}</dd>
                 </div>
               ))}
             </dl>
@@ -289,7 +283,7 @@ export default function ComparePage() {
       </section>
 
       {/* 里程 */}
-      <Reveal as="section" className="mt-24 md:mt-36">
+      <Reveal as="section" className="mt-20 md:mt-28">
         <LabelRow eyebrow="Distance · 里程" aside={byTrack ? '实际里程按 GPS 轨迹' : undefined} />
         <div className="grid grid-cols-2 md:grid-cols-3">
           <BigNum label="Planned · 计划里程" value={plannedKmN} unit={plannedKmU} note={hasTrack ? '按打卡点直线连线' : undefined} className="pr-4" />
@@ -312,7 +306,7 @@ export default function ComparePage() {
       </Reveal>
 
       {/* 地图 */}
-      <Reveal as="section" className="mt-20 md:mt-32">
+      <Reveal as="section" className="mt-16 md:mt-24">
         <LabelRow
           eyebrow="Route · 路线对照"
           count={`${sorted.length} 个地点`}
@@ -332,7 +326,7 @@ export default function ComparePage() {
               </span>
               {segments.length > 0 && (
                 <span className="flex items-center gap-2">
-                  <span className="inline-block h-px w-5 bg-amber-500" />
+                  <span className="inline-block h-0.5 w-5 bg-[var(--route-track)]" />
                   GPS 轨迹
                 </span>
               )}
@@ -340,7 +334,7 @@ export default function ComparePage() {
           }
         />
         <figure className="mt-8 md:mt-10">
-          <div className="-mx-4 overflow-hidden border-y border-ink-200 md:mx-0 md:rounded-sm md:border-0 md:ring-1 md:ring-ink-200">
+          <div className="-mx-4 overflow-hidden border-y border-ink-200 md:mx-0 md:rounded-image md:border-0 md:ring-1 md:ring-line">
             <BaseMap className="h-[60svh] min-h-80 md:h-[72vh]" kindSwitcher>
               <RouteLines track={segments} idPrefix="cmp" />
               <RouteSegments segments={routeSegs} idPrefix="cmp-legs" icons={false} />
@@ -353,16 +347,16 @@ export default function ComparePage() {
       </Reveal>
 
       {/* 清单：有内容的才成块；空的收成一行（跳过 0 · 未去 0 …） */}
-      <div className="mt-20 md:mt-32">
+      <div className="mt-16 md:mt-24">
         {filled.length > 0 && (
-          <div className="grid gap-x-8 gap-y-16 sm:grid-cols-2 lg:grid-cols-12">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-12 lg:gap-4">
             {filled.map((l) => (
               <WpList key={l.key} eyebrow={l.eyebrow} title={l.title} mark={l.mark} list={l.list} tone={l.tone} className={listSpan} />
             ))}
           </div>
         )}
         {empty.length > 0 && (
-          <p className={cn('flex flex-wrap items-baseline gap-x-6 gap-y-2 border-t border-ink-200 pt-4', filled.length > 0 && 'mt-14 md:mt-20')}>
+          <p className={cn('flex flex-wrap items-baseline gap-x-6 gap-y-2 border-t border-ink-200 pt-4', filled.length > 0 && 'mt-10 md:mt-14')}>
             <span className="eyebrow">Also · 其余</span>
             {empty.map((l) => (
               <span key={l.key} className="caption">
@@ -375,22 +369,22 @@ export default function ComparePage() {
 
       {/* 每天的执行情况 */}
       {cmp.days.length > 0 && (
-        <Reveal as="section" className="mt-24 md:mt-36">
+        <Reveal as="section" className="mt-20 md:mt-28">
           <LabelRow
             eyebrow="By Day · 每天的执行情况"
             count={`${cmp.days.length} 天`}
             aside={
               <span className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] tracking-[0.06em]">
                 <span className="flex items-center gap-2">
-                  <span className="h-px w-4 bg-sky-500" />
+                  <span className="h-1 w-4 rounded-full bg-sky-500" />
                   计划
                 </span>
                 <span className="flex items-center gap-2">
-                  <span className="h-0.5 w-4 bg-brand-500" />
+                  <span className="h-1 w-4 rounded-full bg-brand-600" />
                   实到
                 </span>
                 <span className="flex items-center gap-2">
-                  <span className="h-0.5 w-4 bg-violet-500" />
+                  <span className="h-1 w-4 rounded-full bg-violet-500" />
                   计划外
                 </span>
               </span>
@@ -403,19 +397,19 @@ export default function ComparePage() {
                   {d.day ? (
                     <>
                       <span className="eyebrow !text-[10px]">Day</span>
-                      <span className="font-num text-[2rem] leading-none font-light text-ink-900">{pad2(d.day)}</span>
+                      <span className="font-num text-[length:var(--text-h2)] leading-none text-ink-900">{pad2(d.day)}</span>
                     </>
                   ) : (
-                    <span className="font-display text-lg text-ink-700">未分天</span>
+                    <span className="font-display text-[length:var(--text-card)] text-ink-700">未分天</span>
                   )}
                 </span>
-                <div className="space-y-2">
-                  <div className="h-px bg-ink-200">
-                    <div className="h-full bg-sky-500" style={{ width: `${(d.planned / maxDay) * 100}%` }} />
+                <div className="space-y-1.5">
+                  <div className="h-1 overflow-hidden rounded-full bg-ink-200">
+                    <div className="h-full rounded-full bg-sky-500" style={{ width: `${(d.planned / maxDay) * 100}%` }} />
                   </div>
-                  <div className="flex h-0.5 gap-0.5 bg-ink-200">
-                    <div className="h-full bg-brand-500" style={{ width: `${(d.visited / maxDay) * 100}%` }} />
-                    {d.extra > 0 && <div className="h-full bg-violet-500" style={{ width: `${(d.extra / maxDay) * 100}%` }} />}
+                  <div className="flex h-1 gap-0.5 overflow-hidden rounded-full bg-ink-200">
+                    <div className="h-full rounded-full bg-brand-600" style={{ width: `${(d.visited / maxDay) * 100}%` }} />
+                    {d.extra > 0 && <div className="h-full rounded-full bg-violet-500" style={{ width: `${(d.extra / maxDay) * 100}%` }} />}
                   </div>
                 </div>
                 <span className="col-span-2 mt-3 text-[13px] text-ink-500 md:col-span-1 md:mt-0 md:text-right">
@@ -436,16 +430,16 @@ export default function ComparePage() {
       )}
 
       {cmp.time_diffs.length > 0 && (
-        <Reveal as="section" className="mt-24 md:mt-36">
+        <Reveal as="section" className="mt-20 md:mt-28">
           <LabelRow eyebrow="Timing · 时间偏差" count={`${cmp.time_diffs.length} 处`} />
-          <h2 className="text-display-md mt-8 text-ink-900 md:mt-10">比计划早到还是晚到</h2>
-          <ul className="mt-10 divide-y divide-ink-200 border-y border-ink-200 lg:w-2/3">
+          <h2 className="text-display-md mt-6 text-ink-900 md:mt-8">比计划早到还是晚到</h2>
+          <ul className="mt-6 divide-y divide-ink-200 border-y border-ink-200 md:mt-8 lg:w-2/3">
             {cmp.time_diffs.map((d) => {
               const m = Math.abs(d.delta_minutes)
               const onTime = m <= 15
               return (
                 <li key={d.waypoint_id} className="flex items-baseline gap-4 py-4">
-                  <span className="font-display min-w-0 flex-1 truncate text-[18px] text-ink-800">{d.name}</span>
+                  <span className="font-display min-w-0 flex-1 truncate text-[length:var(--text-card)] text-ink-800">{d.name}</span>
                   <span
                     className={cn(
                       'shrink-0 text-[13px] tracking-wide',

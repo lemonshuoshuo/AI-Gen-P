@@ -42,7 +42,7 @@ function Section({
       <LabelRow label={eyebrow} count={String(index).padStart(2, '0')} />
       <div className="mt-8 grid gap-x-10 gap-y-8 md:mt-10 xl:grid-cols-12">
         <div className="xl:col-span-4">
-          <h2 className="font-display text-[1.75rem] leading-tight font-normal md:text-[2.125rem]">{title}</h2>
+          <h2 className="text-display-md font-normal">{title}</h2>
           {desc && <p className="mt-3 max-w-xs text-[13px] leading-[1.8] text-pretty text-ink-500">{desc}</p>}
         </div>
         <div className="min-w-0 space-y-7 xl:col-span-8">{children}</div>

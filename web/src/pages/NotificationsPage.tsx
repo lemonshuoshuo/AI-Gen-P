@@ -23,7 +23,7 @@ import {
 import { toast } from 'sonner'
 import { api, ApiError, errorMessage, type Notification, type NotificationType, type Paged, type SpaceDetail } from '@/api'
 import { refreshSpaces } from '@/components/space'
-import { Avatar, Button, Empty, LoadError, PageLoader, selectedClass } from '@/components/ui'
+import { Avatar, Button, Empty, LoadError, PageLoader, buttonClass, selectedClass } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { dayjs, fromNow } from '@/lib/format'
 import { flattenPages } from '@/lib/pages'
@@ -300,7 +300,7 @@ function NoticeItem({ n, onOpen, onRead }: { n: Notification; onOpen: () => void
         <div className="min-w-0 flex-1">
           <p
             className={cn(
-              'font-display line-clamp-3 text-[17px] leading-[1.7] break-words transition-colors duration-300 [font-feature-settings:"halt"] [font-variant-numeric:lining-nums] md:text-[20px]',
+              'font-display line-clamp-3 text-[15px] leading-[1.75] break-words transition-colors duration-300 [font-feature-settings:"halt"] [font-variant-numeric:lining-nums] md:text-[16.5px]',
               n.read ? 'text-ink-500' : 'text-ink-700',
               clickable && 'group-hover:text-ink-800',
             )}
@@ -326,7 +326,7 @@ function NoticeItem({ n, onOpen, onRead }: { n: Notification; onOpen: () => void
       </div>
     </>
   )
-  const cls = 'group grid w-full grid-cols-2 gap-x-8 gap-y-4 py-7 text-left md:grid-cols-12 md:py-9'
+  const cls = 'group grid w-full grid-cols-2 gap-x-8 gap-y-3 py-5 text-left md:grid-cols-12 md:py-6'
   // 待处理的旅程邀请包含操作按钮，不整体可点
   if (actionable) return <div className={cls}>{body}</div>
   return (
@@ -435,7 +435,7 @@ export default function NotificationsPage() {
           label="Notifications · 通知"
           extra={total != null && filter === 'all' && <span className="font-num text-[13px] text-ink-400">{total} 条</span>}
         />
-        <div className="mt-10 grid gap-x-8 gap-y-8 md:mt-16 lg:grid-cols-12 lg:items-end">
+        <div className="mt-8 grid gap-x-8 gap-y-6 md:mt-12 lg:grid-cols-12 lg:items-end">
           <h1 className="text-display-lg font-normal lg:col-span-7">通知</h1>
           <div className="flex items-end justify-between gap-6 lg:col-span-4 lg:col-start-9 lg:pb-2">
             <p className="flex items-baseline gap-3">
@@ -457,9 +457,9 @@ export default function NotificationsPage() {
         </div>
       </header>
 
-      {/* 文字筛选：当前项象牙白下划线 */}
-      <div role="group" aria-label="筛选" className="mt-16 flex items-center text-[13.5px] md:mt-24">
-        <span aria-hidden className="eyebrow mr-3">
+      {/* 文字筛选：主题的 Tab 语言（下划线主题 2px 强调色下划线 + 600，山野 / 暮色实心胶囊） */}
+      <div role="group" aria-label="筛选" className="mt-12 flex items-center gap-x-1 text-[13.5px] md:mt-16">
+        <span aria-hidden className="eyebrow mr-2">
           Show
         </span>
         {(
@@ -467,22 +467,16 @@ export default function NotificationsPage() {
             ['all', '全部'],
             ['unread', '未读'],
           ] as const
-        ).map(([v, label], i) => (
-          <span key={v} className="flex items-center">
-            {i > 0 && (
-              <span aria-hidden className="text-ink-300">
-                /
-              </span>
-            )}
-            <button
-              type="button"
-              aria-pressed={filter === v}
-              onClick={() => setFilter(v)}
-              className={selectedClass(filter === v, 'filter', 'mx-0.5 inline-flex h-10 items-center px-3 tracking-wide')}
-            >
-              {label}
-            </button>
-          </span>
+        ).map(([v, label]) => (
+          <button
+            key={v}
+            type="button"
+            aria-pressed={filter === v}
+            onClick={() => setFilter(v)}
+            className={selectedClass(filter === v, 'filter', 'inline-flex h-10 items-center px-3 md:h-8')}
+          >
+            {label}
+          </button>
         ))}
       </div>
 
@@ -505,7 +499,7 @@ export default function NotificationsPage() {
             />
           </div>
         ) : (
-          <div className="space-y-14 md:space-y-20">
+          <div className="space-y-10 md:space-y-14">
             {groups.map((g) => (
               <section key={g.key} className="animate-fade-in">
                 <LabelRow label={g.label} count={String(g.items.length).padStart(2, '0')} />
@@ -525,7 +519,7 @@ export default function NotificationsPage() {
                   type="button"
                   onClick={() => q.fetchNextPage()}
                   disabled={q.isFetchingNextPage}
-                  className="inline-flex h-10 items-center gap-2 rounded-full border border-ink-900/20 px-6 text-[13px] tracking-[0.08em] text-ink-800 transition-colors duration-300 hover:border-ink-900/60 hover:text-ink-900 disabled:opacity-50"
+                  className={buttonClass({ variant: 'outline', className: 'px-6 tracking-[0.06em]' })}
                 >
                   {q.isFetchingNextPage ? '加载中…' : '加载更多'}
                 </button>

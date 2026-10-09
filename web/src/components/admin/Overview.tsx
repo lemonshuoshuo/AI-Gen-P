@@ -33,15 +33,15 @@ function Figure({
   className?: string
 }) {
   return (
-    <div className={cn('min-w-0 border-b border-ink-200 pt-5 pb-7 md:pt-6 md:pb-9', className)}>
+    <div className={cn('min-w-0 border-b border-ink-200 pt-5 pb-6 md:pt-6 md:pb-7', className)}>
       <p className="eyebrow">
         {en} · {label}
       </p>
-      <p className="mt-6 flex items-baseline gap-1.5 md:mt-10">
-        <span className="font-num text-[3.25rem] leading-[0.85] font-light text-ink-900 md:text-[4.75rem]">{value}</span>
-        {unit && <span className="font-num text-lg text-ink-500">{unit}</span>}
+      <p className="mt-4 flex items-baseline gap-1.5 md:mt-5">
+        <span className="font-num text-num text-ink-900">{value}</span>
+        {unit && <span className="font-num text-[15px] text-ink-500">{unit}</span>}
       </p>
-      <p className="caption mt-4 min-h-5 truncate">{sub}</p>
+      <p className="caption mt-3 min-h-5 truncate">{sub}</p>
     </div>
   )
 }
@@ -93,17 +93,17 @@ export function Overview() {
       <PanelHeader eyebrow={`Overview · ${dayjs().format('YYYY.MM.DD')}`} title="概览" desc="站点整体运行数据" />
 
       {hasTodo && (
-        <section className="animate-slide-up mb-16 [animation-delay:60ms] [animation-fill-mode:backwards] md:mb-24" aria-label="待办">
+        <section className="animate-slide-up mb-14 [animation-delay:60ms] [animation-fill-mode:backwards] md:mb-20" aria-label="待办">
           <LabelRow label="To do · 待办" tone="brand" count={String(todoCount).padStart(2, '0')} />
           <div className="mt-2 divide-y divide-ink-200 border-b border-ink-200">
             {!!pending.data && (
               <TodoRow to="/admin/reports" action="去处理">
-                有 <span className="font-num mx-1 text-[1.75rem] leading-none font-light text-ink-900">{pending.data}</span> 条举报等待处理
+                有 <span className="font-num mx-1 text-[length:var(--text-h2)] leading-none text-ink-900">{pending.data}</span> 条举报等待处理
               </TodoRow>
             )}
             {data.pending_trips > 0 && (
               <TodoRow to="/admin/trips?status=pending" action="去审核">
-                有 <span className="font-num mx-1 text-[1.75rem] leading-none font-light text-ink-900">{data.pending_trips}</span>{' '}
+                有 <span className="font-num mx-1 text-[length:var(--text-h2)] leading-none text-ink-900">{data.pending_trips}</span>{' '}
                 段公开旅程等待审核
               </TodoRow>
             )}

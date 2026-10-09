@@ -6,7 +6,7 @@ import { api } from '@/api'
 import { EmptyNote, LabelRow, MoreButton, SectionHead, TextLink, pad2 } from '@/components/editorial'
 import { PlaceRow } from '@/components/place/PlaceCard'
 import { TripGrid, TripGridSkeleton } from '@/components/trip/TripCard'
-import { LoadError } from '@/components/ui'
+import { LoadError, buttonClass } from '@/components/ui'
 import { flattenPages } from '@/lib/pages'
 
 const suggestions = ['杭州', '美食', '情侣', '自驾', '徒步', '古镇', '海边']
@@ -45,7 +45,7 @@ export default function SearchPage() {
           e.preventDefault()
           if (kw.trim()) setParams({ q: kw.trim() })
         }}
-        className="animate-slide-up mt-12 flex items-end gap-4 border-b border-ink-300 pb-2 transition-colors duration-300 focus-within:border-ink-900 md:mt-20"
+        className="animate-slide-up mt-10 flex items-end gap-4 border-b border-ink-300 pb-2 transition-colors duration-300 focus-within:border-ink-900 md:mt-14"
       >
         <input
           value={kw}
@@ -58,7 +58,7 @@ export default function SearchPage() {
         <button
           type="submit"
           aria-label="搜索"
-          className="mb-1 inline-flex size-12 shrink-0 items-center justify-center rounded-full border border-ink-900/20 text-ink-800 transition-colors duration-300 hover:border-ink-900/60 hover:text-ink-900 md:size-14"
+          className={buttonClass({ variant: 'outline', className: 'mb-1 size-12 px-0 md:size-13' })}
         >
           <Search className="size-5" strokeWidth={1.25} />
         </button>
@@ -91,7 +91,7 @@ export default function SearchPage() {
       {!has ? (
         <>
         {/* 打卡地的入口：手机底部导航里没有「打卡地」，从搜索也能直接去逛 */}
-        <section className="mt-16 md:mt-24" aria-labelledby="places-entry-title">
+        <section className="mt-14 md:mt-20" aria-labelledby="places-entry-title">
           <LabelRow
             id="places-entry-title"
             label="Places · 打卡地"
@@ -113,10 +113,10 @@ export default function SearchPage() {
               <Link
                 key={sort}
                 to={`/places?sort=${sort}`}
-                className="th-card group flex items-center justify-between gap-3 p-4 transition-colors hover:border-ink-400"
+                className="th-card group flex items-center justify-between gap-3 p-4 transition-[border-color,box-shadow] hover:border-ink-300 hover:shadow-float"
               >
                 <span className="min-w-0">
-                  <span className="block text-[15px] text-ink-900">{title}</span>
+                  <span className="font-display block text-[length:var(--text-card)] leading-snug text-ink-900">{title}</span>
                   <span className="caption block">{desc}</span>
                 </span>
                 <ArrowRight className="size-4 shrink-0 text-ink-400 transition-colors group-hover:text-ink-900" strokeWidth={1.5} />
@@ -124,19 +124,14 @@ export default function SearchPage() {
             ))}
           </div>
         </section>
-        <section className="mt-16 md:mt-24" aria-labelledby="suggest-title">
+        <section className="mt-14 md:mt-20" aria-labelledby="suggest-title">
           <LabelRow id="suggest-title" label="Try · 不妨试试" count={pad2(suggestions.length)} />
-          <ul className="mt-8 flex flex-wrap items-baseline gap-x-7 gap-y-3 md:mt-12 md:gap-x-0">
+          {/* 建议词：主题的细线 chip（未选中样式），点一下就搜 */}
+          <ul className="mt-6 flex flex-wrap gap-2 md:mt-8">
             {suggestions.map((w) => (
-              <li
-                key={w}
-                // 手机上只用间距分隔；宽屏用斜线，斜线在每个词的前面（第一个除外），折行时不会挂在行尾
-                className="flex items-baseline md:before:mx-6 md:before:text-[1.5rem] md:before:text-ink-300 md:before:content-['/'] md:first:before:content-none"
-              >
-                <Link
-                  to={`/search?q=${encodeURIComponent(w)}`}
-                  className="text-display-md inline-block py-1.5 text-ink-500 transition-colors duration-300 hover:text-ink-900"
-                >
+              <li key={w}>
+                <Link to={`/search?q=${encodeURIComponent(w)}`} className="th-chip h-10 px-4 text-[14px]">
+                  <Search strokeWidth={1.5} aria-hidden />
                   {w}
                 </Link>
               </li>
@@ -147,7 +142,7 @@ export default function SearchPage() {
       ) : (
         <>
           {!!places.data?.items.length && (
-            <section className="mt-16 md:mt-24" aria-labelledby="places-title">
+            <section className="mt-14 md:mt-20" aria-labelledby="places-title">
               <SectionHead
                 id="places-title"
                 eyebrow="Places · 相关打卡地"
@@ -162,7 +157,7 @@ export default function SearchPage() {
                   </Link>
                 }
               />
-              <ul className="mt-8 grid border-b border-ink-200 md:mt-12 lg:grid-cols-2 lg:gap-x-8">
+              <ul className="mt-6 grid border-b border-ink-200 md:mt-8 lg:grid-cols-2 lg:gap-x-8">
                 {places.data.items.map((p) => (
                   <li key={p.id} className="border-t border-ink-200">
                     <PlaceRow place={p} variant="compact" />
@@ -171,14 +166,14 @@ export default function SearchPage() {
               </ul>
             </section>
           )}
-          <section className={placeTotal > 0 ? 'mt-24 md:mt-36' : 'mt-16 md:mt-24'} aria-labelledby="trips-title">
+          <section className={placeTotal > 0 ? 'mt-20 md:mt-28' : 'mt-14 md:mt-20'} aria-labelledby="trips-title">
             <SectionHead
               id="trips-title"
               eyebrow="Journeys · 相关旅程"
               count={tripTotal}
               title={tripTotal ? `${subject}相关的 ${tripTotal} 段旅程` : undefined}
             />
-            <div className="mt-10 md:mt-16">
+            <div className="mt-8 md:mt-10">
               {trips.isLoading ? (
                 <TripGridSkeleton n={4} />
               ) : trips.isLoadingError ? (

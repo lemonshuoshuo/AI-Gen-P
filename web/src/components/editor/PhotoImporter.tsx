@@ -134,10 +134,10 @@ export function PhotoImporter({
           type="button"
           disabled={!!preparing}
           onClick={() => input.current?.click()}
-          className={`group flex w-full flex-col items-center justify-center gap-3 rounded-sm border border-dashed border-ink-300 text-ink-500 transition-colors duration-300 hover:border-ink-700 hover:bg-surface hover:text-ink-900 ${compact ? 'py-7' : 'py-14'}`}
+          className={`group flex w-full flex-col items-center justify-center gap-3 rounded-card border border-dashed border-ink-300 text-ink-500 transition-colors duration-300 hover:border-ink-700 hover:bg-surface hover:text-ink-900 ${compact ? 'py-7' : 'py-12'}`}
         >
           <ImagePlus className="size-7 text-ink-400 transition-colors group-hover:text-ink-900" strokeWidth={1} />
-          <span className={`font-display text-ink-900 ${compact ? 'text-[18px]' : 'text-[24px]'}`}>
+          <span className={`font-display text-ink-900 ${compact ? 'text-[length:var(--text-card)]' : 'text-[length:var(--text-h2)]'}`}>
             {preparing ? `正在读取照片 ${preparing.done}/${preparing.total}…` : '选择照片（可多选）'}
           </span>
           {!compact && (
@@ -153,7 +153,7 @@ export function PhotoImporter({
         <div className="border-y border-ink-200 py-4">
           <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
             {items.map((p) => (
-              <div key={p.previewUrl} className="relative aspect-square overflow-hidden bg-ink-100">
+              <div key={p.previewUrl} className="relative aspect-square overflow-hidden rounded-md bg-ink-100">
                 <img src={p.previewUrl} alt="" loading="lazy" decoding="async" className="size-full object-cover" />
                 {p.lng != null && (
                   <span className="absolute right-1 bottom-1 rounded-full bg-black/60 p-0.5 text-white" title="带位置信息">

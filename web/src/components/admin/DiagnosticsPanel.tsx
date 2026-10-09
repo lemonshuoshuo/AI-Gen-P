@@ -13,7 +13,7 @@ type State = 'ok' | 'off' | 'bad'
 
 const stateOf = (s: { configured: boolean; ok: boolean }): State => (!s.configured ? 'off' : s.ok ? 'ok' : 'bad')
 
-/** 状态印记：玉青实心圆＝正常，墨色空心圆＝未配置，朱砂菱形＝异常 */
+/** 状态印记：玉青实心圆＝正常，墨色空心圆＝未配置，红色菱形＝异常（红是全站的「出错 / 踩雷」色，不随主题的强调色变） */
 const stateMeta: Record<State, { label: string; cls: string; mark: ReactNode }> = {
   ok: {
     label: '正常',
@@ -27,15 +27,15 @@ const stateMeta: Record<State, { label: string; cls: string; mark: ReactNode }> 
   },
   bad: {
     label: '异常',
-    cls: 'border-brand-500/45 text-brand-700',
-    mark: <span className="size-[7px] rotate-45 bg-brand-500" />,
+    cls: 'border-red-500/45 text-red-700',
+    mark: <span className="size-[7px] rotate-45 bg-red-600" />,
   },
 }
 
 function StateStamp({ state }: { state: State }) {
   const m = stateMeta[state]
   return (
-    <span className={cn('inline-flex items-center gap-2 rounded-sm border px-2.5 py-1', m.cls)}>
+    <span className={cn('inline-flex items-center gap-2 rounded-full border px-2.5 py-1', m.cls)}>
       <span className="flex size-2 items-center justify-center" aria-hidden>
         {m.mark}
       </span>
@@ -242,7 +242,7 @@ function TechDetail({ d }: { d: Checked }) {
       hint.length ? (
         <>
           <span className="font-mono text-[12.5px]">{hint.text}</span>
-          {hint.warning && <span className="mt-0.5 block text-brand-600">{hint.warning}</span>}
+          {hint.warning && <span className="mt-0.5 block text-amber-700">{hint.warning}</span>}
         </>
       ) : (
         <span className="text-ink-400">未设置</span>
@@ -850,7 +850,7 @@ export function DiagnosticsPanel() {
                 正常 <span className="font-num text-base text-emerald-700">{counts.ok}</span>
               </span>
               <span>
-                异常 <span className={cn('font-num text-base', counts.bad ? 'text-brand-600' : 'text-ink-900')}>{counts.bad}</span>
+                异常 <span className={cn('font-num text-base', counts.bad ? 'text-red-600' : 'text-ink-900')}>{counts.bad}</span>
               </span>
               <span>
                 未配置 <span className="font-num text-base text-ink-900">{counts.off}</span>
@@ -861,7 +861,7 @@ export function DiagnosticsPanel() {
             </p>
           )}
           {q.isError && (
-            <p className="mb-4 border-l-2 border-brand-500 py-0.5 pl-3 text-sm text-ink-600">
+            <p className="mb-4 border-l-2 border-red-500 py-0.5 pl-3 text-sm text-ink-600">
               重新检测失败：{errorMessage(q.error)}。下面是上一次的检测结果。
             </p>
           )}

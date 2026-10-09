@@ -36,17 +36,13 @@ function keepNumbers(text: string): ReactNode[] {
   )
 }
 
-/** 引语字号随长度变化：一句短评是展示字号，长段落回到阅读字号 */
+/** 引语字号随长度变化：一句短评用区块标题的字号档，长段落回到阅读字号（不超过卡片标题太多） */
 function quoteSize(text: string) {
   const n = [...text].length
-  if (n <= 14 && !text.includes('\n')) return 'text-display-md leading-[1.25]'
-  if (n <= 60) return 'text-[1.45rem] leading-[1.6] md:text-[1.9rem] md:leading-[1.5]'
-  return 'text-[1.2rem] leading-[1.75] md:text-[1.4rem]'
+  if (n <= 14 && !text.includes('\n')) return 'text-[length:var(--text-h2)] leading-[1.35]'
+  if (n <= 60) return 'text-[1.1875rem] leading-[1.7] md:text-[1.3125rem]'
+  return 'text-[1.0625rem] leading-[1.8] md:text-[1.125rem]'
 }
-
-// 地图右下角的版权说明：MapLibre 默认是白色胶囊，这里改成与左上角坐标一致的暗色毛玻璃细线胶囊
-const mapAttribution =
-  '[&_.maplibregl-ctrl-attrib]:!bg-[rgb(11_11_10/0.6)] [&_.maplibregl-ctrl-attrib]:!text-ink-500 [&_.maplibregl-ctrl-attrib]:ring-1 [&_.maplibregl-ctrl-attrib]:ring-ink-200 [&_.maplibregl-ctrl-attrib]:backdrop-blur-md [&_.maplibregl-ctrl-attrib_a]:!text-ink-500 [&_.maplibregl-ctrl-attrib-button]:!bg-transparent [&_.maplibregl-ctrl-attrib-button]:opacity-60 [&_.maplibregl-ctrl-attrib-button]:invert'
 
 /** 把地点加入自己还没结束的旅程：作为计划点追加到路线末尾 */
 function AddToTripModal({ place, open, onClose }: { place: Place; open: boolean; onClose: () => void }) {
@@ -129,7 +125,7 @@ function AddToTripModal({ place, open, onClose }: { place: Place; open: boolean;
                     />
                     {phases[t.phase].label}
                   </span>
-                  <span className="font-display min-w-0 flex-1 truncate text-[1.15rem] text-ink-900 transition-colors group-hover:text-ink-600">{t.title}</span>
+                  <span className="font-display min-w-0 flex-1 truncate text-[length:var(--text-card)] text-ink-900 transition-colors group-hover:text-ink-600">{t.title}</span>
                   {adding === t.id ? (
                     <Spinner className="size-4" />
                   ) : (
@@ -238,25 +234,25 @@ export default function PlacePage() {
         }
       />
 
-      {/* 地名：超大宋体，一屏唯一的焦点 */}
-      <header className="animate-slide-up mt-12 md:mt-20">
+      {/* 地名：页面 H1（text-display-lg），一屏唯一的展示级标题 */}
+      <header className="animate-slide-up mt-10 md:mt-14">
         <p className="flex items-center gap-3 text-[13px] text-ink-500">
           <CategoryChip category={place.category} className="text-[13px] text-ink-700" />
           {warn && (
-            <span className="inline-flex items-center gap-1.5 text-brand-600">
-              <span aria-hidden className="size-1.5 rounded-full bg-brand-500" />
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-2 py-0.5 text-[12px] font-medium text-red-700">
+              <span aria-hidden className="size-1.5 rounded-full bg-red-600" />
               慎去
             </span>
           )}
         </p>
-        <h1 className={cn("text-display-xl mt-5 font-normal text-balance [font-feature-settings:'halt'] md:mt-8", place.name.length <= 6 && 'max-sm:text-[3.6rem]')}>
+        <h1 className="text-display-lg mt-4 font-normal text-balance [font-feature-settings:'halt'] md:mt-5">
           {place.name}
         </h1>
       </header>
 
       {place.cover_url && (
-        <figure className="mt-12 md:mt-20">
-          <div className="aspect-[3/2] overflow-hidden bg-surface md:aspect-[21/9]">
+        <figure className="mt-10 md:mt-14">
+          <div className="aspect-[3/2] overflow-hidden rounded-image bg-surface md:aspect-[21/9]">
             <img src={place.cover_url} alt={place.name} className="size-full object-cover" />
           </div>
           <figcaption className="mt-3">
@@ -266,7 +262,7 @@ export default function PlacePage() {
         </figure>
       )}
 
-      <div className="mt-12 grid gap-x-8 gap-y-12 md:mt-20 lg:grid-cols-12">
+      <div className="mt-10 grid gap-x-8 gap-y-12 md:mt-14 lg:grid-cols-12">
         <div className="flex min-w-0 flex-col justify-between gap-10 lg:col-span-4">
           <div>
             {/* 说明文字对：地址（亮）+ 坐标（灰） */}
@@ -332,47 +328,48 @@ export default function PlacePage() {
           </div>
         </div>
 
-        <figure className={cn('relative aspect-[4/3] overflow-hidden rounded-sm bg-surface ring-1 ring-ink-200 md:aspect-[16/10] lg:col-span-8', mapAttribution)}>
+        {/* 地图外框：无底色，一圈细线，圆角随主题；控件和版权说明的样式由地图样式表按主题给出 */}
+        <figure className="relative aspect-[4/3] overflow-hidden rounded-image bg-surface ring-1 ring-line md:aspect-[16/10] lg:col-span-8">
           <BaseMap className="absolute inset-0 size-full" center={[place.lng, place.lat]} zoom={15.5} navigation={false}>
             <WaypointMarkers waypoints={marker} labels={{ [place.id]: '◎' }} />
           </BaseMap>
-          <figcaption className="glass font-num pointer-events-none absolute top-3 left-3 z-10 rounded-full px-3 py-1 text-[11.5px] tracking-wider text-ink-700 ring-1 ring-ink-200">
+          <figcaption className="glass font-num pointer-events-none absolute top-3 left-3 z-10 rounded-full px-3 py-1 text-[11.5px] tracking-wider text-ink-700 ring-1 ring-line">
             {place.lat.toFixed(3)}°N {place.lng.toFixed(3)}°E
           </figcaption>
         </figure>
       </div>
 
-      {/* 评价账目：推荐率大数字 + 推荐 / 一般 / 踩雷 三栏 + 比例细线 */}
-      <Reveal as="section" aria-label="打卡评价统计" className="mt-24 md:mt-40">
+      {/* 评价账目：推荐率（大数字 text-num）+ 推荐 / 一般 / 踩雷 三栏 + 比例细条 */}
+      <Reveal as="section" aria-label="打卡评价统计" className="mt-20 md:mt-28">
         <LabelRow label="Verdict · 评价统计" count={`${total} 条评价 · ${place.checkin_count} 人打卡`} />
-        <div className="mt-10 grid gap-x-8 gap-y-12 md:mt-16 lg:grid-cols-12">
-          <div className="lg:col-span-5">
-            <div className="flex items-baseline gap-2">
-              <span className="font-num text-[7.5rem] leading-[0.8] font-light text-ink-900 md:text-[11rem]">{rate ?? '—'}</span>
-              {rate != null && <span className="font-num text-4xl font-light text-ink-500 md:text-5xl">%</span>}
+        <div className="mt-8 grid gap-x-8 gap-y-10 md:mt-10 lg:grid-cols-12">
+          <div className="lg:col-span-4">
+            <div className="flex items-baseline gap-1">
+              <span className="font-num text-num text-ink-900">{rate ?? '—'}</span>
+              {rate != null && <span className="font-num text-[length:var(--text-h2)] text-ink-500">%</span>}
             </div>
-            <p className="mt-6">
+            <p className="mt-4">
               <span className="block text-[13px] text-ink-900">推荐率</span>
               <span className="caption block">推荐占全部评价的比例</span>
             </p>
           </div>
-          <div className="lg:col-span-7 lg:pt-4">
+          <div className="lg:col-span-7 lg:col-start-6">
             <dl className="grid grid-cols-3">
               {ledger.map((x, i) => (
                 <div key={x.key} className={cn('min-w-0', i > 0 && 'border-l border-ink-200 pl-4 sm:pl-8')}>
-                  <dt className="flex items-center gap-1.5 text-[13px] tracking-wide" style={{ color: x.v.color }}>
+                  <dt className={cn('flex items-center gap-1.5 text-[13px] font-medium tracking-wide', x.v.text)}>
                     <span className="text-[10px] leading-none">{x.v.mark}</span>
                     {x.v.label}
                   </dt>
-                  <dd className="mt-4 flex items-baseline gap-1.5">
-                    <span className="font-num text-[3rem] leading-none font-light text-ink-900 md:text-[4.5rem]">{x.n}</span>
+                  <dd className="mt-3 flex items-baseline gap-1.5">
+                    <span className="font-num text-[length:var(--text-h2)] leading-none text-ink-900">{x.n}</span>
                     <span className="text-xs text-ink-500">人</span>
                   </dd>
                   <dd className="caption font-num mt-2">{total ? Math.round((x.n / total) * 100) : 0}%</dd>
                 </div>
               ))}
             </dl>
-            {total > 0 ? <VerdictBar place={place} className="mt-10" /> : <div className="mt-10 h-px bg-ink-200" />}
+            {total > 0 ? <VerdictBar place={place} className="mt-8" /> : <div className="mt-8 h-px bg-ink-200" />}
             {/* 评论不计入统计：说明数字从哪来，避免以为在下面评论就算一票 */}
             <p className="caption mt-6 max-w-lg">
               推荐率与踩雷数统计自公开旅程中的打卡评价：在你的旅程里打卡这里，并选择 推荐 / 一般 / 踩雷，旅程公开后即计入。
@@ -381,7 +378,7 @@ export default function PlacePage() {
         </div>
       </Reveal>
 
-      <section className="mt-24 md:mt-40" aria-labelledby="reviews-title">
+      <section className="mt-20 md:mt-28" aria-labelledby="reviews-title">
         <SectionHead
           id="reviews-title"
           eyebrow="Field Notes · 打卡手记"
@@ -392,7 +389,7 @@ export default function PlacePage() {
               label="评价"
               value={verdict}
               onChange={setVerdict}
-              className="-mr-2"
+              className="-mr-3"
               options={[
                 { value: '', label: '全部' },
                 { value: 'recommend', label: `${verdicts.recommend.mark} 推荐` },
@@ -402,7 +399,7 @@ export default function PlacePage() {
             />
           }
         />
-        <div className="mt-10 md:mt-16">
+        <div className="mt-8 md:mt-10">
           {reviews.isLoadingError && <LoadError className="py-8" error={reviews.error} onRetry={() => reviews.refetch()} />}
           {!reviews.isLoading && !reviews.isLoadingError && items.length === 0 && (
             <EmptyNote title="还没有公开的打卡评价。" desc="在旅程中打卡这里并给出评价，旅程公开后会显示在这里。" />
@@ -455,7 +452,7 @@ export default function PlacePage() {
                           </Link>
                         </span>
                         {v && (
-                          <span className="inline-flex items-center gap-1.5 tracking-wide" style={{ color: v.color }}>
+                          <span className={cn('inline-flex items-center gap-1.5 font-medium tracking-wide', v.text)}>
                             <span className="text-[10px] leading-none">{v.mark}</span>
                             {v.label}
                           </span>
@@ -485,7 +482,7 @@ export default function PlacePage() {
                             key={p.id}
                             type="button"
                             onClick={() => setViewer({ list: r.photos, i })}
-                            className="group relative aspect-[4/5] overflow-hidden bg-surface"
+                            className="group relative aspect-[4/5] overflow-hidden rounded-lg bg-surface"
                             aria-label={`查看照片 ${i + 1}`}
                           >
                             <img
@@ -511,7 +508,7 @@ export default function PlacePage() {
         </div>
       </section>
 
-      <div className="mt-24 md:mt-40">
+      <div className="mt-20 md:mt-28">
         <CommentSection
           placeId={place.id}
           count={place.comment_count}

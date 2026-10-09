@@ -37,7 +37,7 @@ export default function LegalPage() {
           </Link>
         }
       />
-      <div className="mt-12 grid gap-x-8 gap-y-12 md:mt-20 lg:grid-cols-12">
+      <div className="mt-10 grid gap-x-8 gap-y-12 md:mt-14 lg:grid-cols-12">
         {/* 左栏：说明文字对 + 另一份文件（宽屏吸顶）；手机上放到正文之后，先读到标题 */}
         <aside className="order-last border-t border-ink-200 pt-4 lg:sticky lg:top-24 lg:order-none lg:col-span-4 lg:self-start lg:border-t-0 lg:pt-0">
           <p className="text-[13px] text-ink-900">{legalTitle[doc]}</p>
@@ -52,8 +52,8 @@ export default function LegalPage() {
             </Link>
           </p>
         </aside>
-        {/* 正文以一级标题开头：一级标题放大成展示字号，去掉上边距（.prose-trip 的样式不在 Tailwind 层里，需要 !） */}
-        <div className="animate-slide-up prose-trip max-w-2xl text-[15px] [font-variant-numeric:lining-nums] lg:col-span-8 [&>:first-child]:!mt-0 [&>h1:first-child]:!mb-12 [&>h1:first-child]:!text-[clamp(2.25rem,5.4vw,4.25rem)] [&>h1:first-child]:!leading-[1.05] [&>h1:first-child]:!font-normal [&_h2]:!mt-12 [&_h2]:!font-normal">
+        {/* 正文以一级标题开头：一级标题用页面 H1 的字号档（text-h1），去掉上边距（.prose-trip 的样式不在 Tailwind 层里，需要 !） */}
+        <div className="animate-slide-up prose-trip max-w-2xl text-[15px] [font-variant-numeric:lining-nums] lg:col-span-8 [&>:first-child]:!mt-0 [&>h1:first-child]:!mb-10 [&>h1:first-child]:!text-[length:var(--text-h1)] [&>h1:first-child]:!leading-[1.2] [&>h1:first-child]:!font-normal [&_h2]:!mt-10 [&_h2]:!font-normal">
           <Markdown fallback={<Spinner />}>{q.data?.content ?? ''}</Markdown>
         </div>
       </div>
